@@ -210,7 +210,8 @@ type Changeset[E Event] interface {
 func NewChangeset[E Event]() Changeset[E]
 
 // Aggregate defines the core contract for a domain aggregate.
-type Aggregate[E Event] interface {
+// It leverages Go 1.26 self-referencing constraints for reflection-free instantiation.
+type Aggregate[A Aggregate[A, E], E Event] interface {
 	// Identifier returns the globally unique identifier for this aggregate.
 	Identifier() Identifier
 
@@ -221,6 +222,10 @@ type Aggregate[E Event] interface {
 	// It accepts a StreamIterator (which yields Envelopes) to allow the aggregate 
 	// to synchronize its internal Revision alongside applying the event payloads.
 	FromEvents(events StreamIterator) error
+
+	// New creates a new, empty instance of the aggregate. 
+	// This is called on a nil pointer by the framework during loading.
+	New() A
 }
 
 // AggregateRoot is an embeddable struct providing the foundational boilerplate 
@@ -282,25 +287,20 @@ It is responsible for:
 2. **Saving**: Taking the uncommitted events from the aggregate's `Changeset`, wrapping them in `Envelope`s (attaching the provided Actor), appending them to the `EventStore`, and finally clearing the changeset.
 
 ```go
-// AggregateRepository manages the loading and saving of domain aggregates.
-// It is implemented as a concrete struct rather than an interface, aligning with Go's 
-// "accept interfaces, return structs" philosophy. Consumers can mock it natively.
-type AggregateRepository[A Aggregate[E], E Event] struct {
-	eventStore EventStore
+// --- AGGREGATE REPOSITORY ---
+
+// AggregateRepository provides the standard unit-of-work interface for Event Sourced aggregates.
+type AggregateRepository[A Aggregate[A, E], E Event] struct {
+	// internal fields
 }
 
-// NewAggregateRepository creates a new repository instance.
-func NewAggregateRepository[A Aggregate[E], E Event](store EventStore) *AggregateRepository[A, E] {
-	return &AggregateRepository[A, E]{
-		eventStore: store,
-	}
-}
+// NewAggregateRepository creates a new repository for a specific Aggregate and Event type.
+func NewAggregateRepository[A Aggregate[A, E], E Event](eventStore EventStore) *AggregateRepository[A, E]
 
-// Load fetches events for the provided aggregate from the Event Store and replays them.
-// It uses the "Pass-by-Pointer" pattern: the consumer instantiates the empty aggregate 
-// and passes it in. The repository uses `aggregate.Identifier()` to fetch the correct stream.
+// Load fetches events for the provided aggregate ID from the Event Store and replays them.
+// It leverages the Aggregate interface's New() method to instantiate the object internally.
 // If the stream does not exist, it typically returns an error (e.g., ErrNotFound).
-func (r *AggregateRepository[A, E]) Load(ctx Context, aggregate A) error
+func (r *AggregateRepository[A, E]) Load(ctx Context, id Identifier) (A, error)
 
 // Save persists the uncommitted events from the aggregate's Changeset to the Event Store.
 // It is responsible for generating globally unique Identifiers for each new event occurrence,
@@ -624,16 +624,26 @@ A **Saga** (or Process Manager) coordinates long-running business processes that
 
 ```go
 // Saga defines the contract for a process manager.
-type Saga interface {
+// It leverages Go 1.26 self-referencing constraints for reflection-free instantiation.
+type Saga[S Saga[S]] interface {
 	// Identifier returns the globally unique ID of this saga instance.
 	// This is typically derived from the CorrelationIdentifier of the triggering event.
 	Identifier() Identifier
+	
+	// New creates a new, empty instance of the saga.
+	// This is called on a nil pointer by the Orchestrator during loading.
+	New() S
 }
 
 // SagaStore defines how the internal state of a saga is persisted between events.
-type SagaStore interface {
-	Load(ctx context.Context, id Identifier, saga Saga) error
-	Save(ctx context.Context, saga Saga) error
+type SagaStore[S Saga[S]] interface {
+	// Load retrieves the saga state. The store is responsible for instantiating it.
+	Load(ctx context.Context, id Identifier) (S, error)
+	
+	// Save persists the saga's state alongside any enqueued commands within the SAME 
+	// database transaction. A separate relay process is expected to poll these commands 
+	// and forward them to the CommandBus to achieve At-Least-Once (Outbox) delivery.
+	Save(ctx context.Context, saga S, commands []any) error
 }
 
 // Orchestrator is the background worker that listens to the global event stream 
@@ -642,10 +652,12 @@ type Orchestrator struct {
 	// internal fields
 }
 
-func NewOrchestrator(eventStore EventStore, sagaStore SagaStore, commandBus *CommandBus) *Orchestrator
+// NewOrchestrator creates a new orchestrator engine.
+func NewOrchestrator(eventStore EventStore) *Orchestrator
 
 // RegisterSagaHandler wires a specific event type to a saga's state transition.
-func RegisterSagaHandler[S Saga, E Event](o *Orchestrator, handler func(ctx SagaContext, saga S, event E) error)
+// The store is provided here so the orchestrator knows how to load/save this specific saga type.
+func RegisterSagaHandler[S Saga[S], E Event](o *Orchestrator, store SagaStore[S], handler func(ctx SagaContext, saga S, event E) error)
 ```
 
 #### Usage Example: The Outbox Pattern
@@ -654,17 +666,17 @@ To prevent "dual-write" anomalies (where a command executes successfully but the
 
 ```go
 // Example: A Saga handling user onboarding
-flux.RegisterSagaHandler(orchestrator, func(ctx flux.SagaContext, saga *OnboardingSaga, e UserRegistered) error {
+flux.RegisterSagaHandler(orchestrator, mySagaStore, func(ctx flux.SagaContext, saga *OnboardingSaga, e UserRegistered) error {
 	// 1. Update internal saga state based on the event
 	saga.ID = ctx.CorrelationIdentifier()
 	saga.Status = "AWAITING_WELCOME_EMAIL"
 
 	// 2. Safely queue a strongly-typed command
-	// The Orchestrator will automatically persist the saga state to the SagaStore 
-	// before actually routing this command to the CommandBus.
+	// The Orchestrator will automatically persist the saga state and this command 
+	// together into the database (via SagaStore.Save) to guarantee At-Least-Once delivery.
 	flux.EnqueueCommand(ctx, SendWelcomeEmail{Email: e.Email})
 
-	return nil // Returning nil tells the Orchestrator to commit state and fire queued commands
+	return nil // Returning nil triggers the transactional save of state + commands
 })
 ```
 
