@@ -2,6 +2,8 @@ package client_test
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -135,5 +137,99 @@ func TestHTTPClient_SubscribeEvents(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for SSE event notification")
+	}
+}
+
+func TestHTTPClient_SubscribeEvents_W3CCompliance(t *testing.T) {
+	t.Parallel()
+
+	reconnectHeaderReceived := make(chan string, 1)
+	requestCount := 0
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		if lastID := r.Header.Get("Last-Event-ID"); lastID != "" {
+			select {
+			case reconnectHeaderReceived <- lastID:
+			default:
+			}
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+
+		flusher, _ := w.(http.Flusher)
+
+		if requestCount == 1 {
+			// Stream 1: Send comments, multi-line data, id, and event fields, then disconnect
+			_, _ = fmt.Fprintf(w, ": keepalive ping comment\n\n")
+			flusher.Flush()
+
+			_, _ = fmt.Fprintf(w, "id: 99\nevent: CustomTaskEvent\n")
+			_, _ = fmt.Fprintf(w, "data: {\"type\":\"CustomTaskEvent\",\n")
+			_, _ = fmt.Fprintf(w, "data: \"description\":\"Multi-line task data\",\n")
+			_, _ = fmt.Fprintf(w, "data: \"position\":99}\n\n")
+			flusher.Flush()
+			// Connection terminates here to trigger client reconnect
+			return
+		}
+
+		// Stream 2: Send normal event and hold connection open
+		_, _ = fmt.Fprintf(w, "id: 100\ndata: {\"type\":\"ReconnectedEvent\",\"description\":\"Back online\",\"position\":100}\n\n")
+		flusher.Flush()
+		<-r.Context().Done()
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	httpClient := client.NewHTTPClient(ts.URL)
+	eventsChan, err := httpClient.SubscribeEvents(ctx)
+	if err != nil {
+		t.Fatalf("SubscribeEvents failed: %v", err)
+	}
+
+	// 1. First event should be properly parsed from multi-line data
+	select {
+	case notif, ok := <-eventsChan:
+		if !ok {
+			t.Fatal("events channel closed unexpectedly")
+		}
+		if notif.Type != "CustomTaskEvent" {
+			t.Errorf("expected type 'CustomTaskEvent', got %q", notif.Type)
+		}
+		if notif.Description != "Multi-line task data" {
+			t.Errorf("expected description 'Multi-line task data', got %q", notif.Description)
+		}
+		if notif.Position != 99 {
+			t.Errorf("expected position 99, got %d", notif.Position)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first SSE event")
+	}
+
+	// 2. Client should reconnect sending Last-Event-ID: 99
+	select {
+	case lastID := <-reconnectHeaderReceived:
+		if lastID != "99" {
+			t.Errorf("expected Last-Event-ID '99', got %q", lastID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for reconnect with Last-Event-ID header")
+	}
+
+	// 3. Second event should arrive after reconnection
+	select {
+	case notif, ok := <-eventsChan:
+		if !ok {
+			t.Fatal("events channel closed unexpectedly")
+		}
+		if notif.Type != "ReconnectedEvent" {
+			t.Errorf("expected type 'ReconnectedEvent', got %q", notif.Type)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for second SSE event")
 	}
 }

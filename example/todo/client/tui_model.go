@@ -53,6 +53,8 @@ type eventNotificationMsg struct {
 	notification EventNotification
 }
 
+type delayedRefreshMsg struct{}
+
 type tuiModel struct {
 	client           Client
 	ctx              context.Context
@@ -158,13 +160,24 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMessage = fmt.Sprintf("⚡ Live: %s", msg.notification.Description)
 		m.isError = false
 
-		cmds := []tea.Cmd{m.waitForEventCmd()}
+		cmds := []tea.Cmd{
+			m.waitForEventCmd(),
+			tea.Tick(200*time.Millisecond, func(_ time.Time) tea.Msg {
+				return delayedRefreshMsg{}
+			}),
+		}
 		if m.view == viewTasks {
 			cmds = append(cmds, m.fetchTasksCmd())
 		} else {
 			cmds = append(cmds, m.fetchListsCmd())
 		}
 		return m, tea.Batch(cmds...)
+
+	case delayedRefreshMsg:
+		if m.view == viewTasks {
+			return m, m.fetchTasksCmd()
+		}
+		return m, m.fetchListsCmd()
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -233,10 +246,13 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMessage = msg.message
 			m.isError = false
 		}
+		tickCmd := tea.Tick(200*time.Millisecond, func(_ time.Time) tea.Msg {
+			return delayedRefreshMsg{}
+		})
 		if m.view == viewLists {
-			return m, m.fetchListsCmd()
+			return m, tea.Batch(m.fetchListsCmd(), tickCmd)
 		}
-		return m, m.fetchTasksCmd()
+		return m, tea.Batch(m.fetchTasksCmd(), tickCmd)
 
 	case tea.KeyMsg:
 		// When input modal is active

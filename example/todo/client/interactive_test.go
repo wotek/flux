@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/example/todo/client"
+	"github.com/wotek/flux/example/todo/projections/lists"
 	"github.com/wotek/flux/example/todo/server"
 )
 
@@ -214,5 +215,100 @@ func TestTUIModel_LiveSync(t *testing.T) {
 	view := m.View()
 	if !strings.Contains(view, "⚡ Live: Tasks completed: Deploy staging") {
 		t.Errorf("expected live notification in status, got view: %s", view)
+	}
+}
+
+func TestTUIModel_LiveSync_ListCountersConvergence(t *testing.T) {
+	t.Parallel()
+
+	srv := server.New()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = srv.Start(ctx)
+	}()
+
+	clientA := client.NewInMemoryClient(srv.CommandBus(), srv.QueryBus(), client.WithInMemoryEventStore(srv.EventStore()))
+	clientB := client.NewInMemoryClient(srv.CommandBus(), srv.QueryBus(), client.WithInMemoryEventStore(srv.EventStore()))
+
+	listID1 := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:conv-1")
+	listID2 := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:conv-2")
+
+	if err := clientA.CreateList(ctx, listID1, "List One"); err != nil {
+		t.Fatalf("failed to create list 1: %v", err)
+	}
+	if err := clientA.CreateList(ctx, listID2, "List Two"); err != nil {
+		t.Fatalf("failed to create list 2: %v", err)
+	}
+
+	// Wait for read model projection to register both lists
+	var listSummaries []lists.ListSummary
+	for range 50 {
+		var err error
+		listSummaries, err = clientA.GetLists(ctx)
+		if err == nil && len(listSummaries) >= 2 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(listSummaries) < 2 {
+		t.Fatalf("read model projection timed out indexing lists: got %d", len(listSummaries))
+	}
+
+	// Client A starts on Lists screen
+	mA := client.NewTestTUIModel(ctx, clientA, listID1)
+	mA = execCmd(mA, mA.Init())
+
+	viewBefore := mA.View()
+	if !strings.Contains(viewBefore, "List One") || !strings.Contains(viewBefore, "List Two") {
+		t.Fatalf("expected both lists in view, got: %s", viewBefore)
+	}
+	if !strings.Contains(viewBefore, "Active: 0") {
+		t.Fatalf("expected Active: 0 before task addition, got: %s", viewBefore)
+	}
+
+	// Client B adds a task to List One
+	if err := clientB.AddTask(ctx, listID1, "Task from Client B"); err != nil {
+		t.Fatalf("client B failed to add task: %v", err)
+	}
+
+	// Wait for projector to process the task addition into read model
+	for range 50 {
+		updatedLists, err := clientA.GetLists(ctx)
+		if err == nil {
+			for _, l := range updatedLists {
+				if l.Identifier == listID1.String() && l.Active == 1 {
+					goto Projected
+				}
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for lists projection to reflect active task count")
+
+Projected:
+	// Live notification arrives at Client A
+	notif := client.EventNotification{
+		Type:           "TaskAdded",
+		ListIdentifier: listID1.String(),
+		Description:    `Task added: "Task from Client B"`,
+		Position:       3,
+	}
+
+	// Deliver live notification to Client A
+	mA, _ = mA.Update(client.NewTestEventNotificationMsg(notif))
+
+	// Delayed refresh converges the read model in Client A's TUI
+	var cmd tea.Cmd
+	mA, cmd = mA.Update(client.NewTestDelayedRefreshMsg())
+	mA = execCmd(mA, cmd)
+
+	viewAfter := mA.View()
+	if !strings.Contains(viewAfter, "⚡ Live: Task added: \"Task from Client B\"") {
+		t.Errorf("expected live notification status, got: %s", viewAfter)
+	}
+	if !strings.Contains(viewAfter, "Active: 1") {
+		t.Errorf("expected List One to show 'Active: 1' after delayed refresh, got: %s", viewAfter)
 	}
 }

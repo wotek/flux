@@ -16,3 +16,8 @@ func NewTestTUIModel(ctx context.Context, c Client, initialListID flux.Identifie
 func NewTestEventNotificationMsg(notif EventNotification) tea.Msg {
 	return eventNotificationMsg{notification: notif}
 }
+
+// NewTestDelayedRefreshMsg exports delayedRefreshMsg for testing.
+func NewTestDelayedRefreshMsg() tea.Msg {
+	return delayedRefreshMsg{}
+}

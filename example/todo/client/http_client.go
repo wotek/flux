@@ -170,6 +170,8 @@ func (c *HTTPClient) SubscribeEvents(ctx context.Context) (<-chan EventNotificat
 	go func() {
 		defer close(ch)
 
+		var lastEventID string
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -182,6 +184,9 @@ func (c *HTTPClient) SubscribeEvents(ctx context.Context) (<-chan EventNotificat
 				return
 			}
 			req.Header.Set("Accept", "text/event-stream")
+			if lastEventID != "" {
+				req.Header.Set("Last-Event-ID", lastEventID)
+			}
 
 			resp, err := streamClient.Do(req)
 			if err != nil {
@@ -193,20 +198,63 @@ func (c *HTTPClient) SubscribeEvents(ctx context.Context) (<-chan EventNotificat
 				}
 			}
 
+			var (
+				eventType string
+				eventData strings.Builder
+			)
+
 			scanner := bufio.NewScanner(resp.Body)
 			for scanner.Scan() {
 				line := scanner.Text()
-				if strings.HasPrefix(line, "data: ") {
-					data := strings.TrimPrefix(line, "data: ")
-					var notif EventNotification
-					if err := json.Unmarshal([]byte(data), &notif); err == nil {
-						select {
-						case ch <- notif:
-						case <-ctx.Done():
-							resp.Body.Close()
-							return
+
+				// An empty line signals the end of an SSE message block (dispatch point)
+				if line == "" {
+					if eventData.Len() > 0 {
+						dataBytes := []byte(eventData.String())
+						eventData.Reset()
+
+						var notif EventNotification
+						if err := json.Unmarshal(dataBytes, &notif); err == nil {
+							if notif.Type == "" && eventType != "" {
+								notif.Type = eventType
+							}
+							select {
+							case ch <- notif:
+							case <-ctx.Done():
+								resp.Body.Close()
+								return
+							}
 						}
 					}
+					eventType = ""
+					continue
+				}
+
+				// Lines starting with a colon ':' are comments / keepalive heartbeats
+				if strings.HasPrefix(line, ":") {
+					continue
+				}
+
+				// Parse field and value according to W3C SSE standard
+				field, value, found := strings.Cut(line, ":")
+				if !found {
+					continue
+				}
+				// Remove single leading space after colon if present
+				if strings.HasPrefix(value, " ") {
+					value = value[1:]
+				}
+
+				switch field {
+				case "event":
+					eventType = value
+				case "id":
+					lastEventID = value
+				case "data":
+					if eventData.Len() > 0 {
+						eventData.WriteByte('\n')
+					}
+					eventData.WriteString(value)
 				}
 			}
 			resp.Body.Close()
