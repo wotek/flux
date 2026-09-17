@@ -25,8 +25,8 @@ func TestInMemoryProjectionStore(t *testing.T) {
 
 	// Update position and test transaction
 	env := flux.Envelope{
-		Revision: 5,
-		Position: 5,
+		Revision:  5,
+		Position:  5,
 		CreatedAt: time.Now(),
 	}
 

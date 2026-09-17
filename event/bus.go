@@ -89,4 +89,3 @@ func Publish[E flux.Event](ctx Context, bus *Bus, event E) error {
 	env := flux.Envelope{Event: event}
 	return PublishEnvelope(ctx, bus, env)
 }
-

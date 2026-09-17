@@ -91,4 +91,3 @@ func Execute[Q any, R any](ctx Context, bus *Bus, query Q) (R, error) {
 
 	return handler.Handle(ctx, query)
 }
-

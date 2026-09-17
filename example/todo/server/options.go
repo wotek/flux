@@ -44,4 +44,3 @@ func WithLogger(logger *slog.Logger) Option {
 		c.logger = logger
 	}
 }
-

@@ -65,7 +65,7 @@ func (c *HTTPClient) CreateList(ctx context.Context, listIdentifier flux.Identif
 func (c *HTTPClient) AddTask(ctx context.Context, listIdentifier flux.Identifier, task string) error {
 	payload := map[string]string{
 		"list_identifier": listIdentifier.String(),
-		"task":           task,
+		"task":            task,
 	}
 	return c.sendJSON(ctx, http.MethodPost, "/tasks", payload, nil)
 }
@@ -74,7 +74,7 @@ func (c *HTTPClient) AddTask(ctx context.Context, listIdentifier flux.Identifier
 func (c *HTTPClient) RemoveTask(ctx context.Context, listIdentifier flux.Identifier, task string) error {
 	payload := map[string]string{
 		"list_identifier": listIdentifier.String(),
-		"task":           task,
+		"task":            task,
 	}
 	return c.sendJSON(ctx, http.MethodDelete, "/tasks", payload, nil)
 }
@@ -83,7 +83,7 @@ func (c *HTTPClient) RemoveTask(ctx context.Context, listIdentifier flux.Identif
 func (c *HTTPClient) DoneTasks(ctx context.Context, listIdentifier flux.Identifier, tasks ...string) error {
 	payload := map[string]any{
 		"list_identifier": listIdentifier.String(),
-		"tasks":          tasks,
+		"tasks":           tasks,
 	}
 	return c.sendJSON(ctx, http.MethodPost, "/tasks/done", payload, nil)
 }

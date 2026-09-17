@@ -58,7 +58,7 @@ func TestServerHTTPHandler(t *testing.T) {
 		for i := 1; i <= 3; i++ {
 			body, _ := json.Marshal(map[string]string{
 				"list_identifier": listID,
-				"task":           "Task " + string(rune('0'+i)),
+				"task":            "Task " + string(rune('0'+i)),
 			})
 			req := httptest.NewRequest(http.MethodPost, "/tasks", bytes.NewReader(body))
 			rec := httptest.NewRecorder()
@@ -72,7 +72,7 @@ func TestServerHTTPHandler(t *testing.T) {
 		// 2. Remove Task 1
 		removeBody, _ := json.Marshal(map[string]string{
 			"list_identifier": listID,
-			"task":           "Task 1",
+			"task":            "Task 1",
 		})
 		req := httptest.NewRequest(http.MethodDelete, "/tasks", bytes.NewReader(removeBody))
 		rec := httptest.NewRecorder()
@@ -84,7 +84,7 @@ func TestServerHTTPHandler(t *testing.T) {
 		// 3. Mark Task 2 done
 		doneBody, _ := json.Marshal(map[string]any{
 			"list_identifier": listID,
-			"tasks":          []string{"Task 2"},
+			"tasks":           []string{"Task 2"},
 		})
 		req = httptest.NewRequest(http.MethodPost, "/tasks/done", bytes.NewReader(doneBody))
 		rec = httptest.NewRecorder()
@@ -229,7 +229,7 @@ func TestServer_SSEStreaming(t *testing.T) {
 	listID := "urn:todo:prod:lists:1:list:sse-test"
 	taskBody, _ := json.Marshal(map[string]string{
 		"list_identifier": listID,
-		"task":           "SSE Broadcast Task",
+		"task":            "SSE Broadcast Task",
 	})
 	addResp, err := http.Post(ts.URL+"/tasks", "application/json", bytes.NewReader(taskBody))
 	if err != nil {

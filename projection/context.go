@@ -20,4 +20,3 @@ func NewContext(parent event.Context) Context {
 		Context: parent,
 	}
 }
-

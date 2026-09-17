@@ -7,13 +7,13 @@ import (
 
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/command"
-	
+
 	"github.com/wotek/flux/saga/store"
 )
 
 type dummySaga struct {
-	id     flux.Identifier
-	Count  int
+	id    flux.Identifier
+	Count int
 }
 
 func (s *dummySaga) Identifier() flux.Identifier { return s.id }
@@ -25,7 +25,7 @@ func (s *dummySaga) Clone() *dummySaga {
 	return &c
 }
 
-type dummyCmd struct { Val string }
+type dummyCmd struct{ Val string }
 
 func TestInMemorySagaStore(t *testing.T) {
 	cmdBus := command.New()
@@ -65,6 +65,6 @@ func TestInMemorySagaStore(t *testing.T) {
 	// Start relay
 	ctx2, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel()
-	
+
 	s.StartRelay(ctx2)
 }
