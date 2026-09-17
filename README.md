@@ -1,7 +1,7 @@
 # flux
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/wotek/flux.svg)](https://pkg.go.dev/github.com/wotek/flux)
-[![Go Report Card](https://goreportcard.com/badge/github.com/wotek/flux)](https://goreportcard.com/report/github.com/wotek/flux)
+[![golangci-lint](https://img.shields.io/badge/linters-golangci--lint-blue.svg)](https://golangci-lint.run/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/wotek/flux/actions/workflows/ci.yml/badge.svg)](https://github.com/wotek/flux/actions/workflows/ci.yml)
 

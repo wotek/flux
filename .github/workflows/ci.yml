@@ -34,6 +34,11 @@ jobs:
           go mod verify
           git diff --exit-code go.mod go.sum
 
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64
+
       - name: Run go vet
         run: go vet ./...
 
