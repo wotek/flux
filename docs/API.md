@@ -178,7 +178,7 @@ type EventStore interface {
 	// `fromRevision` dictates the starting sequence number (inclusive).
 	// `limit` caps the number of events returned (0 can be used to mean no limit).
 	// It returns a StreamIterator for efficient traversal.
-	Read(ctx Context, stream Stream, fromRevision uint64, limit uint64) (StreamIterator, error)
+	Read(ctx Context, stream Stream, fromRevision uint64) (StreamIterator, error)
 
 	// Stream iterates over the global event stream across all aggregates.
 	// It starts from a specific global Position. This is primarily used by Projections and Sagas.

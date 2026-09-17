@@ -42,13 +42,13 @@ type Schedule[A any] interface {
 
 ## 2. Event Store Updates
 
-To properly support snapshots, `flux.EventStore.Read` must be updated to accept a `position` parameter. Passing `0` acts as the default behavior to read from the beginning. 
+To properly support snapshots, `flux.EventStore.Read` must be updated to accept a `fromRevision` parameter. Passing `0` acts as the default behavior to read from the beginning. 
 
 ```go
 type EventStore interface {
 	// Read retrieves events for a specific stream starting from the given position (revision).
 	// Passing 0 reads the entire stream from the beginning.
-	Read(ctx context.Context, stream Stream, position uint64) (StreamIterator, error)
+	Read(ctx context.Context, stream flux.Stream, fromRevision uint64) (StreamIterator, error)
 }
 ```
 
@@ -203,7 +203,7 @@ func (c *CounterAggregate) With(data counterSnapshot, rev uint64) {
 ## 7. Package Outline
 
 ### `flux/event_store.go`
-- Modify `EventStore.Read(..., position uint64)`
+- Modify `EventStore.Read(..., fromRevision uint64)`
 
 ### `flux/aggregate.go`
 - Add `func (a *AggregateRoot[E]) SetRevision(rev uint64)`
@@ -226,7 +226,7 @@ func (c *CounterAggregate) With(data counterSnapshot, rev uint64) {
 
 ## 8. Implementation Instructions (For Agents)
 
-1. **Update EventStore:** Modify `flux/event_store.go` so `Read` accepts `position uint64`. Update `event/store/in_memory.go` to handle the `position` argument correctly (skipping `env.Revision <= position`).
+1. **Update EventStore:** Modify `flux/event_store.go` so `Read` accepts `fromRevision uint64`. Update `event/store/in_memory.go` to handle the `fromRevision` argument correctly (skipping `env.Revision <= fromRevision`).
 2. **Expose Revision Setter:** In `flux/aggregate.go`, add `SetRevision(rev uint64)` to `AggregateRoot[E]`.
 3. **Core Snapshot Types:** Create `flux/snapshot/snapshot.go` and define `Snapshotable`, `Snapshot`, and `Store`.
 4. **Schedules:** Create `flux/snapshot/schedule.go` and implement `Every(n)`.
