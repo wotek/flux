@@ -3,8 +3,7 @@ package flux
 import (
 	"fmt"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 )
 
 // AggregateRepository provides the standard unit-of-work interface for Event Sourced aggregates.
