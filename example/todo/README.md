@@ -100,12 +100,15 @@ example/todo/
 3. **Vertical Slice Handlers (`commands/` & `queries/`)**:
    - Each command and its corresponding handler struct live in the same file (e.g. `AddTask` and `AddTaskHandler` in `commands/add_task.go`).
    - Each query and its corresponding handler struct live in the same file (e.g. `GetCounter` and `GetCounterHandler` in `queries/get_counter.go`).
-4. **Dedicated Projection Subpackage (`projections/counter/`)**:
-   - Projections are isolated in their own subpackages containing the read-model struct (`Counter`), the storage contract (`Store`), the thread-safe implementation (`MemoryStore`), and the event projector (`NewProjector`).
-5. **Decoupled Server & Client (`server/` & `client/`)**:
+4. **Dedicated Projection Subpackages (`projections/counter/` & `projections/lists/`)**:
+   - Projections are isolated in their own subpackages containing the read-model struct, storage contract, thread-safe implementation, and event projector worker.
+5. **Multiple Domain Aggregates & Lists Catalog**:
+   - The system supports arbitrary concurrent `TodoListAggregate` instances (e.g. Work, Personal).
+   - A dedicated `lists` read-model projector indexes all aggregates into an overview catalog with real-time active and archived task counts.
+6. **Decoupled Server & Client (`server/` & `client/`)**:
    - `server.Server` manages stores, buses, background projector workers, and optional HTTP gateway.
    - `client.Client` interface provides polymorphism across `InMemoryClient` (in-process bus dispatch) and `HTTPClient` (remote HTTP gateway).
-6. **No Namespace Collisions**:
+7. **No Namespace Collisions**:
    - Domain subpackages use plural names (`commands`, `events`, `queries`, `projections`), cleanly preventing collisions with framework packages (`flux/command`, `flux/event`, `flux/query`, `flux/projection`).
 
 ---
@@ -167,43 +170,101 @@ cd example/todo
 go run ./cmd/client -server http://localhost:8080
 ```
 
-This starts the interactive terminal dashboard:
+The interactive terminal client features a **hierarchical two-screen navigation flow**:
+
+```text
+┌────────────────────────────────────────────────────────┐
+│            Screen 1: Lists Catalog (Entry)             │
+│  - Shows all available Todo Lists & summary stats      │
+│  - Cycle through lists, create new lists, or open one  │
+└───────────────────────┬────────────────────────────────┘
+                        │
+                        │ [Enter / o / <number>]  (Open selected list)
+                        │ [b / back]             (Return to catalog)
+                        ▼
+┌────────────────────────────────────────────────────────┐
+│             Screen 2: Task Detail Screen               │
+│  - Shows current list title, URN, active & completed   │
+│  - Cycle tasks, add, remove, and archive/complete      │
+└────────────────────────────────────────────────────────┘
+```
+
+---
+
+##### Screen 1: Available Lists (Entry Screen)
+
+When launched, the client displays the catalog of all known Todo List aggregates powered by the `lists` read-model projection:
 
 ```text
 ================================================================================
-  FLUX CQRS TODO APP — Personal Projects
-  URN: urn:todo:prod:lists:1:list:personal
-  Global Stats: Active: 2 | Archived: 1 | Removed: 1 | Total Lists: 2
+  FLUX CQRS TODO APP — All Todo Lists
+  Global Stats: Active: 5 | Archived: 2 | Removed: 1 | Total Lists: 2
 ================================================================================
 
-ACTIVE TASKS (2):
-  ▶ [1] Buy groceries  <-- [SELECTED]
-    [2] Read Flux documentation
+AVAILABLE TODO LISTS (2):
+  ▶ [1] Work Tasks (Active: 3, Archived: 1)  <-- [SELECTED]
+        URN: urn:todo:prod:lists:1:list:work-1234
+    [2] Personal Tasks (Active: 2, Archived: 1)
+        URN: urn:todo:prod:lists:1:list:personal-5678
 
-ARCHIVED / COMPLETED (1):
-    ✓ Set up project
+Status: Welcome! Select a list to open, or create a new one.
 
 Commands:
-  [n] Next item      [p] Prev item      [a] Add task       [d] Delete selected
-  [c] Mark done      [nl] New list      [l] Switch list    [tab] Next list
-  [ls] Overview      [r] Refresh        [q] Quit
-  (Or type: add <text> | del <num> | done <num> | <num> to select)
+  [n] Next list      [p] Prev list      [o/Enter] Open list
+  [a] New list       [r] Refresh        [q] Quit
+  (Or type: new <title> | open <num> | <num> to open directly)
 --------------------------------------------------------------------------------
-todo> 
+lists> 
 ```
 
-**Interactive Controls:**
-* `n` or `<Enter>`: Cycle cursor to next task in current list
-* `p`: Cycle cursor to previous task in current list
-* `a` or `add <text>`: Add a new task to current list
-* `d` or `del [num]`: Delete currently selected task (or task by number)
-* `c` or `done [num]`: Mark currently selected task as completed
-* `1`, `2`, ...: Select task by number directly
-* `nl` or `new <title>`: Create a new Todo List aggregate and switch to it
-* `ls` or `lists`: View read-model overview of all Todo Lists with summary counts
-* `l` or `switch [num|urn]`: Switch between Todo Lists
-* `tab` or `nextlist`: Cycle directly to the next Todo List
-* `r`: Refresh projection stats and task list
+**Lists Screen Controls:**
+* `n` / `p`: Cycle selection cursor forward and backward across lists
+* `<Enter>` or `o` / `open`: Open the currently selected list into Screen 2
+* `1`, `2`, ...: Open a list directly by its number
+* `a` or `new <title>`: Create a new Todo List aggregate and open its task screen
+* `r`: Refresh lists catalog from the read-model projection
+* `q`: Exit
+
+---
+
+##### Screen 2: Task Detail Screen
+
+Opening a list navigates into its tasks screen, displaying active and archived items:
+
+```text
+================================================================================
+  FLUX CQRS TODO APP — Work Tasks
+  URN: urn:todo:prod:lists:1:list:work-1234
+  List Status: 3 Active | 1 Archived
+================================================================================
+
+ACTIVE TASKS (3):
+  ▶ [1] Prepare release notes  <-- [SELECTED]
+    [2] Deploy staging cluster
+    [3] Update documentation
+
+ARCHIVED / COMPLETED (1):
+    ✓ Initial architecture review
+
+Status: Added task: "Update documentation"
+
+Commands:
+  [n] Next task      [p] Prev task      [a] Add task       [d] Delete task
+  [c] Mark done      [b] Back to lists  [r] Refresh        [q] Quit
+  (Or type: add <text> | del <num> | done <num> | <num> to select)
+--------------------------------------------------------------------------------
+tasks> 
+```
+
+**Tasks Screen Controls:**
+* `n` or `<Enter>`: Cycle selection cursor forward through active tasks
+* `p`: Cycle selection cursor backward through active tasks
+* `a` or `add <task>`: Add a new task to this list
+* `d` or `del [num]`: Remove the selected task (or by number)
+* `c` or `done [num]`: Mark the selected task as completed / archived (or by number)
+* `1`, `2`, ...: Select a task directly by number
+* `b` or `back`: Return back to Screen 1 (Lists Catalog)
+* `r`: Refresh tasks from the aggregate
 * `q`: Exit
 
 #### 3. Run Automated Workflow Demo
