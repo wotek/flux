@@ -330,38 +330,30 @@ For long-lived aggregates that accumulate thousands of events over time, replayi
 
 To mitigate this, a future phase of the framework will introduce **Snapshotting**. This will likely involve a `SnapshotStore` and an optional `Snapshotable` interface on the Aggregate that allows the Repository to load state from the most recent snapshot and only replay events that occurred *after* the snapshot's version.
 
-### Messaging & Subsystems
+### Message Bus / Dispatcher
 
-The framework organizes CQRS (Command Query Responsibility Segregation) routing, read-model projections, and sagas into dedicated, autonomous subpackages with 100% reflection-free `O(1)` execution.
+The framework utilizes three distinct buses to implement CQRS (Command Query Responsibility Segregation) and Event-Driven architecture:
+1. **Command Bus**: Routes a Command to exactly *one* Command Handler.
+2. **Query Bus**: Routes a Query to exactly *one* Query Handler, returning a strongly-typed result.
+3. **Event Bus**: Routes an Event to *zero or more* Event Handlers (used for projections, side-effects, and sagas).
 
-```text
-github.com/wotek/flux/
-├── flux             (Core primitives, aggregates, repository, and base Context)
-├── command          (Command bus, handler, and command Context)
-├── query            (Query bus, handler, and query Context)
-├── event            (Event bus, handler, and event Context)
-├── projection       (Read-model Projector engine, store contract, and projection Context)
-└── saga             (Process manager Orchestrator, store contract, and saga Context)
-```
-
----
+By leveraging Go Generics and package-level execution functions, we achieve 100% type safety on inputs and outputs without forcing Commands or Queries to implement marker interfaces.
 
 ### Contexts
 
-To bridge the gap between keeping domain payloads lean and providing explicit, type-safe metadata (avoiding "magic" context keys), the framework defines strongly-typed context interfaces.
+To bridge the gap between keeping domain payloads lean and providing explicit, type-safe metadata (avoiding "magic" context keys), the framework defines custom contexts. 
 
-Because they embed standard `context.Context`, they can be passed directly into standard library functions, database queries, and the Event Store.
+Because they embed `context.Context`, they can be passed directly into standard library functions, database queries, and the Event Store.
 
 > [!WARNING]
-> Wrapping a typed context (e.g., using `context.WithTimeout`) returns a standard `context.Context`, stripping typed accessors. Handlers should extract needed metadata early if they plan to wrap the context for downstream calls.
+> Wrapping a typed context (e.g., using `context.WithTimeout`) returns a standard `context.Context`, stripping the typed methods. Handlers should extract needed metadata early if they plan to wrap the context for downstream calls.
 
-#### Core Context (`package flux`)
+#### Interfaces
 
 ```go
-package flux
-
+// package flux
 // Context is the base typed context for the framework, providing guaranteed
-// access to audit metadata for any operation.
+// access to metadata for any operation.
 type Context interface {
 	context.Context
 	Actor() Actor
@@ -369,29 +361,23 @@ type Context interface {
 	CausationIdentifier() Identifier
 }
 
-func NewContext(parent context.Context, actor Actor, correlationID, causationID Identifier) Context
-```
-
-#### Specialized Contexts
-
-Each subsystem provides its own contextual boundary extending the base metadata:
-
-```go
 // package command
+// Context extends the base Context for command execution.
 type Context interface {
 	flux.Context
 	CommandIdentifier() flux.Identifier
 }
-func NewContext(parent context.Context, cmdID flux.Identifier, actor flux.Actor, correlationID, causationID flux.Identifier) Context
 
 // package query
+// Context extends the base Context for read-only query operations.
 type Context interface {
 	flux.Context
 	QueryIdentifier() flux.Identifier
 }
-func NewContext(parent context.Context, queryID flux.Identifier, actor flux.Actor, correlationID, causationID flux.Identifier) Context
 
 // package event
+// Context provides strongly-typed access to the Envelope metadata 
+// while keeping the event payload clean.
 type Context interface {
 	flux.Context
 	EventIdentifier() flux.Identifier
@@ -400,159 +386,247 @@ type Context interface {
 	Position() uint64
 	Metadata() map[string]string
 }
-func NewContext(parent context.Context, env flux.Envelope) Context
 
 // package projection
+// Context extends event.Context. It acts as a distinct type boundary 
+// guaranteeing that the context is bound to the projection's active database transaction.
 type Context interface {
 	event.Context
 }
-func NewContext(parent event.Context) Context
 
 // package saga
+// Context extends event.Context, giving saga handlers the ability to dispatch commands.
 type Context interface {
 	event.Context
+	
+	// dispatch is unexported. It is used internally by the framework's 
+	// strongly-typed EnqueueCommand helper to safely queue commands.
+	dispatch(cmd any)
+
+	// QueuedCommands returns all commands enqueued during the event handling.
 	QueuedCommands() []any
 }
-func NewContext(parent event.Context) Context
+
+// package saga
+// EnqueueCommand safely queues a strongly-typed command to be dispatched.
+// To prevent "dual-write" anomalies (where a command fires but the saga state fails to save), 
+// the framework guarantees that enqueued commands are ONLY sent to the CommandBus 
+// after the Orchestrator successfully persists the Saga's updated state.
 func EnqueueCommand[C any](ctx Context, cmd C)
 ```
 
----
-
-### Command Bus (`package command`)
+#### Constructors
 
 ```go
-package command
+// package flux
+func NewContext(parent context.Context, actor Actor, correlationId Identifier, causationId Identifier) Context
 
+// package command
+func NewContext(parent context.Context, cmdId flux.Identifier, actor flux.Actor, correlationId flux.Identifier, causationId flux.Identifier) Context
+
+// package query
+func NewContext(parent context.Context, queryId flux.Identifier, actor flux.Actor, correlationId flux.Identifier, causationId flux.Identifier) Context
+
+// package event
+func NewContext(parent context.Context, env flux.Envelope) Context
+
+// package projection
+func NewContext(parent event.Context) Context
+
+// package saga
+func NewContext(parent event.Context) Context
+```
+
+### Handlers
+
+Handlers define the interface for processing Commands, Queries, and Events. They receive their respective strongly-typed contexts.
+
+```go
+// package command
 // Handler executes business logic for a specific command.
 type Handler[C any] interface {
 	Handle(ctx Context, cmd C) error
 }
 
-// Bus manages command routing to exactly one registered handler.
-type Bus struct { /* internal fields */ }
-
-func New() *Bus
-
-// RegisterHandler registers an interface handler for command C.
-func RegisterHandler[C any](bus *Bus, handler Handler[C])
-
-// Register registers a functional handler closure for command C.
-func Register[C any](bus *Bus, handler func(ctx Context, cmd C) error)
-
-// Execute routes a command synchronously with native O(1) performance.
-func Execute[C any](ctx Context, bus *Bus, cmd C) error
-
-// ExecuteAsync performs a fire-and-forget dispatch with panic recovery.
-func ExecuteAsync[C any](ctx Context, bus *Bus, cmd C) error
-```
-
----
-
-### Query Bus (`package query`)
-
-```go
-package query
-
-// Handler executes read-only logic and returns a strongly-typed read model.
+// package query
+// Handler executes read-only logic and returns a strongly-typed result.
 type Handler[Q any, R any] interface {
 	Handle(ctx Context, query Q) (R, error)
 }
 
-// Bus manages query routing to exactly one registered handler.
-type Bus struct { /* internal fields */ }
-
-func New() *Bus
-
-// RegisterHandler registers an interface handler for query Q returning R.
-func RegisterHandler[Q any, R any](bus *Bus, handler Handler[Q, R])
-
-// Register registers a functional closure handler for query Q returning R.
-func Register[Q any, R any](bus *Bus, handler func(ctx Context, query Q) (R, error))
-
-// Execute routes a query to its handler and returns the typed read model.
-func Execute[Q any, R any](ctx Context, bus *Bus, query Q) (R, error)
-```
-
----
-
-### Event Bus (`package event`)
-
-The Event Bus routes persisted domain events to multiple subscribers concurrently.
-
-```go
-package event
-
-// Handler reacts to domain events.
+// package event
+// Handler reacts to domain events that were successfully persisted to the Event Store.
 type Handler[E flux.Event] interface {
 	Handle(ctx Context, event E) error
 }
+```
 
-// Bus manages routing domain events to zero or more subscribers.
-type Bus struct { /* internal fields */ }
+### Command Bus
 
+```go
+// package command
+
+// Bus manages command routing.
+// It can optionally be configured with a distributed transport (like NATS or SQS) for async execution.
+type Bus struct {
+	// internal fields
+}
+
+// New creates a new command Bus.
 func New() *Bus
 
-// RegisterHandler registers an interface subscriber for event E.
-func RegisterHandler[E flux.Event](bus *Bus, handler Handler[E])
+// Register wires a functional handler for a specific command type.
+func Register[C any](bus *Bus, handler func(ctx Context, cmd C) error)
 
-// Register registers a functional closure subscriber for event E.
+// RegisterHandler wires a command to its handler. 
+// Panics if a handler is already registered for type C.
+func RegisterHandler[C any](bus *Bus, handler Handler[C])
+
+// Execute routes the command to its registered handler synchronously.
+// This is the default as most CQRS commands (e.g. from an HTTP request) 
+// require immediate feedback on domain invariants.
+func Execute[C any](ctx Context, bus *Bus, cmd C) error
+
+// ExecuteAsync performs a "fire-and-forget" dispatch.
+// If the bus has no distributed transport configured, it executes the handler 
+// in a background goroutine (safely detaching the context). If a transport is 
+// configured, it serializes and enqueues the command for background workers.
+func ExecuteAsync[C any](ctx Context, bus *Bus, cmd C) error
+```
+
+> [!TIP]
+> The framework intentionally avoids "batch" or "multi-command" dispatch methods. Because `ExecuteCommand` is completely thread-safe, developers can use native Go primitives (like `sync.WaitGroup` or `golang.org/x/sync/errgroup`) to execute commands sequentially or in parallel. Long-running orchestrations should use Sagas instead of sequential scripts.
+
+### Query Bus
+
+```go
+// package query
+
+// Bus manages query routing.
+type Bus struct {
+	// internal fields
+}
+
+// New creates a new QueryBus.
+func New() *Bus
+
+// Register wires a functional handler for a specific query type.
+func Register[Q any, R any](bus *Bus, handler func(ctx Context, query Q) (R, error))
+
+// RegisterHandler wires a query to its handler and expected return type.
+// Panics if a handler is already registered for type Q.
+func RegisterHandler[Q any, R any](bus *Bus, handler Handler[Q, R])
+
+// Execute routes the query to its registered handler, returning the strongly-typed result R.
+func Execute[Q any, R any](ctx Context, bus *Bus, query Q) (R, error)
+```
+
+### Event Bus
+
+The Event Bus is typically invoked by a background worker tailing the `EventStore`'s global stream.
+
+```go
+// package event
+
+// Bus manages routing domain events to multiple subscribers.
+type Bus struct {
+	// internal fields
+}
+
+// New creates a new EventBus.
+func New() *Bus
+
+// Register wires a functional subscriber to a specific event type.
 func Register[E flux.Event](bus *Bus, handler func(ctx Context, event E) error)
 
-// PublishEnvelope distributes a raw Envelope to all registered subscribers.
+// RegisterHandler adds a subscriber to a specific event type.
+func RegisterHandler[E flux.Event](bus *Bus, handler Handler[E])
+
+// PublishEnvelope routes an Envelope to all registered subscribers.
 func PublishEnvelope(ctx Context, bus *Bus, env flux.Envelope) error
 
-// Publish wraps an event and distributes it to all registered subscribers.
+// Publish wraps a domain event in an Envelope and routes it to all registered subscribers.
+// Mostly used for internal framework events or testing.
 func Publish[E flux.Event](ctx Context, bus *Bus, event E) error
 ```
 
----
+### Projections
 
-### Projections (`package projection`)
+In CQRS, **Projections** (or Read Models) listen to the global event stream and build state optimized for read operations. 
 
-In CQRS, **Projections** (Read Models) listen to the global event stream and build state optimized for read operations, atomically tracking checkpoint positions.
+A critical requirement of any projection is tracking its progress using a cursor (the global `Position` of the last processed event) so it can resume safely after a restart. The state mutation and the cursor update must be transactional to prevent data anomalies.
 
 ```go
-package projection
+// package projection
 
-// Store defines the persistence contract for read models and position checkpoints.
+// Store defines the contract for persisting both the read-model data and its cursor.
+// It abstracts the transactional boundaries of the underlying database (e.g., PostgreSQL, MongoDB).
 type Store interface {
+	// GetPosition retrieves the last successfully processed global position for the projection.
 	GetPosition(ctx context.Context, id flux.Identifier) (uint64, error)
+
+	// Update runs a database transaction. It provides the framework with a transactional 
+	// context and executes the `mutate` closure (which contains the user's read-model logic). 
+	// If the closure succeeds, the framework commits the transaction, atomically saving the 
+	// read-model changes AND the new envelope.Position.
 	Update(ctx context.Context, id flux.Identifier, env flux.Envelope, mutate func(txCtx context.Context) error) error
 }
 
-// Projector is the background worker tailing the EventStore global stream.
-type Projector struct { /* internal fields */ }
+// Projector is the background worker that powers a Projection.
+// It tails the EventStore.Stream() starting from the Store.GetPosition().
+type Projector struct {
+	// internal fields
+}
 
+// New creates a new Projector instance.
 func New(id flux.Identifier, eventStore flux.EventStore, projStore Store) *Projector
 
-// RegisterHandler wires an event type to the projection's logic within the Store.Update transaction.
+// RegisterHandler wires a specific event type to the projection's logic.
+// It leverages the same generic type-safety as the EventBus, but executes the handler 
+// strictly within the Store's Update() transaction boundary.
 func RegisterHandler[E flux.Event](p *Projector, handler func(ctx Context, event E) error)
 
-// Start begins continuous tailing of the EventStore.
+// Start begins tailing the EventStore in the background until the context is canceled.
 func (p *Projector) Start(ctx context.Context) error
+```
+
+#### Cross-Domain Projections
+
+Because the `Projector` tails the **Global Event Stream** (via `EventStore.Stream`) rather than individual aggregate streams, it natively supports listening to events across entirely different domains. You can simply register multiple event types to the same projector, and it will route them sequentially in the exact deterministic order they occurred system-wide.
+
+```go
+// Example: A single dashboard projection handling cross-domain events
+proj := projection.New(dashboardID, eventStore, sqlStore)
+
+projection.RegisterHandler(proj, func(ctx projection.Context, e OrderCreated) error { /* ... */ })
+projection.RegisterHandler(proj, func(ctx projection.Context, e UserRegistered) error { /* ... */ })
 ```
 
 #### Example: Building and Querying a Read Model
 
+The framework intentionally does **not** provide a `ReadModel` interface. Read models are simply native database tables (or MongoDB documents, etc.). You use the `Projector` to write to them, and the `QueryBus` to read from them. 
+
+The most idiomatic way to pass dependencies (like database connections) into your handlers is by using struct methods:
+
 ```go
-// 1. Read Model Struct
+// 1. The native Read Model struct (returned to your API)
 type UserStats struct {
 	Email       string
 	TotalOrders int
 }
 
-// 2. Projection Handler
+// 2. The Projection Handlers (Writing the read model)
 type UserStatsProjection struct {
-	db *sql.DB
+	db *sql.DB // Dependency injection!
 }
 
 func (p *UserStatsProjection) HandleRegistered(ctx projection.Context, e UserRegistered) error {
+	// The context guarantees we are inside the Store's transaction
 	_, err := p.db.ExecContext(ctx, "INSERT INTO user_stats (id, email, total_orders) VALUES ($1, $2, 0)", e.ID, e.Email)
 	return err
 }
 
-// 3. Query Handler
+// 3. The Query Handler (Reading the read model)
 type UserStatsQueryHandler struct {
 	db *sql.DB
 }
@@ -566,60 +640,107 @@ func (h *UserStatsQueryHandler) Handle(ctx query.Context, q GetUserStats) (UserS
 	return stats, err
 }
 
-// 4. Wiring
-proj := projection.New(dashboardID, eventStore, projStore)
+// 4. Wiring it up
+userStatsProj := &UserStatsProjection{db: myDatabase}
+proj := projection.New(dashboardID, eventStore, sqlStore)
 projection.RegisterHandler(proj, userStatsProj.HandleRegistered)
 
 queryBus := query.New()
 query.RegisterHandler(queryBus, &UserStatsQueryHandler{db: myDatabase})
 ```
 
----
+#### Temporal Integration (Optional Path)
 
-### Sagas / Process Managers (`package saga`)
+Because the framework strictly decouples **Routing** from **Execution**, you are not forced to use the default `Projector` or `ProjectionStore`. If you prefer to run Projections as durable [Temporal Workflows](https://temporal.io/), the framework provides the perfect hooks to bridge the gap.
 
-A **Saga** coordinates long-running business workflows across multiple aggregates. It listens to domain events, maintains persistent state, and transactionally enqueues commands via the Outbox pattern.
+Instead of a traditional pull-based projector, you can use the `EventBus` to push events directly into Temporal as Signals:
 
 ```go
-package saga
+// Example: Using the EventBus to bridge events into Temporal
+event.Register(bus, func(ctx event.Context, e OrderCreated) error {
+	// The event.Context provides the metadata, and 'e' is the clean payload
+	return temporalClient.SignalWorkflow(
+		ctx, 
+		"Projection-Dashboard", // Target Temporal Workflow ID
+		"", 
+		"OrderCreatedSignal", 
+		e,
+	)
+})
+```
+
+Because Temporal workflows durably persist their own local state and handle retries natively, this approach eliminates the need to manually track `Position` cursors or manage database transactions.
+
+### Sagas / Process Managers
+
+A **Saga** (or Process Manager) coordinates long-running business processes that span multiple aggregates. It listens to domain events, maintains internal state to track the progress of the workflow, and dispatches commands to other aggregates.
+
+```go
+// package saga
 
 // Saga defines the contract for a process manager.
+// It leverages Go 1.26 self-referencing constraints for reflection-free instantiation.
 type Saga[S Saga[S]] interface {
+	// Identifier returns the globally unique ID of this saga instance.
+	// This is typically derived from the CorrelationIdentifier of the triggering event.
 	Identifier() flux.Identifier
+	
+	// New creates a new, empty instance of the saga.
+	// This is called on a nil pointer by the Orchestrator during loading.
 	New() S
 }
 
-// Store defines persistence for saga state and outbox commands.
+// Store defines how the internal state of a saga is persisted between events.
 type Store[S Saga[S]] interface {
+	// Load retrieves the saga state. The store is responsible for instantiating it.
 	Load(ctx context.Context, id flux.Identifier) (S, error)
+	
+	// Save persists the saga's state alongside any enqueued commands within the SAME 
+	// database transaction. A separate relay process is expected to poll these commands 
+	// and forward them to the CommandBus to achieve At-Least-Once (Outbox) delivery.
 	Save(ctx context.Context, saga S, commands []any) error
 }
 
-// Orchestrator routes global events to saga instances by correlation ID.
-type Orchestrator struct { /* internal fields */ }
+// Orchestrator is the background worker that listens to the global event stream 
+// and routes events to the appropriate saga instances.
+type Orchestrator struct {
+	// internal fields
+}
 
+// NewOrchestrator creates a new orchestrator engine.
 func NewOrchestrator(eventStore flux.EventStore) *Orchestrator
 
-// EnqueueCommand safely enqueues a command into the saga outbox transaction.
-func EnqueueCommand[C any](ctx Context, cmd C)
-
-// RegisterHandler links an event to a saga state transition.
+// RegisterHandler wires a specific event type to a saga's state transition.
+// The store is provided here so the orchestrator knows how to load/save this specific saga type.
 func RegisterHandler[S Saga[S], E flux.Event](o *Orchestrator, store Store[S], handler func(ctx Context, saga S, event E) error)
-
-func (o *Orchestrator) Start(ctx context.Context) error
 ```
 
 #### Usage Example: The Outbox Pattern
 
+To prevent "dual-write" anomalies (where a command executes successfully but the Saga fails to save its state, causing the command to be duplicated on retry), Sagas do **not** execute commands synchronously. Instead, they use `EnqueueCommand`. The framework handles the transactional safety automatically.
+
 ```go
-saga.RegisterHandler(orchestrator, sagaStore, func(ctx saga.Context, s *OnboardingSaga, e UserRegistered) error {
-	// 1. Update internal saga state
+// Example: A Saga handling user onboarding
+saga.RegisterHandler(orchestrator, mySagaStore, func(ctx saga.Context, s *OnboardingSaga, e UserRegistered) error {
+	// 1. Update internal saga state based on the event
 	s.ID = ctx.CorrelationIdentifier()
 	s.Status = "AWAITING_WELCOME_EMAIL"
 
-	// 2. Safely enqueue command to outbox
+	// 2. Safely queue a strongly-typed command
+	// The Orchestrator will automatically persist the saga state and this command 
+	// together into the database (via Store.Save) to guarantee At-Least-Once delivery.
 	saga.EnqueueCommand(ctx, SendWelcomeEmail{Email: e.Email})
-	return nil
+
+	return nil // Returning nil triggers the transactional save of state + commands
 })
 ```
 
+#### Temporal Integration (Optional Path)
+
+Because Sagas are inherently stateful and frequently require timers (e.g., "if payment isn't confirmed in 10 minutes, issue a refund command"), they are notoriously complex to build in vanilla databases. This makes them the absolute **perfect candidate** for Temporal workflows.
+
+If you choose to run your Sagas in Temporal, you do not need the `SagaStore` or `Orchestrator`. 
+Instead:
+1. You use the `EventBus` to push events into a Temporal Workflow (just like Projections).
+2. The Temporal Workflow *is* your Saga. It natively maintains its own local state variables.
+3. When the Workflow wants to dispatch a command, it executes a Temporal `Activity` that calls `command.ExecuteAsync(ctx, bus, myCmd)`.
