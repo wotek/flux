@@ -1,7 +1,10 @@
 package command_test
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
+	"strings"
 	"errors"
 	"testing"
 	"time"
@@ -64,5 +67,72 @@ func TestCommandBus_ExecuteAsync_NoHandler(t *testing.T) {
 	}
 	if !errors.Is(err, flux.ErrNoHandler) {
 		t.Fatalf("expected ErrNoHandler, got %v", err)
+	}
+}
+
+func TestCommandBus_Middleware(t *testing.T) {
+	bus := command.New()
+
+	// Intercept slog.Default() for testing Context Logger
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, nil)
+	logger := slog.New(handler)
+	oldDefault := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(oldDefault)
+
+	order := []string{}
+
+	mw1 := func(ctx command.Context, cmd any, next func(command.Context, any) error) error {
+		order = append(order, "mw1_before")
+		// Test Context Logger automatic propagation
+		ctx.Logger().Info("mw1 executing", "cmd_type", "dummyCmd")
+		err := next(ctx, cmd)
+		order = append(order, "mw1_after")
+		return err
+	}
+
+	mw2 := func(ctx command.Context, cmd any, next func(command.Context, any) error) error {
+		order = append(order, "mw2_before")
+		err := next(ctx, cmd)
+		order = append(order, "mw2_after")
+		return err
+	}
+
+	bus.Use(mw1, mw2)
+
+	command.Register(bus, func(ctx command.Context, cmd dummyCmd) error {
+		order = append(order, "handler")
+		return nil
+	})
+
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:acme:prod:payments:tenant-1:actor:1")}
+	corrID := flux.MustParseIdentifier("urn:acme:prod:payments:tenant-1:correlation:2")
+	ctx := command.NewContext(context.Background(), flux.Identifier{}, actor, corrID, flux.Identifier{})
+	err := command.Execute(ctx, bus, dummyCmd{val: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []string{"mw1_before", "mw2_before", "handler", "mw2_after", "mw1_after"}
+	if len(order) != len(expected) {
+		t.Fatalf("expected order %v, got %v", expected, order)
+	}
+	for i, v := range expected {
+		if order[i] != v {
+			t.Fatalf("expected order %v, got %v", expected, order)
+		}
+	}
+
+	// Assert the logger correctly captured the contextual tracing fields!
+	logOutput := buf.String()
+	if !strings.Contains(logOutput, "mw1 executing") {
+		t.Fatalf("expected log to contain message, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, "\"actor\":\"urn:acme:prod:payments:tenant-1:actor:1\"") {
+		t.Fatalf("expected log to contain auto-injected actor, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, "\"correlation_id\":\"urn:acme:prod:payments:tenant-1:correlation:2\"") {
+		t.Fatalf("expected log to contain auto-injected correlation_id, got: %s", logOutput)
 	}
 }
