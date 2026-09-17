@@ -64,13 +64,18 @@ func (s *EventStore) Append(ctx context.Context, stream flux.Stream, expectedRev
 	return nil
 }
 
-// Read retrieves all events for a specific stream via an iterator.
-func (s *EventStore) Read(ctx context.Context, stream flux.Stream) (flux.StreamIterator, error) {
+// Read retrieves events for a specific stream starting from the given position (revision) via an iterator.
+// Passing 0 reads the entire stream from the beginning. Events with Revision <= fromRevision are skipped.
+func (s *EventStore) Read(ctx context.Context, stream flux.Stream, fromRevision uint64) (flux.StreamIterator, error) {
 	s.mu.RLock()
 	streamID := stream.Identifier.String()
-	// Create a copy of the slice so we can release the lock immediately
-	events := make([]flux.Envelope, len(s.streams[streamID]))
-	copy(events, s.streams[streamID])
+	rawEvents := s.streams[streamID]
+	events := make([]flux.Envelope, 0, len(rawEvents))
+	for _, env := range rawEvents {
+		if env.Revision > fromRevision {
+			events = append(events, env)
+		}
+	}
 	s.mu.RUnlock()
 
 	// Return the iter.Seq2 iterator function

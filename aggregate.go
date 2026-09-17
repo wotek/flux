@@ -25,7 +25,7 @@ type Aggregate[A Aggregate[A, E], E Event] interface {
 	New(stream Stream) A
 }
 
-// revisionSetter is an internal framework capability interface used to safely 
+// revisionSetter is an internal framework capability interface used to safely
 // mutate aggregate revisions after successful event persistence or snapshot hydration.
 type revisionSetter interface {
 	setRevision(rev uint64)

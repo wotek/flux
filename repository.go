@@ -24,7 +24,7 @@ func (r *AggregateRepository[A, E]) Load(ctx Context, stream Stream) (A, error) 
 	var zero A
 	agg := zero.New(stream)
 
-	events, err := r.eventStore.Read(ctx, stream)
+	events, err := r.eventStore.Read(ctx, stream, 0)
 	if err != nil {
 		return zero, err
 	}

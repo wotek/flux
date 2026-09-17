@@ -320,14 +320,82 @@ func (r *AggregateRepository[A, E]) Load(ctx Context, stream Stream) (A, error)
 // and calling the EventStore.Append method with the aggregate's current revision for concurrency control.
 // After successful persistence, it calls Clear() on the Changeset.
 func (r *AggregateRepository[A, E]) Save(ctx Context, aggregate A) error
-}
 ```
 
-### Snapshotting (Future Phase)
+### Snapshotting
 
-For long-lived aggregates that accumulate thousands of events over time, replaying the entire stream from `version 0` during a `Load` operation can become a performance bottleneck. 
+For long-lived aggregates that accumulate thousands of events over time, replaying the entire stream from revision 0 during a `Load` operation can become a performance bottleneck.
 
-To mitigate this, a future phase of the framework will introduce **Snapshotting**. This will likely involve a `SnapshotStore` and an optional `Snapshotable` interface on the Aggregate that allows the Repository to load state from the most recent snapshot and only replay events that occurred *after* the snapshot's version.
+The framework provides aggregate snapshotting using the **Memento Pattern** to prevent polluting domain aggregates with infrastructure serialization concerns. An aggregate exports and restores its state via a strongly typed DTO (`S`).
+
+#### Interfaces & Structs
+
+```go
+// Snapshotable defines how an aggregate exposes and restores its internal state using the Memento pattern.
+type Snapshotable[S any] interface {
+	Snapshot() S
+	With(state S)
+}
+
+// Snapshot represents a captured point-in-time state of an Aggregate at a specific revision.
+type Snapshot[S any] struct {
+	State    S
+	Revision uint64
+}
+
+// SnapshotStore defines the persistence contract for storing and retrieving aggregate snapshots.
+type SnapshotStore[S any] interface {
+	Load(ctx context.Context, stream Stream) (Snapshot[S], error)
+	Save(ctx context.Context, stream Stream, snap Snapshot[S]) error
+}
+
+// SnapshotSchedule determines if an aggregate should be snapshotted based on its current state.
+type SnapshotSchedule[A any] interface {
+	Test(aggregate A) bool
+}
+
+// Schedule is an alias for [SnapshotSchedule].
+type Schedule[A any] = SnapshotSchedule[A]
+
+// SnapshotScheduleFunc is a function adapter that implements [SnapshotSchedule].
+type SnapshotScheduleFunc[A any] func(aggregate A) bool
+
+// Test calls the underlying function to test if a snapshot should be taken.
+func (f SnapshotScheduleFunc[A]) Test(aggregate A) bool {
+	return f(aggregate)
+}
+
+// SnapshotAggregate ensures the aggregate type implements both [Aggregate] and [Snapshotable].
+type SnapshotAggregate[A Aggregate[A, E], E Event, S any] interface {
+	Aggregate[A, E]
+	Snapshotable[S]
+}
+
+// SnapshotRepository wraps an [AggregateRepository] to provide snapshot-assisted loading
+// and scheduled snapshot saving.
+type SnapshotRepository[A SnapshotAggregate[A, E, S], E Event, S any] struct {
+	// unexported fields
+}
+
+// NewSnapshotRepository constructs a new [SnapshotRepository].
+func NewSnapshotRepository[A SnapshotAggregate[A, E, S], E Event, S any](
+	base *AggregateRepository[A, E],
+	store SnapshotStore[S],
+	schedule SnapshotSchedule[A],
+	eventStore EventStore,
+) *SnapshotRepository[A, E, S]
+
+// Load fetches an aggregate from a snapshot (if available) and catches up with any trailing events.
+// If no snapshot exists, it falls back to replaying all events from the beginning.
+func (r *SnapshotRepository[A, E, S]) Load(ctx Context, stream Stream) (A, error)
+
+// Save persists uncommitted events to the underlying event store and evaluates the snapshot schedule.
+// If the schedule matches, a new snapshot is captured and persisted.
+func (r *SnapshotRepository[A, E, S]) Save(ctx Context, aggregate A) error
+
+// Every returns a [SnapshotSchedule] that triggers every n events.
+func Every[A Aggregate[A, E], E Event](n uint64) SnapshotSchedule[A]
+```
 
 ### Message Bus / Dispatcher
 
