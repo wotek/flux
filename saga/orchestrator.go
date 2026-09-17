@@ -78,11 +78,6 @@ func RegisterHandler[S Saga[S], E flux.Event](o *Orchestrator, store Store[S], h
 	}
 }
 
-// RegisterSagaHandler is an alias for RegisterHandler.
-func RegisterSagaHandler[S Saga[S], E flux.Event](o *Orchestrator, store Store[S], handler func(ctx Context, saga S, event E) error) {
-	RegisterHandler(o, store, handler)
-}
-
 // Start begins tailing the EventStore in the background.
 func (o *Orchestrator) Start(ctx context.Context) error {
 	var position uint64 = 0

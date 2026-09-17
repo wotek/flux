@@ -24,10 +24,6 @@ func New() *ProjectionStore {
 }
 
 // NewProjectionStore is an alias for New to maintain backwards compatibility.
-func NewProjectionStore() *ProjectionStore {
-	return New()
-}
-
 func (s *ProjectionStore) GetPosition(ctx context.Context, id flux.Identifier) (uint64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

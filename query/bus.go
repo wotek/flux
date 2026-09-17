@@ -27,10 +27,6 @@ func New() *Bus {
 }
 
 // NewBus is an alias for New to maintain explicit constructor naming.
-func NewBus() *Bus {
-	return New()
-}
-
 // RegisterHandler registers a strongly-typed handler for a specific query type.
 func RegisterHandler[Q any, R any](bus *Bus, handler Handler[Q, R]) {
 	bus.mu.Lock()
@@ -49,11 +45,6 @@ func RegisterHandler[Q any, R any](bus *Bus, handler Handler[Q, R]) {
 	bus.handlers[qType] = handler
 }
 
-// RegisterQueryHandler is an alias for RegisterHandler.
-func RegisterQueryHandler[Q any, R any](bus *Bus, handler Handler[Q, R]) {
-	RegisterHandler(bus, handler)
-}
-
 // Register registers a functional handler for a specific query type.
 func Register[Q any, R any](bus *Bus, handler func(ctx Context, query Q) (R, error)) {
 	bus.mu.Lock()
@@ -70,11 +61,6 @@ func Register[Q any, R any](bus *Bus, handler func(ctx Context, query Q) (R, err
 	}
 
 	bus.handlers[qType] = queryFuncHandler[Q, R]{fn: handler}
-}
-
-// RegisterQuery is an alias for Register.
-func RegisterQuery[Q any, R any](bus *Bus, handler func(ctx Context, query Q) (R, error)) {
-	Register[Q, R](bus, handler)
 }
 
 type queryFuncHandler[Q any, R any] struct {
@@ -106,7 +92,3 @@ func Execute[Q any, R any](ctx Context, bus *Bus, query Q) (R, error) {
 	return handler.Handle(ctx, query)
 }
 
-// ExecuteQuery is an alias for Execute.
-func ExecuteQuery[Q any, R any](ctx Context, bus *Bus, query Q) (R, error) {
-	return Execute[Q, R](ctx, bus, query)
-}

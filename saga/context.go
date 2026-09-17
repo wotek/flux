@@ -36,11 +36,6 @@ func NewContext(parent event.Context) Context {
 	}
 }
 
-// NewSagaContext is an alias for NewContext.
-func NewSagaContext(parent event.Context) Context {
-	return NewContext(parent)
-}
-
 // EnqueueCommand safely queues a strongly-typed command to be dispatched by the saga outbox.
 func EnqueueCommand[C any](ctx Context, cmd C) {
 	ctx.dispatch(cmd)

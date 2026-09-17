@@ -29,10 +29,6 @@ func New(id flux.Identifier, eventStore flux.EventStore, projStore Store) *Proje
 }
 
 // NewProjector is an alias for New to maintain explicit naming.
-func NewProjector(id flux.Identifier, eventStore flux.EventStore, projStore Store) *Projector {
-	return New(id, eventStore, projStore)
-}
-
 // RegisterHandler wires a specific event type to the projection's logic.
 func RegisterHandler[E flux.Event](p *Projector, handler func(ctx Context, event E) error) {
 	var event E
@@ -46,11 +42,6 @@ func RegisterHandler[E flux.Event](p *Projector, handler func(ctx Context, event
 	}
 
 	p.handlers[name] = wrapper
-}
-
-// RegisterProjectionHandler is an alias for RegisterHandler.
-func RegisterProjectionHandler[E flux.Event](p *Projector, handler func(ctx Context, event E) error) {
-	RegisterHandler(p, handler)
 }
 
 // Start begins tailing the EventStore in the background until the context is canceled.

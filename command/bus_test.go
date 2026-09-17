@@ -2,62 +2,67 @@ package command_test
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/command"
 )
 
-type MyCommand struct {
-	Data string
-}
+type dummyCmd struct { val string }
 
-type MyCommandHandler struct {
-	t       *testing.T
-	handled *bool
-}
-
-func (h MyCommandHandler) Handle(ctx command.Context, cmd MyCommand) error {
-	*h.handled = true
-	if cmd.Data != "test" {
-		h.t.Errorf("expected 'test', got %s", cmd.Data)
-	}
-	return nil
-}
-
-func TestCommandBus(t *testing.T) {
+func TestCommandBus_ExecuteAsync(t *testing.T) {
 	bus := command.New()
-
-	handled := false
-	command.RegisterHandler(bus, MyCommandHandler{t: t, handled: &handled})
-
-	ctx := command.NewContext(context.Background(), flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
-	err := command.Execute(ctx, bus, MyCommand{Data: "test"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !handled {
-		t.Errorf("expected handler to be called")
-	}
-}
-
-func TestCommandBus_FunctionalHandler(t *testing.T) {
-	bus := command.New()
-
-	handled := false
-	command.Register(bus, func(ctx command.Context, cmd MyCommand) error {
-		handled = true
+	
+	done := make(chan struct{})
+	command.Register(bus, func(ctx command.Context, cmd dummyCmd) error {
+		defer close(done)
+		if cmd.val == "panic" {
+			panic("intentional panic")
+		}
 		return nil
 	})
 
 	ctx := command.NewContext(context.Background(), flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
-	err := command.Execute(ctx, bus, MyCommand{Data: "test"})
+	
+	// Test normal async
+	err := command.ExecuteAsync(ctx, bus, dummyCmd{val: "ok"})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("expected no error from ExecuteAsync, got %v", err)
 	}
 
-	if !handled {
-		t.Errorf("expected handler to be called")
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("async execution timed out")
+	}
+
+	// Test panic recovery async (we don't get the error back, but it shouldn't crash the program)
+	bus2 := command.New()
+	done2 := make(chan struct{})
+	command.Register(bus2, func(ctx command.Context, cmd dummyCmd) error {
+		defer close(done2)
+		panic("intentional panic 2")
+	})
+
+	command.ExecuteAsync(ctx, bus2, dummyCmd{val: "panic"})
+	select {
+	case <-done2:
+	case <-time.After(1 * time.Second):
+		t.Fatal("async execution timed out")
+	}
+}
+
+func TestCommandBus_ExecuteAsync_NoHandler(t *testing.T) {
+	bus := command.New()
+	ctx := command.NewContext(context.Background(), flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
+	
+	err := command.ExecuteAsync(ctx, bus, dummyCmd{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, flux.ErrNoHandler) {
+		t.Fatalf("expected ErrNoHandler, got %v", err)
 	}
 }

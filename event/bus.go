@@ -27,10 +27,6 @@ func New() *Bus {
 }
 
 // NewBus is an alias for New to maintain explicit constructor naming.
-func NewBus() *Bus {
-	return New()
-}
-
 // RegisterHandler registers a strongly-typed handler for a specific event type.
 func RegisterHandler[E flux.Event](bus *Bus, handler Handler[E]) {
 	bus.mu.Lock()
@@ -46,11 +42,6 @@ func RegisterHandler[E flux.Event](bus *Bus, handler Handler[E]) {
 	bus.handlers[name] = append(bus.handlers[name], wrapper)
 }
 
-// RegisterEventHandler is an alias for RegisterHandler.
-func RegisterEventHandler[E flux.Event](bus *Bus, handler Handler[E]) {
-	RegisterHandler(bus, handler)
-}
-
 // Register registers a functional handler for a specific event type.
 func Register[E flux.Event](bus *Bus, handler func(ctx Context, event E) error) {
 	bus.mu.Lock()
@@ -64,11 +55,6 @@ func Register[E flux.Event](bus *Bus, handler func(ctx Context, event E) error) 
 	}
 
 	bus.handlers[name] = append(bus.handlers[name], wrapper)
-}
-
-// RegisterEvent is an alias for Register.
-func RegisterEvent[E flux.Event](bus *Bus, handler func(ctx Context, event E) error) {
-	Register(bus, handler)
 }
 
 // PublishEnvelope routes an Envelope to all registered subscribers.
@@ -104,7 +90,3 @@ func Publish[E flux.Event](ctx Context, bus *Bus, event E) error {
 	return PublishEnvelope(ctx, bus, env)
 }
 
-// PublishEvent is an alias for Publish.
-func PublishEvent[E flux.Event](ctx Context, bus *Bus, event E) error {
-	return Publish(ctx, bus, event)
-}

@@ -21,7 +21,3 @@ func NewContext(parent event.Context) Context {
 	}
 }
 
-// NewProjectionContext is an alias for NewContext.
-func NewProjectionContext(parent event.Context) Context {
-	return NewContext(parent)
-}

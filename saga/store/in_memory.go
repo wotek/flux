@@ -36,10 +36,6 @@ func New[S saga.Saga[S]](cmdBus *command.Bus) *SagaStore[S] {
 }
 
 // NewSagaStore is an alias for New to maintain backwards compatibility.
-func NewSagaStore[S saga.Saga[S]](cmdBus *command.Bus) *SagaStore[S] {
-	return New[S](cmdBus)
-}
-
 func (s *SagaStore[S]) Load(ctx context.Context, id flux.Identifier) (S, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

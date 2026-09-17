@@ -15,7 +15,7 @@ func NewProductCatalogProjector(
 	projStore projection.Store,
 	catalogStore Store,
 ) *projection.Projector {
-	p := projection.NewProjector(projID, eventStore, projStore)
+	p := projection.New(projID, eventStore, projStore)
 
 	// 1. ProductCreated initializes the view
 	projection.RegisterHandler(p, func(ctx projection.Context, evt events.ProductCreated) error {

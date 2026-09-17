@@ -27,10 +27,6 @@ func New() *Bus {
 }
 
 // NewBus is an alias for New to maintain explicit constructor naming.
-func NewBus() *Bus {
-	return New()
-}
-
 // RegisterHandler registers a strongly-typed handler for a specific command type.
 func RegisterHandler[C any](bus *Bus, handler Handler[C]) {
 	bus.mu.Lock()
@@ -75,16 +71,6 @@ func Register[C any](bus *Bus, handler func(ctx Context, cmd C) error) {
 	bus.handlers[cmdType] = wrapper
 }
 
-// RegisterCommand is an alias for Register.
-func RegisterCommand[C any](bus *Bus, handler func(ctx Context, cmd C) error) {
-	Register(bus, handler)
-}
-
-// RegisterCommandHandler is an alias for RegisterHandler.
-func RegisterCommandHandler[C any](bus *Bus, handler Handler[C]) {
-	RegisterHandler(bus, handler)
-}
-
 // Execute routes a command to its registered handler synchronously.
 func Execute[C any](ctx Context, bus *Bus, cmd C) error {
 	cmdType := reflect.TypeOf(cmd)
@@ -100,11 +86,6 @@ func Execute[C any](ctx Context, bus *Bus, cmd C) error {
 	// 100% reflection-free O(1) execution via closure assertion
 	wrapper := h.(func(Context, any) error)
 	return wrapper(ctx, cmd)
-}
-
-// ExecuteCommand is an alias for Execute.
-func ExecuteCommand[C any](ctx Context, bus *Bus, cmd C) error {
-	return Execute(ctx, bus, cmd)
 }
 
 // ExecuteAsync routes a command to its registered handler asynchronously (fire-and-forget).
@@ -131,7 +112,3 @@ func ExecuteAsync[C any](ctx Context, bus *Bus, cmd C) error {
 	return nil
 }
 
-// ExecuteCommandAsync is an alias for ExecuteAsync.
-func ExecuteCommandAsync[C any](ctx Context, bus *Bus, cmd C) error {
-	return ExecuteAsync(ctx, bus, cmd)
-}

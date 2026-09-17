@@ -26,10 +26,6 @@ func New() *EventStore {
 }
 
 // NewEventStore is an alias for New to maintain backwards compatibility.
-func NewEventStore() *EventStore {
-	return New()
-}
-
 // Append adds new events to a specific stream, enforcing optimistic concurrency.
 func (s *EventStore) Append(ctx context.Context, stream flux.Stream, expectedRevision uint64, events []flux.Envelope) error {
 	s.mu.Lock()
