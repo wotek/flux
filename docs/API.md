@@ -332,6 +332,11 @@ To bridge the gap between keeping domain payloads lean and providing explicit, t
 
 Because they embed `context.Context`, they can be passed directly into standard library functions, database queries, and the Event Store.
 
+> [!WARNING]
+> Wrapping a typed context (e.g., using `context.WithTimeout`) returns a standard `context.Context`, stripping the typed methods. Handlers should extract needed metadata early if they plan to wrap the context for downstream calls.
+
+#### Interfaces
+
 ```go
 // Context is the base typed context for the framework, providing guaranteed
 // access to metadata for any operation.
@@ -366,6 +371,15 @@ type EventContext interface {
 }
 ```
 
+#### Constructors
+
+```go
+func NewContext(parent context.Context, actor Actor, correlationId Identifier, causationId Identifier) Context
+func NewCommandContext(parent context.Context, cmdId Identifier, actor Actor, correlationId Identifier, causationId Identifier) CommandContext
+func NewQueryContext(parent context.Context, queryId Identifier, actor Actor, correlationId Identifier, causationId Identifier) QueryContext
+func NewEventContext(parent context.Context, env Envelope) EventContext
+```
+
 ### Handlers
 
 Handlers define the interface for processing Commands, Queries, and Events. They receive their respective strongly-typed contexts.
@@ -391,6 +405,7 @@ type EventHandler[E Event] interface {
 
 ```go
 // CommandBus manages command routing.
+// It can optionally be configured with a distributed transport (like NATS or SQS) for async execution.
 type CommandBus struct {
 	// internal fields
 }
@@ -402,9 +417,20 @@ func NewCommandBus() *CommandBus
 // Panics if a handler is already registered for type C.
 func RegisterCommandHandler[C any](bus *CommandBus, handler CommandHandler[C])
 
-// ExecuteCommand routes the command to its registered handler.
+// ExecuteCommand routes the command to its registered handler synchronously.
+// This is the default as most CQRS commands (e.g. from an HTTP request) 
+// require immediate feedback on domain invariants.
 func ExecuteCommand[C any](ctx context.Context, bus *CommandBus, cmd C) error
+
+// ExecuteCommandAsync performs a "fire-and-forget" dispatch.
+// If the bus has no distributed transport configured, it executes the handler 
+// in a background goroutine (safely detaching the context). If a transport is 
+// configured, it serializes and enqueues the command for background workers.
+func ExecuteCommandAsync[C any](ctx context.Context, bus *CommandBus, cmd C) error
 ```
+
+> [!TIP]
+> The framework intentionally avoids "batch" or "multi-command" dispatch methods. Because `ExecuteCommand` is completely thread-safe, developers can use native Go primitives (like `sync.WaitGroup` or `golang.org/x/sync/errgroup`) to execute commands sequentially or in parallel. Long-running orchestrations should use Sagas instead of sequential scripts.
 
 ### Query Bus
 
@@ -427,6 +453,8 @@ func ExecuteQuery[Q any, R any](ctx context.Context, bus *QueryBus, query Q) (R,
 
 ### Event Bus
 
+The Event Bus is typically invoked by a background worker tailing the `EventStore`'s global stream.
+
 ```go
 // EventBus manages routing domain events to multiple subscribers.
 type EventBus struct {
@@ -439,6 +467,84 @@ func NewEventBus() *EventBus
 // RegisterEventHandler adds a subscriber to a specific event type.
 func RegisterEventHandler[E Event](bus *EventBus, handler EventHandler[E])
 
-// PublishEvent distributes the event to all registered handlers concurrently.
+// PublishEnvelope takes a raw Envelope (typically from the EventStore tailer), 
+// constructs an EventContext, and routes the inner strongly-typed Event to all 
+// registered subscribers concurrently.
+func PublishEnvelope(ctx context.Context, bus *EventBus, env Envelope) error
+
+// PublishEvent distributes a raw event to all registered handlers. 
+// Mostly used for internal framework events or testing.
 func PublishEvent[E Event](ctx context.Context, bus *EventBus, event E) error
 ```
+
+### Projections
+
+In CQRS, **Projections** (or Read Models) listen to the global event stream and build state optimized for read operations. 
+
+A critical requirement of any projection is tracking its progress using a cursor (the global `Position` of the last processed event) so it can resume safely after a restart. The state mutation and the cursor update must be transactional to prevent data anomalies.
+
+```go
+// ProjectionStore defines the contract for persisting both the read-model data and its cursor.
+// It abstracts the transactional boundaries of the underlying database (e.g., PostgreSQL, MongoDB).
+type ProjectionStore interface {
+	// GetPosition retrieves the last successfully processed global position for the projection.
+	GetPosition(ctx context.Context, id Identifier) (uint64, error)
+
+	// Update runs a database transaction. It provides the framework with a transactional 
+	// context and executes the `mutate` closure (which contains the user's read-model logic). 
+	// If the closure succeeds, the framework commits the transaction, atomically saving the 
+	// read-model changes AND the new envelope.Position.
+	Update(ctx context.Context, id Identifier, env Envelope, mutate func(txCtx context.Context) error) error
+}
+
+// Projector is the background worker that powers a Projection.
+// It tails the EventStore.Stream() starting from the ProjectionStore.GetPosition().
+type Projector struct {
+	// internal fields
+}
+
+// NewProjector creates a new Projector instance.
+func NewProjector(id Identifier, eventStore EventStore, projStore ProjectionStore) *Projector
+
+// RegisterProjectionHandler wires a specific event type to the projection's logic.
+// It leverages the same generic type-safety as the EventBus, but executes the handler 
+// strictly within the ProjectionStore's Update() transaction boundary.
+func RegisterProjectionHandler[E Event](p *Projector, handler func(ctx EventContext, event E) error)
+
+// Start begins tailing the EventStore in the background until the context is canceled.
+func (p *Projector) Start(ctx context.Context) error
+```
+
+#### Cross-Domain Projections
+
+Because the `Projector` tails the **Global Event Stream** (via `EventStore.Stream`) rather than individual aggregate streams, it natively supports listening to events across entirely different domains. You can simply register multiple event types to the same projector, and it will route them sequentially in the exact deterministic order they occurred system-wide.
+
+```go
+// Example: A single dashboard projection handling cross-domain events
+proj := flux.NewProjector(dashboardID, eventStore, sqlStore)
+
+flux.RegisterProjectionHandler(proj, func(ctx flux.EventContext, e OrderCreated) error { /* ... */ })
+flux.RegisterProjectionHandler(proj, func(ctx flux.EventContext, e UserRegistered) error { /* ... */ })
+```
+
+#### Temporal Integration (Optional Path)
+
+Because the framework strictly decouples **Routing** from **Execution**, you are not forced to use the default `Projector` or `ProjectionStore`. If you prefer to run Projections as durable [Temporal Workflows](https://temporal.io/), the framework provides the perfect hooks to bridge the gap.
+
+Instead of a traditional pull-based projector, you can use the `EventBus` to push events directly into Temporal as Signals:
+
+```go
+// Example: Using the EventBus to bridge events into Temporal
+flux.RegisterEventHandler[OrderCreated](bus, func(ctx flux.EventContext, e OrderCreated) error {
+	// The EventContext provides the metadata, and 'e' is the clean payload
+	return temporalClient.SignalWorkflow(
+		ctx, 
+		"Projection-Dashboard", // Target Temporal Workflow ID
+		"", 
+		"OrderCreatedSignal", 
+		e,
+	)
+})
+```
+
+Because Temporal workflows durably persist their own local state and handle retries natively, this approach eliminates the need to manually track `Position` cursors or manage database transactions.
