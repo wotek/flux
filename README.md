@@ -23,7 +23,7 @@ A lightweight, high-performance, and type-safe **Event Sourcing & CQRS** framewo
   * **Projector:** Projection state lifecycle management with checkpoint tracking.
   * **Saga & Orchestrator:** Multi-step business transaction coordinators with compensation and causal metadata.
 * **Context & Metadata Propagation:** First-class auditability preserving `Actor`, `CorrelationIdentifier`, and `CausationIdentifier` across all events and commands.
-* **Pluggable Storage:** Built-in in-memory stores (`store/inmemory`) with clean interfaces for implementing durable event and projection databases.
+* **Pluggable Storage:** Built-in in-memory stores (`event/store`, `projection/store`, `saga/store`) with clean interfaces for implementing durable event and projection databases.
 
 ---
 
@@ -49,7 +49,7 @@ import (
 	"fmt"
 
 	"github.com/wotek/flux"
-	"github.com/wotek/flux/store/inmemory"
+	eventstore "github.com/wotek/flux/event/store"
 )
 
 // Domain Event
@@ -108,7 +108,7 @@ func main() {
 	ctx := context.Background()
 
 	// In-memory event store
-	eventStore := inmemory.NewEventStore()
+	eventStore := eventstore.New()
 	repo := flux.NewAggregateRepository[*BankAccount, flux.Event](eventStore)
 
 	// Create stream identifier

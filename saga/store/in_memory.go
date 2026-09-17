@@ -1,4 +1,4 @@
-package inmemory
+package store
 
 import (
 	"context"
@@ -23,14 +23,19 @@ type SagaStore[S flux.Saga[S]] struct {
 	running bool
 }
 
-// NewSagaStore creates a memory-backed Saga store.
+// New creates a memory-backed Saga store.
 // It accepts a CommandBus to simulate the background Outbox Relay.
-func NewSagaStore[S flux.Saga[S]](cmdBus *flux.CommandBus) *SagaStore[S] {
+func New[S flux.Saga[S]](cmdBus *flux.CommandBus) *SagaStore[S] {
 	return &SagaStore[S]{
 		state:  make(map[string]S),
 		outbox: make([]OutboxMessage, 0),
 		cmdBus: cmdBus,
 	}
+}
+
+// NewSagaStore is an alias for New to maintain backwards compatibility.
+func NewSagaStore[S flux.Saga[S]](cmdBus *flux.CommandBus) *SagaStore[S] {
+	return New[S](cmdBus)
 }
 
 func (s *SagaStore[S]) Load(ctx context.Context, id flux.Identifier) (S, error) {

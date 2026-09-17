@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/wotek/flux"
-	"github.com/wotek/flux/store/inmemory"
+	eventstore "github.com/wotek/flux/event/store"
 )
 
 // We can reuse CounterAggregate from aggregate_test.go if we put this in package flux.
@@ -68,7 +68,7 @@ func (a *BankAccount) Deposit(amount int) {
 
 func TestAggregateRepository_SaveAndLoad(t *testing.T) {
 	ctx := flux.NewCommandContext(context.Background(), flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
-	store := inmemory.NewEventStore()
+	store := eventstore.New()
 	repo := flux.NewAggregateRepository[*BankAccount, BankEvent](store)
 
 	id := flux.NewIdentifierFromString("urn:bank:prod:accounts:123:account:abc-999")
@@ -107,7 +107,7 @@ func TestAggregateRepository_SaveAndLoad(t *testing.T) {
 
 func TestAggregateRepository_ConcurrencyError(t *testing.T) {
 	ctx := flux.NewCommandContext(context.Background(), flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
-	store := inmemory.NewEventStore()
+	store := eventstore.New()
 	repo := flux.NewAggregateRepository[*BankAccount, BankEvent](store)
 
 	id := flux.NewIdentifierFromString("urn:bank:prod:accounts:123:account:abc-999")

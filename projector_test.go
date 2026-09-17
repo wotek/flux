@@ -7,18 +7,19 @@ import (
 	"time"
 
 	"github.com/wotek/flux"
-	"github.com/wotek/flux/store/inmemory"
+	eventstore "github.com/wotek/flux/event/store"
+	projstore "github.com/wotek/flux/projection/store"
 )
 
 func TestProjector(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	eventStore := inmemory.NewEventStore()
-	projStore := inmemory.NewProjectionStore()
+	eventStore := eventstore.New()
+	projectionStore := projstore.New()
 
 	projID := flux.NewIdentifierFromString("urn:proj::::stats:1")
-	projector := flux.NewProjector(projID, eventStore, projStore)
+	projector := flux.NewProjector(projID, eventStore, projectionStore)
 
 	var processedCount atomic.Int32
 	flux.RegisterProjectionHandler(projector, func(ctx flux.ProjectionContext, e AccountCreated) error {
@@ -50,7 +51,7 @@ func TestProjector(t *testing.T) {
 		t.Errorf("expected 2 AccountCreated events processed, got %d", count)
 	}
 
-	pos, _ := projStore.GetPosition(ctx, projID)
+	pos, _ := projectionStore.GetPosition(ctx, projID)
 	if pos != 3 {
 		t.Errorf("expected position 3, got %d", pos)
 	}

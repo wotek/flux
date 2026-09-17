@@ -6,7 +6,8 @@ import (
 	"time"
 
 	"github.com/wotek/flux"
-	"github.com/wotek/flux/store/inmemory"
+	eventstore "github.com/wotek/flux/event/store"
+	sagastore "github.com/wotek/flux/saga/store"
 )
 
 type UserRegistered struct {
@@ -43,8 +44,8 @@ func TestSagaOrchestrator(t *testing.T) {
 	defer cancel()
 
 	cmdBus := flux.NewCommandBus()
-	eventStore := inmemory.NewEventStore()
-	sagaStore := inmemory.NewSagaStore[*OnboardingSaga](cmdBus)
+	eventStore := eventstore.New()
+	sagaStore := sagastore.New[*OnboardingSaga](cmdBus)
 
 	// Start the background relay
 	sagaStore.StartRelay(ctx)

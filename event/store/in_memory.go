@@ -1,4 +1,4 @@
-package inmemory
+package store
 
 import (
 	"context"
@@ -17,12 +17,17 @@ type EventStore struct {
 	globalStream []flux.Envelope
 }
 
-// NewEventStore creates a new in-memory event store.
-func NewEventStore() *EventStore {
+// New creates a new in-memory event store.
+func New() *EventStore {
 	return &EventStore{
 		streams:      make(map[string][]flux.Envelope),
 		globalStream: make([]flux.Envelope, 0),
 	}
+}
+
+// NewEventStore is an alias for New to maintain backwards compatibility.
+func NewEventStore() *EventStore {
+	return New()
 }
 
 // Append adds new events to a specific stream, enforcing optimistic concurrency.

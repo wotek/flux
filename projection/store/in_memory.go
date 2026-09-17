@@ -1,4 +1,4 @@
-package inmemory
+package store
 
 import (
 	"context"
@@ -13,10 +13,16 @@ type ProjectionStore struct {
 	positions map[string]uint64
 }
 
-func NewProjectionStore() *ProjectionStore {
+// New creates a new in-memory projection store.
+func New() *ProjectionStore {
 	return &ProjectionStore{
 		positions: make(map[string]uint64),
 	}
+}
+
+// NewProjectionStore is an alias for New to maintain backwards compatibility.
+func NewProjectionStore() *ProjectionStore {
+	return New()
 }
 
 func (s *ProjectionStore) GetPosition(ctx context.Context, id flux.Identifier) (uint64, error) {
