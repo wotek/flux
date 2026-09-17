@@ -46,10 +46,34 @@ example/todo/
 │       ├── projector.go                 # NewProjector constructor and handlers
 │       └── projector_test.go            # Unit test for counter projector
 │
-└── cmd/todo/                            # Application entry point
-    ├── doc.go                           # main package documentation
-    ├── main.go                          # Executable server & client simulation
-    └── main_test.go                     # Runner smoke test
+├── server/                              # Server orchestration & HTTP gateway
+│   ├── doc.go                           # Package documentation
+│   ├── server.go                        # Server struct (buses, stores, projector, HTTP lifecycle)
+│   ├── options.go                       # Functional options (WithHTTP, WithEventStore, etc.)
+│   ├── http_handler.go                  # HTTP gateway endpoints (/tasks, /tasks/done, /counter)
+│   └── server_test.go                   # Server & HTTP integration tests
+│
+├── client/                              # Client abstractions & implementations
+│   ├── doc.go                           # Package documentation
+│   ├── client.go                        # Client interface definition
+│   ├── in_memory_client.go              # InMemoryClient direct bus implementation
+│   ├── http_client.go                   # HTTPClient JSON REST implementation
+│   ├── workflow.go                      # Canonical 10-task demo workflow runner
+│   └── client_test.go                   # Tests for InMemoryClient & HTTPClient
+│
+└── cmd/                                 # Application entry points
+    ├── todo/                            # All-in-one runner (in-process server + client simulation)
+    │   ├── doc.go
+    │   ├── main.go
+    │   └── main_test.go
+    ├── server/                          # Standalone HTTP daemon entry point
+    │   ├── doc.go
+    │   ├── main.go
+    │   └── main_test.go
+    └── client/                          # Standalone CLI HTTP client entry point
+        ├── doc.go
+        ├── main.go
+        └── main_test.go
 ```
 
 ---
@@ -66,7 +90,10 @@ example/todo/
    - Each query and its corresponding handler struct live in the same file (e.g. `GetCounter` and `GetCounterHandler` in `queries/get_counter.go`).
 4. **Dedicated Projection Subpackage (`projections/counter/`)**:
    - Projections are isolated in their own subpackages containing the read-model struct (`Counter`), the storage contract (`Store`), the thread-safe implementation (`MemoryStore`), and the event projector (`NewProjector`).
-5. **No Namespace Collisions**:
+5. **Decoupled Server & Client (`server/` & `client/`)**:
+   - `server.Server` manages stores, buses, background projector workers, and optional HTTP gateway.
+   - `client.Client` interface provides polymorphism across `InMemoryClient` (in-process bus dispatch) and `HTTPClient` (remote HTTP gateway).
+6. **No Namespace Collisions**:
    - Domain subpackages use plural names (`commands`, `events`, `queries`, `projections`), cleanly preventing collisions with framework packages (`flux/command`, `flux/event`, `flux/query`, `flux/projection`).
 
 ---
@@ -79,39 +106,76 @@ example/todo/
 
 ## How to Compile & Run
 
-### 1. Run Directly with `go run`
+### Option 1: All-In-One Runner (`cmd/todo`)
 
-From the `example/todo` directory:
+Showcases how everything works together in one executable:
 
 ```bash
 cd example/todo
 go run ./cmd/todo
 ```
 
-Or from the repository root:
-
-```bash
-go run -C example/todo ./cmd/todo
-```
-
 #### Expected Output
 
 ```text
-time=2026-09-16T09:15:47.305+02:00 level=INFO msg="initializing infrastructure..."
-time=2026-09-16T09:15:47.305+02:00 level=INFO msg="client: adding 10 tasks..."
-time=2026-09-16T09:15:47.305+02:00 level=INFO msg="starting background counter projector..."
-time=2026-09-16T09:15:47.306+02:00 level=INFO msg="client: removing odd tasks (1, 3, 5, 7, 9)..."
-time=2026-09-16T09:15:47.306+02:00 level=INFO msg="client: marking Task 6 and Task 10 as completed..."
-time=2026-09-16T09:15:47.408+02:00 level=INFO msg="client: read model verified successfully" active=3 archived=2 removed=5
+time=2026-09-16T09:22:14.305+02:00 level=INFO msg="initializing infrastructure..."
+time=2026-09-16T09:22:14.305+02:00 level=INFO msg="client: adding 10 tasks..."
+time=2026-09-16T09:22:14.305+02:00 level=INFO msg="starting background counter projector..."
+time=2026-09-16T09:22:14.306+02:00 level=INFO msg="client: removing odd tasks (1, 3, 5, 7, 9)..."
+time=2026-09-16T09:22:14.306+02:00 level=INFO msg="client: marking Task 6 and Task 10 as completed..."
+time=2026-09-16T09:22:14.408+02:00 level=INFO msg="client: read model verified successfully" active=3 archived=2 removed=5
 ```
 
-### 2. Compile into a Binary
+---
+
+### Option 2: Standalone Server + Standalone Client
+
+Run the server daemon in one terminal and the client in another.
+
+#### 1. Start Server Daemon
+
+```bash
+cd example/todo
+go run ./cmd/server -addr :8080
+```
+
+Output:
+```text
+level=INFO msg="starting todo cqrs server" addr=:8080
+level=INFO msg="server: starting background counter projector..."
+level=INFO msg="server: starting HTTP gateway..." addr=:8080
+```
+
+#### 2. Run Client CLI
+
+In a separate terminal:
+
+```bash
+cd example/todo
+go run ./cmd/client -server http://localhost:8080
+```
+
+Output:
+```text
+level=INFO msg="connecting to server..." url=http://localhost:8080 list=urn:todo:prod:lists:1:list:abc-123
+level=INFO msg="client workflow: adding 10 tasks..." list=urn:todo:prod:lists:1:list:abc-123
+level=INFO msg="client workflow: removing odd tasks (1, 3, 5, 7, 9)..."
+level=INFO msg="client workflow: marking Task 6 and Task 10 as completed..."
+level=INFO msg="client workflow: awaiting read model projection convergence..."
+level=INFO msg="client workflow: read model converged" active=3 archived=2 removed=5
+level=INFO msg="workflow executed successfully!" active=3 archived=2 removed=5
+```
+
+---
+
+### Compile into Standalone Binaries
 
 ```bash
 cd example/todo
 mkdir -p bin
 go build -o bin/todo ./cmd/todo
-./bin/todo
+go build -o bin/server ./cmd/server
+go build -o bin/client ./cmd/client
 ```
 
 ---
