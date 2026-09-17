@@ -1,6 +1,8 @@
 package server
 
 import (
+	"log/slog"
+
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/projection"
 )
@@ -12,6 +14,7 @@ type config struct {
 	httpAddr        string
 	eventStore      flux.EventStore
 	projectionStore projection.Store
+	logger          *slog.Logger
 }
 
 // WithHTTP enables an HTTP gateway on the specified listen address (e.g. ":8080").
@@ -34,3 +37,11 @@ func WithProjectionStore(store projection.Store) Option {
 		c.projectionStore = store
 	}
 }
+
+// WithLogger configures a custom structured logger.
+func WithLogger(logger *slog.Logger) Option {
+	return func(c *config) {
+		c.logger = logger
+	}
+}
+

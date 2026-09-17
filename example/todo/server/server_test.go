@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,4 +165,33 @@ func TestServerHTTPHandler(t *testing.T) {
 			t.Fatalf("expected at least 2 lists, got %d: %v", len(listSummaries), listSummaries)
 		}
 	})
+}
+
+func TestServer_DebugLogging(t *testing.T) {
+	t.Parallel()
+
+	buf := &bytes.Buffer{}
+	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	srv := server.New(server.WithLogger(logger))
+	handler := srv.HTTPHandler()
+
+	req := httptest.NewRequest(http.MethodGet, "/counter", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	logOutput := buf.String()
+	if !strings.Contains(logOutput, "server: http request received") {
+		t.Errorf("expected request received log, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, "server: http request completed") {
+		t.Errorf("expected request completed log, got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, "server: executing GetCounter query") {
+		t.Errorf("expected query debug log, got: %s", logOutput)
+	}
 }

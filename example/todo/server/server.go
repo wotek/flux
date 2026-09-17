@@ -35,6 +35,7 @@ type Server struct {
 	projector      *projection.Projector
 	listsProjector *projection.Projector
 	httpAddr       string
+	logger         *slog.Logger
 }
 
 // New creates and configures a new [Server] instance.
@@ -42,6 +43,11 @@ func New(opts ...Option) *Server {
 	cfg := &config{}
 	for _, opt := range opts {
 		opt(cfg)
+	}
+
+	logger := cfg.logger
+	if logger == nil {
+		logger = slog.Default()
 	}
 
 	if cfg.eventStore == nil {
@@ -76,6 +82,7 @@ func New(opts ...Option) *Server {
 		projector:      projector,
 		listsProjector: listsProjector,
 		httpAddr:       cfg.httpAddr,
+		logger:         logger,
 	}
 }
 
@@ -104,9 +111,14 @@ func (s *Server) ListsStore() lists.Store {
 	return s.listsStore
 }
 
+// Logger returns the configured [*slog.Logger].
+func (s *Server) Logger() *slog.Logger {
+	return s.logger
+}
+
 // HTTPHandler returns an [http.Handler] exposing the HTTP gateway endpoints.
 func (s *Server) HTTPHandler() http.Handler {
-	return NewHTTPHandler(s.cmdBus, s.queryBus)
+	return NewHTTPHandler(s.cmdBus, s.queryBus, s.logger)
 }
 
 // Start boots the background projectors and the optional HTTP server until the context is canceled.
@@ -115,7 +127,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Start counter projector loop
 	g.Go(func() error {
-		slog.InfoContext(groupCtx, "server: starting background counter projector...")
+		s.logger.InfoContext(groupCtx, "server: starting background counter projector...")
 		if err := s.projector.Start(groupCtx); err != nil && groupCtx.Err() == nil {
 			return fmt.Errorf("counter projector error: %w", err)
 		}
@@ -124,7 +136,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Start lists projector loop
 	g.Go(func() error {
-		slog.InfoContext(groupCtx, "server: starting background lists projector...")
+		s.logger.InfoContext(groupCtx, "server: starting background lists projector...")
 		if err := s.listsProjector.Start(groupCtx); err != nil && groupCtx.Err() == nil {
 			return fmt.Errorf("lists projector error: %w", err)
 		}
@@ -140,7 +152,7 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 
 		g.Go(func() error {
-			slog.InfoContext(groupCtx, "server: starting HTTP gateway...", "addr", s.httpAddr)
+			s.logger.InfoContext(groupCtx, "server: starting HTTP gateway...", "addr", s.httpAddr)
 			if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				return fmt.Errorf("http server error: %w", err)
 			}

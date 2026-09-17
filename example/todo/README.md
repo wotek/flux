@@ -60,8 +60,9 @@ example/todo/
 ├── server/                              # Server orchestration & HTTP gateway
 │   ├── doc.go                           # Package documentation
 │   ├── server.go                        # Server struct (buses, stores, projector, HTTP lifecycle)
-│   ├── options.go                       # Functional options (WithHTTP, WithEventStore, etc.)
-│   ├── http_handler.go                  # HTTP gateway endpoints (/tasks, /tasks/done, /counter)
+│   ├── options.go                       # Functional options (WithHTTP, WithLogger, WithEventStore)
+│   ├── http_handler.go                  # HTTP gateway endpoints with structured logging
+│   ├── response_recorder.go             # HTTP status recorder for logging middleware
 │   └── server_test.go                   # Server & HTTP integration tests
 │
 ├── client/                              # Client abstractions & implementations
@@ -164,7 +165,22 @@ Output:
 ```text
 level=INFO msg="starting todo cqrs server" addr=:8080
 level=INFO msg="server: starting background counter projector..."
+level=INFO msg="server: starting background lists projector..."
 level=INFO msg="server: starting HTTP gateway..." addr=:8080
+```
+
+To enable verbose debug logging for all HTTP requests and CQRS command/query dispatches:
+
+```bash
+go run ./cmd/server -addr :8080 -debug
+```
+
+Example debug output:
+```text
+level=DEBUG msg="server: http request received" method=POST path=/tasks query="" remote_addr=127.0.0.1:54321
+level=DEBUG msg="server: executing AddTask command" cmd_id=urn:todo:... list_id=urn:todo:... task="Buy groceries"
+level=DEBUG msg="server: AddTask command succeeded" cmd_id=urn:todo:... task="Buy groceries"
+level=DEBUG msg="server: http request completed" method=POST path=/tasks status=201 duration=1.1ms
 ```
 
 #### 2. Run Interactive Client (Default)
