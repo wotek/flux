@@ -1,0 +1,27 @@
+# Changelog
+
+## 1.0.0 (2026-09-17)
+
+
+### Features
+
+* **example/todo:** add interactive terminal CLI client and GetTodoList query ([b4fb411](https://github.com/wotek/flux/commit/b4fb41177f2369158e56058ef7a5c6ac265cccb9))
+* **example/todo:** add structured debug logging to server and -debug CLI flag ([2d0590e](https://github.com/wotek/flux/commit/2d0590e301af464638f68e6a93b8632d17cf4b6e))
+* **example/todo:** implement server and client packages with standalone binaries ([966e016](https://github.com/wotek/flux/commit/966e016d7922244caaf7ead403ac1922c1aa14d1))
+* **example/todo:** implement Server-Sent Events (SSE) and live synchronization for competing clients ([4d6169a](https://github.com/wotek/flux/commit/4d6169ac75ddc8c5117a5041958e96e14b402419))
+* **example/todo:** implement two-screen interactive CLI navigation between lists and tasks ([0ab78ab](https://github.com/wotek/flux/commit/0ab78ab82bebae6096a2ebd3a712ca43985ec8c5))
+* **example/todo:** integrate Bubble Tea for interactive TUI with list and task cycling ([ba23b51](https://github.com/wotek/flux/commit/ba23b5165e3eff17a04e0526efcb9558729d4256))
+* **example/todo:** migrate server HTTP gateway to Echo v4 ([acb2c01](https://github.com/wotek/flux/commit/acb2c01711203ce60312e45115cefef7e33abab1))
+* **example/todo:** support multiple todo list aggregates and read-model lists projection ([ed7a05f](https://github.com/wotek/flux/commit/ed7a05f13691ca2827e312038b25d6b5491ae589))
+* **example:** implement e-commerce domain application ([c9cf995](https://github.com/wotek/flux/commit/c9cf9958d05bd085e677e7c76c5c2899f9f42cdd))
+* **example:** implement todo reference app with isolated struct files ([764bc0e](https://github.com/wotek/flux/commit/764bc0e890cd357facd56be1f5939af10707bc03))
+* **flux:** add Use() middleware chaining for commands, queries, and events ([8f35445](https://github.com/wotek/flux/commit/8f35445b6d1eb27fb556ea2284c33a15341875b7))
+* **flux:** implement aggregate snapshotting and update event store read with fromRevision ([66f8534](https://github.com/wotek/flux/commit/66f853493440db10ec2ac065a2a383bdba56451c))
+* **flux:** inject slog logger into Context with automatic distributed tracing ([695eccd](https://github.com/wotek/flux/commit/695eccd691866a0b708240b64db8fb41f3d69f5c))
+
+
+### Bug Fixes
+
+* **example/todo:** forward filter messages to list model and clear refresh status ([8cf5f96](https://github.com/wotek/flux/commit/8cf5f96b7141d5b40ccc10d6e848cd3d64d2de63))
+* **example/todo:** harden SSE parser and ensure read-model projection convergence on live sync ([8029d7d](https://github.com/wotek/flux/commit/8029d7deef8cc528ced87c8f841d16300e4158a2))
+* **flux:** update aggregate revision after successful persistence ([ebc238b](https://github.com/wotek/flux/commit/ebc238b5b1fb50ef213879b10af7610cf5d05199))
