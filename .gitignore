@@ -37,3 +37,5 @@ Thumbs.db
 # Antigravity CLI local files (preserve shared config)
 .agy/*
 !.agy/config.json
+go.work
+go.work.sum
