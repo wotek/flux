@@ -67,7 +67,7 @@ func (a *BankAccount) Deposit(amount int) {
 }
 
 func TestAggregateRepository_SaveAndLoad(t *testing.T) {
-	ctx := flux.NewCommandContext(context.Background(), flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
+	ctx := flux.NewContext(context.Background(), flux.Actor{}, flux.Identifier{}, flux.Identifier{})
 	store := eventstore.New()
 	repo := flux.NewAggregateRepository[*BankAccount, BankEvent](store)
 
@@ -106,7 +106,7 @@ func TestAggregateRepository_SaveAndLoad(t *testing.T) {
 }
 
 func TestAggregateRepository_ConcurrencyError(t *testing.T) {
-	ctx := flux.NewCommandContext(context.Background(), flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
+	ctx := flux.NewContext(context.Background(), flux.Actor{}, flux.Identifier{}, flux.Identifier{})
 	store := eventstore.New()
 	repo := flux.NewAggregateRepository[*BankAccount, BankEvent](store)
 

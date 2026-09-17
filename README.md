@@ -17,12 +17,12 @@ A lightweight, high-performance, and type-safe **Event Sourcing & CQRS** framewo
 * **Type-Safe Generic Aggregates:** Generic aggregate root (`AggregateRoot[TEvent]`) enforcing compile-time event typing and self-referencing aggregate instantiation.
 * **Structured Resource Identifiers:** RFC-like URN identifiers (`urn:<org>:<env>:<service>:<account>:<type>:<id>[@version]`) stored as compact, zero-allocation strings.
 * **Complete CQRS Ecosystem:**
-  * **Command Bus:** Strict single-handler execution with context propagation.
-  * **Query Bus:** Strongly typed queries returning typed results.
-  * **Event Bus:** Multi-subscriber asynchronous/synchronous event routing.
-  * **Projector (`projection`):** Projection state lifecycle management with checkpoint tracking.
-  * **Saga & Orchestrator (`saga`):** Multi-step business transaction coordinators with compensation and causal metadata.
-* **Context & Metadata Propagation:** First-class auditability preserving `Actor`, `CorrelationIdentifier`, and `CausationIdentifier` across all events and commands.
+  * **Command Bus (`command`):** In-memory single-handler routing with `command.Context`.
+  * **Query Bus (`query`):** In-memory strongly typed queries returning typed results.
+  * **Event Bus (`event`):** Multi-subscriber event routing with `event.Context`.
+  * **Projector (`projection`):** Read-model state lifecycle and checkpoint management.
+  * **Saga & Orchestrator (`saga`):** Multi-step process coordinators with durable Outbox command dispatching.
+* **Context & Metadata Propagation:** First-class auditability preserving `Actor`, `CorrelationIdentifier`, and `CausationIdentifier` across all operations.
 * **Pluggable Storage:** Built-in in-memory stores (`event/store`, `projection/store`, `saga/store`) with clean interfaces for implementing durable event and projection databases.
 
 ---
@@ -139,31 +139,36 @@ func main() {
 ### 3. Route Commands & Events
 
 ```go
+import (
+	"github.com/wotek/flux/command"
+	"github.com/wotek/flux/event"
+)
+
 // Register a command handler
-cmdBus := flux.NewCommandBus()
-flux.RegisterCommand(cmdBus, func(ctx flux.CommandContext, cmd CreateAccountCommand) error {
+cmdBus := command.New()
+command.Register(cmdBus, func(ctx command.Context, cmd CreateAccountCommand) error {
     // Command execution logic
     return nil
 })
 
 // Dispatch a command
-cmdCtx := flux.NewCommandContext(context.Background(), actor, correlationID)
-if err := cmdBus.Dispatch(cmdCtx, CreateAccountCommand{Owner: "Alice"}); err != nil {
+cmdCtx := command.NewContext(context.Background(), cmdID, actor, correlationID, causationID)
+if err := command.Execute(cmdCtx, cmdBus, CreateAccountCommand{Owner: "Alice"}); err != nil {
     log.Fatal(err)
 }
 ```
 
 ---
 
-## Architecture & Concepts
+## Architecture & Documentation
 
-* **[Stream](docs/API.md#stream):** The append-only sequence of immutable events belonging to an aggregate.
+* **[Architecture & Dependency Graph](docs/ARCHITECTURE.md):** Detailed module hierarchy, cycle analysis, and complete exported API reference.
+* **[API Design Specification](docs/API.md):** Complete specification of aggregates, repositories, contexts, projections, and sagas.
 * **[Identifier](docs/API.md#identifier):** Uniform Resource Name (`URN`) addressing any system component.
 * **[Envelope](docs/API.md#event-and-envelope):** Wraps domain events with revision, global position, actor, timestamps, and causation data.
 * **[AggregateRepository](docs/API.md#aggregate-repository):** Handles snapshotting, rehydration, and atomic event appending.
-* **[Orchestrator / Saga](docs/API.md#saga-and-orchestrator):** Manages multi-step processes and saga workflows with step compensations.
-
-For complete specifications and detailed design documentation, see [docs/API.md](docs/API.md).
+* **[Projector](docs/API.md#projections-package-projection):** Continuous global stream tailing and read-model checkpointing.
+* **[Orchestrator / Saga](docs/API.md#sagas--process-managers-package-saga):** Coordinates multi-step workflows with durable outbox delivery.
 
 ---
 

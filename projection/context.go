@@ -1,27 +1,27 @@
 package projection
 
 import (
-	"github.com/wotek/flux"
+	"github.com/wotek/flux/event"
 )
 
-// Context extends flux.EventContext. It acts as a distinct type boundary
+// Context extends event.Context. It acts as a distinct type boundary
 // guaranteeing that the context is bound to the projection's active database transaction.
 type Context interface {
-	flux.EventContext
+	event.Context
 }
 
 type projectionContext struct {
-	flux.EventContext
+	event.Context
 }
 
-// NewContext creates a new projection Context from an EventContext.
-func NewContext(parent flux.EventContext) Context {
+// NewContext creates a new projection Context from an event.Context.
+func NewContext(parent event.Context) Context {
 	return &projectionContext{
-		EventContext: parent,
+		Context: parent,
 	}
 }
 
 // NewProjectionContext is an alias for NewContext.
-func NewProjectionContext(parent flux.EventContext) Context {
+func NewProjectionContext(parent event.Context) Context {
 	return NewContext(parent)
 }

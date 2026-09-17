@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/wotek/flux"
+	"github.com/wotek/flux/command"
 	"github.com/wotek/flux/saga"
 )
 
@@ -20,13 +21,13 @@ type SagaStore[S saga.Saga[S]] struct {
 	mu      sync.RWMutex
 	state   map[string]S
 	outbox  []OutboxMessage
-	cmdBus  *flux.CommandBus // The background relay pushes here
+	cmdBus  *command.Bus // The background relay pushes here
 	running bool
 }
 
 // New creates a memory-backed Saga store.
 // It accepts a CommandBus to simulate the background Outbox Relay.
-func New[S saga.Saga[S]](cmdBus *flux.CommandBus) *SagaStore[S] {
+func New[S saga.Saga[S]](cmdBus *command.Bus) *SagaStore[S] {
 	return &SagaStore[S]{
 		state:  make(map[string]S),
 		outbox: make([]OutboxMessage, 0),
@@ -35,7 +36,7 @@ func New[S saga.Saga[S]](cmdBus *flux.CommandBus) *SagaStore[S] {
 }
 
 // NewSagaStore is an alias for New to maintain backwards compatibility.
-func NewSagaStore[S saga.Saga[S]](cmdBus *flux.CommandBus) *SagaStore[S] {
+func NewSagaStore[S saga.Saga[S]](cmdBus *command.Bus) *SagaStore[S] {
 	return New[S](cmdBus)
 }
 
@@ -90,8 +91,8 @@ func (s *SagaStore[S]) StartRelay(ctx context.Context) {
 					s.mu.Unlock()
 
 					// Execute command using a dummy context
-					cmdCtx := flux.NewCommandContext(ctx, flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
-					err := flux.ExecuteCommand(cmdCtx, s.cmdBus, msg.Command)
+					cmdCtx := command.NewContext(ctx, flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
+					err := command.Execute(cmdCtx, s.cmdBus, msg.Command)
 					if err != nil {
 						fmt.Printf("[Outbox] failed to execute command %T: %v\n", msg.Command, err)
 					}

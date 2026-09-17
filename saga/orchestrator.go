@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/wotek/flux"
+	"github.com/wotek/flux/event"
 )
 
 // Orchestrator is the background worker that listens to the global event stream
@@ -30,8 +31,8 @@ func NewOrchestrator(eventStore flux.EventStore) *Orchestrator {
 
 // RegisterHandler wires a specific event type to a saga's state transition.
 func RegisterHandler[S Saga[S], E flux.Event](o *Orchestrator, store Store[S], handler func(ctx Context, saga S, event E) error) {
-	var event E
-	name := event.Name()
+	var evt E
+	name := evt.Name()
 
 	if _, exists := o.handlers[name]; exists {
 		panic(fmt.Sprintf("handler already registered for saga event %s", name))
@@ -52,7 +53,7 @@ func RegisterHandler[S Saga[S], E flux.Event](o *Orchestrator, store Store[S], h
 			}
 
 			// 2. Create Context
-			sagaCtx := NewContext(flux.NewEventContext(ctx, env))
+			sagaCtx := NewContext(event.NewContext(ctx, env))
 
 			// 3. Execute Handler
 			domainEvent, ok := env.Event.(E)

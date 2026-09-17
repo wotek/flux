@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/wotek/flux"
+	"github.com/wotek/flux/command"
 	eventstore "github.com/wotek/flux/event/store"
 	"github.com/wotek/flux/saga"
 	sagastore "github.com/wotek/flux/saga/store"
@@ -35,7 +36,7 @@ type TestWelcomeHandler struct {
 	received chan string
 }
 
-func (h TestWelcomeHandler) Handle(ctx flux.CommandContext, cmd SendWelcomeEmail) error {
+func (h TestWelcomeHandler) Handle(ctx command.Context, cmd SendWelcomeEmail) error {
 	h.received <- cmd.Email
 	return nil
 }
@@ -44,7 +45,7 @@ func TestSagaOrchestrator(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	cmdBus := flux.NewCommandBus()
+	cmdBus := command.New()
 	eventStore := eventstore.New()
 	sagaStore := sagastore.New[*OnboardingSaga](cmdBus)
 
@@ -65,7 +66,7 @@ func TestSagaOrchestrator(t *testing.T) {
 
 	// Register Command Handler to verify outbox delivery
 	cmdReceived := make(chan string, 1)
-	flux.RegisterCommandHandler(cmdBus, TestWelcomeHandler{received: cmdReceived})
+	command.RegisterHandler(cmdBus, TestWelcomeHandler{received: cmdReceived})
 
 	// Start orchestrator
 	go orchestrator.Start(ctx)

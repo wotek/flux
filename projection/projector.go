@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/wotek/flux"
+	"github.com/wotek/flux/event"
 )
 
 // Projector is the background worker that powers a Projection.
@@ -106,7 +107,7 @@ func (p *Projector) processEnvelope(ctx context.Context, env flux.Envelope) erro
 	}
 
 	return p.projStore.Update(ctx, p.id, env, func(txCtx context.Context) error {
-		projCtx := NewContext(flux.NewEventContext(txCtx, env))
+		projCtx := NewContext(event.NewContext(txCtx, env))
 
 		// Because we store closures of type untypedProjectionHandler, we can safely
 		// assert and execute directly without reflection.

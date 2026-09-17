@@ -1,12 +1,12 @@
 package saga
 
 import (
-	"github.com/wotek/flux"
+	"github.com/wotek/flux/event"
 )
 
-// Context extends flux.EventContext, giving saga handlers the ability to dispatch commands.
+// Context extends event.Context, giving saga handlers the ability to dispatch commands.
 type Context interface {
-	flux.EventContext
+	event.Context
 
 	// dispatch is unexported. It is used internally by EnqueueCommand.
 	dispatch(cmd any)
@@ -16,7 +16,7 @@ type Context interface {
 }
 
 type sagaContext struct {
-	flux.EventContext
+	event.Context
 	queuedCommands []any
 }
 
@@ -28,16 +28,16 @@ func (s *sagaContext) QueuedCommands() []any {
 	return s.queuedCommands
 }
 
-// NewContext creates a new Saga Context from an EventContext.
-func NewContext(parent flux.EventContext) Context {
+// NewContext creates a new Saga Context from an event.Context.
+func NewContext(parent event.Context) Context {
 	return &sagaContext{
-		EventContext:   parent,
+		Context:        parent,
 		queuedCommands: make([]any, 0),
 	}
 }
 
 // NewSagaContext is an alias for NewContext.
-func NewSagaContext(parent flux.EventContext) Context {
+func NewSagaContext(parent event.Context) Context {
 	return NewContext(parent)
 }
 
