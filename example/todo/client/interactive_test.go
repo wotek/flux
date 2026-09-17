@@ -26,7 +26,7 @@ func TestRunInteractive_Smoke(t *testing.T) {
 	}()
 
 	c := client.NewInMemoryClient(srv.CommandBus(), srv.QueryBus())
-	listID := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:smoke")
+	listID := flux.MustParseIdentifier("urn:todo:prod:lists:1:list:smoke")
 
 	// Sending "q" causes Bubble Tea program to exit cleanly
 	in := strings.NewReader("q")
@@ -79,7 +79,7 @@ func TestTUIModel_StateTransitions(t *testing.T) {
 	}()
 
 	c := client.NewInMemoryClient(srv.CommandBus(), srv.QueryBus())
-	listID := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:tui-test")
+	listID := flux.MustParseIdentifier("urn:todo:prod:lists:1:list:tui-test")
 
 	// 1. Create initial list
 	if err := c.CreateList(ctx, listID, "Work Tasks"); err != nil {
@@ -137,7 +137,7 @@ func TestTUIModel_RefreshAndFilter(t *testing.T) {
 	}()
 
 	c := client.NewInMemoryClient(srv.CommandBus(), srv.QueryBus())
-	listID := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:refresh-filter")
+	listID := flux.MustParseIdentifier("urn:todo:prod:lists:1:list:refresh-filter")
 
 	if err := c.CreateList(ctx, listID, "Alpha Project"); err != nil {
 		t.Fatalf("failed to create list: %v", err)
@@ -189,7 +189,7 @@ func TestTUIModel_LiveSync(t *testing.T) {
 	}()
 
 	c := client.NewInMemoryClient(srv.CommandBus(), srv.QueryBus(), client.WithInMemoryEventStore(srv.EventStore()))
-	listID := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:sync-test")
+	listID := flux.MustParseIdentifier("urn:todo:prod:lists:1:list:sync-test")
 
 	if err := c.CreateList(ctx, listID, "Sync Tasks"); err != nil {
 		t.Fatalf("failed to create list: %v", err)
@@ -232,8 +232,8 @@ func TestTUIModel_LiveSync_ListCountersConvergence(t *testing.T) {
 	clientA := client.NewInMemoryClient(srv.CommandBus(), srv.QueryBus(), client.WithInMemoryEventStore(srv.EventStore()))
 	clientB := client.NewInMemoryClient(srv.CommandBus(), srv.QueryBus(), client.WithInMemoryEventStore(srv.EventStore()))
 
-	listID1 := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:conv-1")
-	listID2 := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:conv-2")
+	listID1 := flux.MustParseIdentifier("urn:todo:prod:lists:1:list:conv-1")
+	listID2 := flux.MustParseIdentifier("urn:todo:prod:lists:1:list:conv-2")
 
 	if err := clientA.CreateList(ctx, listID1, "List One"); err != nil {
 		t.Fatalf("failed to create list 1: %v", err)

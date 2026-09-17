@@ -72,8 +72,8 @@ func TestSagaOrchestrator(t *testing.T) {
 	go orchestrator.Start(ctx)
 
 	// Append an event that will trigger the saga
-	correlationID := flux.NewIdentifierFromString("urn:user::auth:1:user:abc")
-	logID := flux.NewIdentifierFromString("urn:users:::::log")
+	correlationID := flux.MustParseIdentifier("urn:user::auth:1:user:abc")
+	logID := flux.MustParseIdentifier("urn:users:::::log")
 	stream := flux.Stream{Identifier: logID}
 
 	err := eventStore.Append(ctx, stream, 0, []flux.Envelope{

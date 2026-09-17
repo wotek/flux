@@ -23,7 +23,7 @@ func TestCatalogProjector_MergesProductAndPricing(t *testing.T) {
 	ps := projectionstore.New()
 	store := projections.NewMemoryStore()
 
-	projectorID := flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:projection:catalog")
+	projectorID := flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:projection:catalog")
 	proj := projections.NewProductCatalogProjector(projectorID, es, ps, store)
 
 	go func() {
@@ -31,12 +31,12 @@ func TestCatalogProjector_MergesProductAndPricing(t *testing.T) {
 	}()
 
 	prodUUID := "item-42"
-	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:user:test")}
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:user:test")}
 
 	prodStream := flux.Stream{Identifier: identity.NewProductIdentifier(prodUUID)}
 	_ = es.Append(ctx, prodStream, 0, []flux.Envelope{
 		{
-			Identifier: flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:event:e1"),
+			Identifier: flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:event:e1"),
 			Stream:     prodStream,
 			Revision:   1,
 			Event: events.ProductCreated{
@@ -51,7 +51,7 @@ func TestCatalogProjector_MergesProductAndPricing(t *testing.T) {
 	pricingStream := flux.Stream{Identifier: identity.NewPricingIdentifier(prodUUID)}
 	_ = es.Append(ctx, pricingStream, 0, []flux.Envelope{
 		{
-			Identifier: flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:event:e2"),
+			Identifier: flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:event:e2"),
 			Stream:     pricingStream,
 			Revision:   1,
 			Event: events.PricingSet{
@@ -64,7 +64,7 @@ func TestCatalogProjector_MergesProductAndPricing(t *testing.T) {
 
 	_ = es.Append(ctx, prodStream, 1, []flux.Envelope{
 		{
-			Identifier: flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:event:e3"),
+			Identifier: flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:event:e3"),
 			Stream:     prodStream,
 			Revision:   2,
 			Event: events.StockAdjusted{

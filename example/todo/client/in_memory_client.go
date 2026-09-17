@@ -42,7 +42,7 @@ func NewInMemoryClient(cmdBus *command.Bus, queryBus *query.Bus, opts ...InMemor
 		cmdBus:   cmdBus,
 		queryBus: queryBus,
 		actor: flux.Actor{
-			Identifier: flux.NewIdentifierFromString("urn:todo:prod:users:1:user:in-memory-client"),
+			Identifier: flux.MustParseIdentifier("urn:todo:prod:users:1:user:in-memory-client"),
 		},
 	}
 	for _, opt := range opts {
@@ -53,7 +53,7 @@ func NewInMemoryClient(cmdBus *command.Bus, queryBus *query.Bus, opts ...InMemor
 
 // CreateList dispatches a [commands.CreateList] command directly to the command bus.
 func (c *InMemoryClient) CreateList(ctx context.Context, listIdentifier flux.Identifier, title string) error {
-	cmdID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:commands:1:cmd:createlist-%d", time.Now().UnixNano()))
+	cmdID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:commands:1:cmd:createlist-%d", time.Now().UnixNano()))
 	cmdCtx := command.NewContext(ctx, cmdID, c.actor, flux.Identifier{}, flux.Identifier{})
 	cmd := commands.CreateList{
 		ListIdentifier: listIdentifier,
@@ -67,7 +67,7 @@ func (c *InMemoryClient) CreateList(ctx context.Context, listIdentifier flux.Ide
 
 // AddTask dispatches an [commands.AddTask] command directly to the command bus.
 func (c *InMemoryClient) AddTask(ctx context.Context, listIdentifier flux.Identifier, task string) error {
-	cmdID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:commands:1:cmd:add-%d", time.Now().UnixNano()))
+	cmdID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:commands:1:cmd:add-%d", time.Now().UnixNano()))
 	cmdCtx := command.NewContext(ctx, cmdID, c.actor, flux.Identifier{}, flux.Identifier{})
 	cmd := commands.AddTask{
 		ListIdentifier: listIdentifier,
@@ -81,7 +81,7 @@ func (c *InMemoryClient) AddTask(ctx context.Context, listIdentifier flux.Identi
 
 // RemoveTask dispatches an [commands.RemoveTask] command directly to the command bus.
 func (c *InMemoryClient) RemoveTask(ctx context.Context, listIdentifier flux.Identifier, task string) error {
-	cmdID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:commands:1:cmd:remove-%d", time.Now().UnixNano()))
+	cmdID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:commands:1:cmd:remove-%d", time.Now().UnixNano()))
 	cmdCtx := command.NewContext(ctx, cmdID, c.actor, flux.Identifier{}, flux.Identifier{})
 	cmd := commands.RemoveTask{
 		ListIdentifier: listIdentifier,
@@ -95,7 +95,7 @@ func (c *InMemoryClient) RemoveTask(ctx context.Context, listIdentifier flux.Ide
 
 // DoneTasks dispatches an [commands.DoneTasks] command directly to the command bus.
 func (c *InMemoryClient) DoneTasks(ctx context.Context, listIdentifier flux.Identifier, tasks ...string) error {
-	cmdID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:commands:1:cmd:done-%d", time.Now().UnixNano()))
+	cmdID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:commands:1:cmd:done-%d", time.Now().UnixNano()))
 	cmdCtx := command.NewContext(ctx, cmdID, c.actor, flux.Identifier{}, flux.Identifier{})
 	cmd := commands.DoneTasks{
 		ListIdentifier: listIdentifier,
@@ -109,7 +109,7 @@ func (c *InMemoryClient) DoneTasks(ctx context.Context, listIdentifier flux.Iden
 
 // GetCounter dispatches an [queries.GetCounter] query directly to the query bus.
 func (c *InMemoryClient) GetCounter(ctx context.Context) (counter.Counter, error) {
-	queryID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:queries:1:query:counter-%d", time.Now().UnixNano()))
+	queryID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:queries:1:query:counter-%d", time.Now().UnixNano()))
 	queryCtx := query.NewContext(ctx, queryID, c.actor, flux.Identifier{}, flux.Identifier{})
 	res, err := query.Execute[queries.GetCounter, counter.Counter](queryCtx, c.queryBus, queries.GetCounter{})
 	if err != nil {
@@ -120,7 +120,7 @@ func (c *InMemoryClient) GetCounter(ctx context.Context) (counter.Counter, error
 
 // GetTodoList dispatches an [queries.GetTodoList] query directly to the query bus.
 func (c *InMemoryClient) GetTodoList(ctx context.Context, listIdentifier flux.Identifier) (queries.TodoList, error) {
-	queryID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:queries:1:query:tasks-%d", time.Now().UnixNano()))
+	queryID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:queries:1:query:tasks-%d", time.Now().UnixNano()))
 	queryCtx := query.NewContext(ctx, queryID, c.actor, flux.Identifier{}, flux.Identifier{})
 	res, err := query.Execute[queries.GetTodoList, queries.TodoList](queryCtx, c.queryBus, queries.GetTodoList{ListIdentifier: listIdentifier})
 	if err != nil {
@@ -131,7 +131,7 @@ func (c *InMemoryClient) GetTodoList(ctx context.Context, listIdentifier flux.Id
 
 // GetLists dispatches an [queries.GetLists] query directly to the query bus.
 func (c *InMemoryClient) GetLists(ctx context.Context) ([]lists.ListSummary, error) {
-	queryID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:queries:1:query:lists-%d", time.Now().UnixNano()))
+	queryID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:queries:1:query:lists-%d", time.Now().UnixNano()))
 	queryCtx := query.NewContext(ctx, queryID, c.actor, flux.Identifier{}, flux.Identifier{})
 	res, err := query.Execute[queries.GetLists, []lists.ListSummary](queryCtx, c.queryBus, queries.GetLists{})
 	if err != nil {

@@ -31,7 +31,7 @@ func TestProjector(t *testing.T) {
 	eventStore := eventstore.New()
 	projectionStore := projstore.New()
 
-	projID := flux.NewIdentifierFromString("urn:proj::::stats:1")
+	projID := flux.MustParseIdentifier("urn:proj::::stats:1")
 	projector := projection.New(projID, eventStore, projectionStore)
 
 	var processedCount atomic.Int32
@@ -44,7 +44,7 @@ func TestProjector(t *testing.T) {
 	go projector.Start(ctx)
 
 	// Append some events
-	streamID := flux.NewIdentifierFromString("urn:bank::::acc:1")
+	streamID := flux.MustParseIdentifier("urn:bank::::acc:1")
 	stream := flux.Stream{Identifier: streamID}
 
 	err := eventStore.Append(ctx, stream, 0, []flux.Envelope{

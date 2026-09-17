@@ -31,7 +31,7 @@ func TestInMemorySagaStore(t *testing.T) {
 	cmdBus := command.New()
 	s := store.New[*dummySaga](cmdBus)
 	ctx := context.Background()
-	id := flux.NewIdentifierFromString("urn:test:prod:saga:1:test:test")
+	id := flux.MustParseIdentifier("urn:test:prod:saga:1:test:test")
 
 	// Load should return new if not found
 	sg, err := s.Load(ctx, id)

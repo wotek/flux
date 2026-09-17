@@ -75,7 +75,7 @@ func TestEventStore_ReadWithFromRevision(t *testing.T) {
 			store := eventstore.New()
 			ctx := context.Background()
 			stream := flux.Stream{
-				Identifier: flux.NewIdentifierFromString("urn:test:prod:items:123:item:" + tt.name),
+				Identifier: flux.MustParseIdentifier("urn:test:prod:items:123:item:" + tt.name),
 			}
 
 			events := []flux.Envelope{
@@ -120,7 +120,7 @@ func TestEventStore_ConcurrencyError(t *testing.T) {
 	store := eventstore.New()
 	ctx := context.Background()
 	stream := flux.Stream{
-		Identifier: flux.NewIdentifierFromString("urn:test:prod:items:123:item:concurrency"),
+		Identifier: flux.MustParseIdentifier("urn:test:prod:items:123:item:concurrency"),
 	}
 
 	initialEvents := []flux.Envelope{

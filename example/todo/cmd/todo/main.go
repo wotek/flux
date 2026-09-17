@@ -52,7 +52,7 @@ func run(ctx context.Context) error {
 	queries.RegisterHandlers(queryBus, statsStore, nil, repo)
 
 	// 4. Configure Read Model Projector
-	projIdentifier := flux.NewIdentifierFromString("urn:todo:prod:projections:1:counter:main")
+	projIdentifier := flux.MustParseIdentifier("urn:todo:prod:projections:1:counter:main")
 	projector := counter.NewProjector(projIdentifier, eventStore, projStore, statsStore)
 
 	g, groupCtx := errgroup.WithContext(ctx)
@@ -75,12 +75,12 @@ func run(ctx context.Context) error {
 }
 
 func runClient(ctx context.Context, bus *command.Bus, queryBus *query.Bus) error {
-	listIdentifier := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:abc-123")
-	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:todo:prod:users:1:user:alice")}
+	listIdentifier := flux.MustParseIdentifier("urn:todo:prod:lists:1:list:abc-123")
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:todo:prod:users:1:user:alice")}
 
 	// Helper to generate a contextual command context
 	newCmdCtx := func(action string) command.Context {
-		cmdID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:commands:1:cmd:%s-%d", action, time.Now().UnixNano()))
+		cmdID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:commands:1:cmd:%s-%d", action, time.Now().UnixNano()))
 		return command.NewContext(ctx, cmdID, actor, flux.Identifier{}, flux.Identifier{})
 	}
 
@@ -121,7 +121,7 @@ func runClient(ctx context.Context, bus *command.Bus, queryBus *query.Bus) error
 	// Poll read model until projector catches up to expected state
 	queryCtx := query.NewContext(
 		ctx,
-		flux.NewIdentifierFromString("urn:todo:prod:queries:1:query:check-counter"),
+		flux.MustParseIdentifier("urn:todo:prod:queries:1:query:check-counter"),
 		actor,
 		flux.Identifier{},
 		flux.Identifier{},

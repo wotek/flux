@@ -28,8 +28,8 @@ func TestCatalogCommandDispatching(t *testing.T) {
 	pricingRepo := flux.NewAggregateRepository[*pricing.PricingAggregate, events.PricingEvent](es)
 	commands.RegisterHandlers(cmdBus, productRepo, pricingRepo)
 
-	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:user:tester")}
-	cmdCtx := command.NewContext(ctx, flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:command:c1"), actor, flux.Identifier{}, flux.Identifier{})
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:user:tester")}
+	cmdCtx := command.NewContext(ctx, flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:command:c1"), actor, flux.Identifier{}, flux.Identifier{})
 
 	if err := command.Execute(cmdCtx, cmdBus, commands.CreateProduct{
 		ProductID: "prod-1",

@@ -48,7 +48,7 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 
 	// 3. Projections
 	catStore := catalogproj.NewMemoryStore()
-	catalogProjID := flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:projection:catalog")
+	catalogProjID := flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:projection:catalog")
 	catalogProjector := catalogproj.NewProductCatalogProjector(catalogProjID, es, ps, catStore)
 	go func() {
 		_ = catalogProjector.Start(ctx)
@@ -63,13 +63,13 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 		_ = orchestrator.Start(ctx)
 	}()
 
-	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:user:buyer")}
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:user:buyer")}
 
 	// -------------------------------------------------------------
 	// Scenario A: Product Creation and Pricing (Catalog Domain)
 	// -------------------------------------------------------------
 	prodID := "item-laptop-1"
-	pCmdCtx := command.NewContext(ctx, flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:command:c1"), actor, identity.NewProductIdentifier(prodID), flux.Identifier{})
+	pCmdCtx := command.NewContext(ctx, flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:command:c1"), actor, identity.NewProductIdentifier(prodID), flux.Identifier{})
 
 	if err := command.Execute(pCmdCtx, cmdBus, catalogcmd.CreateProduct{
 		ProductID: prodID,
@@ -105,7 +105,7 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 	// Scenario B: Customer Registration and Address Management (Sales Domain)
 	// -------------------------------------------------------------
 	custID := "cust-alice"
-	cCmdCtx := command.NewContext(ctx, flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:command:c2"), actor, identity.NewCustomerIdentifier(custID), flux.Identifier{})
+	cCmdCtx := command.NewContext(ctx, flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:command:c2"), actor, identity.NewCustomerIdentifier(custID), flux.Identifier{})
 
 	if err := command.Execute(cCmdCtx, cmdBus, salescmd.RegisterCustomer{
 		CustomerID: custID,
@@ -143,7 +143,7 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 	}
 
 	// Place order
-	oCmdCtx := command.NewContext(ctx, flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:command:c3"), actor, orderURN, flux.Identifier{})
+	oCmdCtx := command.NewContext(ctx, flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:command:c3"), actor, orderURN, flux.Identifier{})
 	if err := command.Execute(oCmdCtx, cmdBus, salescmd.PlaceOrder{
 		OrderID:    orderID,
 		CustomerID: custID,
@@ -158,10 +158,10 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 	// Scenario D: Payment Timeout triggers Workflow / Saga Compensation
 	// -------------------------------------------------------------
 	// Append PaymentTimeout event on a timer stream correlated with the order URN
-	timerStream := flux.Stream{Identifier: flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:timer:timeout-" + orderID)}
+	timerStream := flux.Stream{Identifier: flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:timer:timeout-" + orderID)}
 	_ = es.Append(ctx, timerStream, 0, []flux.Envelope{
 		{
-			Identifier:            flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:event:timeout-" + orderID),
+			Identifier:            flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:event:timeout-" + orderID),
 			Stream:                timerStream,
 			Revision:              1,
 			Event:                 paymentwf.PaymentTimeout{OrderID: orderID},

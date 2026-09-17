@@ -33,7 +33,7 @@ func main() {
 
 func run(ctx context.Context, serverURL, listIDStr string, interactive bool, in io.Reader, out io.Writer) error {
 	c := client.NewHTTPClient(serverURL)
-	listID := flux.NewIdentifierFromString(listIDStr)
+	listID := flux.MustParseIdentifier(listIDStr)
 
 	if interactive {
 		return client.RunInteractive(ctx, c, listID, in, out)

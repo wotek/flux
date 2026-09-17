@@ -12,7 +12,7 @@ import (
 func TestInMemoryProjectionStore(t *testing.T) {
 	s := store.New()
 	ctx := context.Background()
-	id := flux.NewIdentifierFromString("urn:test:prod:proj:1:test:test")
+	id := flux.MustParseIdentifier("urn:test:prod:proj:1:test:test")
 
 	// Initial position should be 0
 	pos, err := s.GetPosition(ctx, id)

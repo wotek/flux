@@ -66,10 +66,10 @@ func New(opts ...Option) *Server {
 	commands.RegisterHandlers(cmdBus, repo)
 	queries.RegisterHandlers(queryBus, statsStore, listsStore, repo)
 
-	projIdentifier := flux.NewIdentifierFromString("urn:todo:prod:projections:1:counter:main")
+	projIdentifier := flux.MustParseIdentifier("urn:todo:prod:projections:1:counter:main")
 	projector := counter.NewProjector(projIdentifier, cfg.eventStore, cfg.projectionStore, statsStore)
 
-	listsProjID := flux.NewIdentifierFromString("urn:todo:prod:projections:1:lists:main")
+	listsProjID := flux.MustParseIdentifier("urn:todo:prod:projections:1:lists:main")
 	listsProjector := lists.NewProjector(listsProjID, cfg.eventStore, cfg.projectionStore, listsStore)
 
 	return &Server{

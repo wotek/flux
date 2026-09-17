@@ -38,12 +38,12 @@ func TestPaymentSaga_SuccessfulPayment(t *testing.T) {
 	orderID := "ord-success-1"
 	orderURN := identity.NewOrderIdentifier(orderID)
 	stream := flux.Stream{Identifier: orderURN}
-	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:user:test")}
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:user:test")}
 
 	// 1. OrderPlaced
 	_ = es.Append(ctx, stream, 0, []flux.Envelope{
 		{
-			Identifier: flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:event:e1"),
+			Identifier: flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:event:e1"),
 			Stream:     stream,
 			Revision:   1,
 			Event: salesevents.OrderPlaced{
@@ -61,7 +61,7 @@ func TestPaymentSaga_SuccessfulPayment(t *testing.T) {
 	// 2. OrderPaid
 	_ = es.Append(ctx, stream, 1, []flux.Envelope{
 		{
-			Identifier:            flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:event:e2"),
+			Identifier:            flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:event:e2"),
 			Stream:                stream,
 			Revision:              2,
 			Event:                 salesevents.OrderPaid{},
@@ -118,12 +118,12 @@ func TestPaymentSaga_CancellationCompensation(t *testing.T) {
 	orderID := "ord-cancel-1"
 	orderURN := identity.NewOrderIdentifier(orderID)
 	stream := flux.Stream{Identifier: orderURN}
-	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:user:test")}
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:user:test")}
 
 	// 1. OrderPlaced
 	_ = es.Append(ctx, stream, 0, []flux.Envelope{
 		{
-			Identifier: flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:event:e1"),
+			Identifier: flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:event:e1"),
 			Stream:     stream,
 			Revision:   1,
 			Event: salesevents.OrderPlaced{
@@ -141,7 +141,7 @@ func TestPaymentSaga_CancellationCompensation(t *testing.T) {
 	// 2. OrderCancelled (Customer action)
 	_ = es.Append(ctx, stream, 1, []flux.Envelope{
 		{
-			Identifier:            flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:event:e2"),
+			Identifier:            flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:event:e2"),
 			Stream:                stream,
 			Revision:              2,
 			Event:                 salesevents.OrderCancelled{Reason: "customer changed mind"},

@@ -52,7 +52,7 @@ func TestClientImplementations(t *testing.T) {
 			}()
 
 			c := tc.makeClient(t, srv)
-			listID := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:" + tc.name)
+			listID := flux.MustParseIdentifier("urn:todo:prod:lists:1:list:" + tc.name)
 
 			snapshot, err := client.RunWorkflow(ctx, c, listID)
 			if err != nil {
@@ -76,7 +76,7 @@ func TestClientImplementations(t *testing.T) {
 			}
 
 			// Create another list and verify GetLists
-			secondListID := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:" + tc.name + "-secondary")
+			secondListID := flux.MustParseIdentifier("urn:todo:prod:lists:1:list:" + tc.name + "-secondary")
 			if err := c.CreateList(ctx, secondListID, "Secondary List"); err != nil {
 				t.Fatalf("CreateList failed: %v", err)
 			}
@@ -115,7 +115,7 @@ func TestHTTPClient_SubscribeEvents(t *testing.T) {
 	}
 
 	// Client 2 creates a list and adds a task
-	listID := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:sse-sync")
+	listID := flux.MustParseIdentifier("urn:todo:prod:lists:1:list:sse-sync")
 	if err := client2.CreateList(ctx, listID, "Team Sync"); err != nil {
 		t.Fatalf("create list: %v", err)
 	}

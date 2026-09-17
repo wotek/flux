@@ -125,7 +125,7 @@ func TestTodoListAggregate_Operations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			stream := flux.Stream{Identifier: flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:test")}
+			stream := flux.Stream{Identifier: flux.MustParseIdentifier("urn:todo:prod:lists:1:list:test")}
 			list := todo.NewTodoListAggregate(stream)
 
 			tt.operations(list)

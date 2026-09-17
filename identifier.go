@@ -50,13 +50,13 @@ func ParseIdentifier(s string) (Identifier, error) {
 	return Identifier{urn: s}, nil
 }
 
-// NewIdentifierFromString constructs an Identifier directly from a formatted URN string.
+// MustParseIdentifier constructs an Identifier directly from a formatted URN string.
 // It is a convenience method that delegates to ParseIdentifier and panics on error,
 // making it ideal for inline test declarations and static definitions.
-func NewIdentifierFromString(s string) Identifier {
+func MustParseIdentifier(s string) Identifier {
 	id, err := ParseIdentifier(s)
 	if err != nil {
-		panic(fmt.Errorf("NewIdentifierFromString: %w", err))
+		panic(fmt.Errorf("MustParseIdentifier: %w", err))
 	}
 	return id
 }

@@ -72,7 +72,7 @@ func TestAggregateRepository_SaveAndLoad(t *testing.T) {
 	store := eventstore.New()
 	repo := flux.NewAggregateRepository[*BankAccount, BankEvent](store)
 
-	id := flux.NewIdentifierFromString("urn:bank:prod:accounts:123:account:abc-999")
+	id := flux.MustParseIdentifier("urn:bank:prod:accounts:123:account:abc-999")
 	stream := flux.Stream{Identifier: id}
 	account := NewBankAccount(stream)
 
@@ -115,7 +115,7 @@ func TestAggregateRepository_ConcurrencyError(t *testing.T) {
 	store := eventstore.New()
 	repo := flux.NewAggregateRepository[*BankAccount, BankEvent](store)
 
-	id := flux.NewIdentifierFromString("urn:bank:prod:accounts:123:account:abc-999")
+	id := flux.MustParseIdentifier("urn:bank:prod:accounts:123:account:abc-999")
 	stream := flux.Stream{Identifier: id}
 	account1 := NewBankAccount(stream)
 	account1.Create("Alice")
@@ -153,7 +153,7 @@ func TestAggregateRepository_NotFound(t *testing.T) {
 	store := eventstore.New()
 	repo := flux.NewAggregateRepository[*BankAccount, BankEvent](store)
 
-	id := flux.NewIdentifierFromString("urn:bank:prod:accounts:123:account:does-not-exist")
+	id := flux.MustParseIdentifier("urn:bank:prod:accounts:123:account:does-not-exist")
 	stream := flux.Stream{Identifier: id}
 
 	_, err := repo.Load(ctx, stream)

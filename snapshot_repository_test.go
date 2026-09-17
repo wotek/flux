@@ -121,7 +121,7 @@ func newTestContext() flux.Context {
 
 func newStream(id string) flux.Stream {
 	return flux.Stream{
-		Identifier: flux.NewIdentifierFromString("urn:test:prod:items:123:item:" + id),
+		Identifier: flux.MustParseIdentifier("urn:test:prod:items:123:item:" + id),
 	}
 }
 

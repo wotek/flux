@@ -149,7 +149,7 @@ The core module providing foundational primitives, aggregate lifecycle managemen
 #### Functions
 * `NewIdentifier(org, env, svc, account, resType, resID, version string) Identifier`: Constructs an Identifier.
 * `ParseIdentifier(s string) (Identifier, error)`: Parses an RFC-like URN into an `Identifier`.
-* `NewIdentifierFromString(s string) Identifier`: Parses an Identifier or panics (ideal for test setups).
+* `MustParseIdentifier(s string) Identifier`: Parses an Identifier or panics (ideal for test setups).
 * `NewChangeset[E Event]() Changeset[E]`: Constructs an in-memory changeset.
 * `NewAggregateRoot[E Event](stream Stream, changeset Changeset[E], apply func(E) error) AggregateRoot[E]`: Constructs an embeddable `AggregateRoot`.
 \* `NewAggregateRepository\[A, E\]\(eventStore EventStore\) \*AggregateRepository\[A, E\]`: Creates an `AggregateRepository`.

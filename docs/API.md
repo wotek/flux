@@ -75,9 +75,9 @@ func (i Identifier) String() string
 // ParseIdentifier parses a formatted URN string into an Identifier struct.
 func ParseIdentifier(s string) (Identifier, error)
 
-// NewIdentifierFromString constructs an Identifier directly from a URN string,
+// MustParseIdentifier constructs an Identifier directly from a URN string,
 // panicking if the format is invalid. Ideal for inline test usage.
-func NewIdentifierFromString(s string) Identifier
+func MustParseIdentifier(s string) Identifier
 
 // Is checks if a specific component of the identifier matches the given value.
 // E.g., id.Is(ComponentService, "payments")

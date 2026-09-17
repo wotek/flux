@@ -29,8 +29,8 @@ func TestSalesCommandDispatching(t *testing.T) {
 	orderRepo := flux.NewAggregateRepository[*order.OrderAggregate, events.OrderEvent](es)
 	commands.RegisterHandlers(cmdBus, customerRepo, orderRepo)
 
-	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:user:tester")}
-	cmdCtx := command.NewContext(ctx, flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:command:c1"), actor, flux.Identifier{}, flux.Identifier{})
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:user:tester")}
+	cmdCtx := command.NewContext(ctx, flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:command:c1"), actor, flux.Identifier{}, flux.Identifier{})
 
 	if err := command.Execute(cmdCtx, cmdBus, commands.RegisterCustomer{
 		CustomerID: "cust-1",

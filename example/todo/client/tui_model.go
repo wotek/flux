@@ -208,7 +208,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		items := make([]list.Item, 0, len(msg.lists))
 		for _, l := range msg.lists {
 			items = append(items, todoListItem{
-				id:       flux.NewIdentifierFromString(l.Identifier),
+				id:       flux.MustParseIdentifier(l.Identifier),
 				title:    l.Title,
 				active:   l.Active,
 				archived: l.Archived,
@@ -272,7 +272,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				if mode == inputNewList {
 					slug := strings.ToLower(strings.ReplaceAll(text, " ", "-"))
-					newListID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:lists:1:list:%s-%d", slug, time.Now().UnixNano()%10000))
+					newListID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:lists:1:list:%s-%d", slug, time.Now().UnixNano()%10000))
 					m.currentListID = newListID
 					m.currentListTitle = text
 					m.tasksModel.Title = fmt.Sprintf("Tasks — %s", text)

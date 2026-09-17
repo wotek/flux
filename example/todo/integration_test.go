@@ -35,18 +35,18 @@ func TestTodoApplication_EndToEnd(t *testing.T) {
 	commands.RegisterHandlers(cmdBus, repo)
 	queries.RegisterHandlers(queryBus, statsStore, nil, repo)
 
-	projID := flux.NewIdentifierFromString("urn:todo:prod:projections:1:counter:integration")
+	projID := flux.MustParseIdentifier("urn:todo:prod:projections:1:counter:integration")
 	projector := counter.NewProjector(projID, eventStore, projStore, statsStore)
 
 	go func() {
 		_ = projector.Start(ctx)
 	}()
 
-	listID := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:integration-1")
-	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:todo:prod:users:1:user:tester")}
+	listID := flux.MustParseIdentifier("urn:todo:prod:lists:1:list:integration-1")
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:todo:prod:users:1:user:tester")}
 
 	newCmdCtx := func(action string) command.Context {
-		cmdID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:commands:1:cmd:%s-%d", action, time.Now().UnixNano()))
+		cmdID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:commands:1:cmd:%s-%d", action, time.Now().UnixNano()))
 		return command.NewContext(ctx, cmdID, actor, flux.Identifier{}, flux.Identifier{})
 	}
 
@@ -95,7 +95,7 @@ func TestTodoApplication_EndToEnd(t *testing.T) {
 	// 5. Verify projection read model via query bus
 	queryCtx := query.NewContext(
 		ctx,
-		flux.NewIdentifierFromString("urn:todo:prod:queries:1:query:test-counter"),
+		flux.MustParseIdentifier("urn:todo:prod:queries:1:query:test-counter"),
 		actor,
 		flux.Identifier{},
 		flux.Identifier{},

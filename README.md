@@ -114,7 +114,7 @@ func main() {
 	repo := flux.NewAggregateRepository[*BankAccount, flux.Event](eventStore)
 
 	// Create stream identifier
-	id := flux.NewIdentifierFromString("urn:bank:prod:core:acc123:account:main")
+	id := flux.MustParseIdentifier("urn:bank:prod:core:acc123:account:main")
 	stream := flux.Stream{Identifier: id}
 
 	// Create new account

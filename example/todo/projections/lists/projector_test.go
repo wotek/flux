@@ -22,27 +22,27 @@ func TestListsProjector_TracksMultipleLists(t *testing.T) {
 	projStore := projectionstore.New()
 	listsStore := lists.NewMemoryStore()
 
-	projID := flux.NewIdentifierFromString("urn:todo:prod:projections:1:lists:unit")
+	projID := flux.MustParseIdentifier("urn:todo:prod:projections:1:lists:unit")
 	projector := lists.NewProjector(projID, eventStore, projStore, listsStore)
 
 	go func() {
 		_ = projector.Start(ctx)
 	}()
 
-	stream1 := flux.Stream{Identifier: flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:work")}
-	stream2 := flux.Stream{Identifier: flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:personal")}
+	stream1 := flux.Stream{Identifier: flux.MustParseIdentifier("urn:todo:prod:lists:1:list:work")}
+	stream2 := flux.Stream{Identifier: flux.MustParseIdentifier("urn:todo:prod:lists:1:list:personal")}
 	baseCtx := flux.NewContext(ctx, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
 
 	envelopes1 := []flux.Envelope{
-		{Identifier: flux.NewIdentifierFromString("urn:todo:prod:events:1:event:1"), Stream: stream1, Event: events.ListCreated{Title: "Work Tasks"}},
-		{Identifier: flux.NewIdentifierFromString("urn:todo:prod:events:1:event:2"), Stream: stream1, Event: events.TaskAdded{Task: "Task 1"}},
-		{Identifier: flux.NewIdentifierFromString("urn:todo:prod:events:1:event:3"), Stream: stream1, Event: events.TaskAdded{Task: "Task 2"}},
-		{Identifier: flux.NewIdentifierFromString("urn:todo:prod:events:1:event:4"), Stream: stream1, Event: events.TasksDone{Tasks: []string{"Task 1"}}},
+		{Identifier: flux.MustParseIdentifier("urn:todo:prod:events:1:event:1"), Stream: stream1, Event: events.ListCreated{Title: "Work Tasks"}},
+		{Identifier: flux.MustParseIdentifier("urn:todo:prod:events:1:event:2"), Stream: stream1, Event: events.TaskAdded{Task: "Task 1"}},
+		{Identifier: flux.MustParseIdentifier("urn:todo:prod:events:1:event:3"), Stream: stream1, Event: events.TaskAdded{Task: "Task 2"}},
+		{Identifier: flux.MustParseIdentifier("urn:todo:prod:events:1:event:4"), Stream: stream1, Event: events.TasksDone{Tasks: []string{"Task 1"}}},
 	}
 
 	envelopes2 := []flux.Envelope{
-		{Identifier: flux.NewIdentifierFromString("urn:todo:prod:events:1:event:5"), Stream: stream2, Event: events.ListCreated{Title: "Personal"}},
-		{Identifier: flux.NewIdentifierFromString("urn:todo:prod:events:1:event:6"), Stream: stream2, Event: events.TaskAdded{Task: "Groceries"}},
+		{Identifier: flux.MustParseIdentifier("urn:todo:prod:events:1:event:5"), Stream: stream2, Event: events.ListCreated{Title: "Personal"}},
+		{Identifier: flux.MustParseIdentifier("urn:todo:prod:events:1:event:6"), Stream: stream2, Event: events.TaskAdded{Task: "Groceries"}},
 	}
 
 	if err := eventStore.Append(baseCtx, stream1, 0, envelopes1); err != nil {

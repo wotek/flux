@@ -128,8 +128,8 @@ func (h *HTTPHandler) handleCreateList(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "list_identifier is required"})
 	}
 
-	cmdID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:commands:1:cmd:createlist-%d", time.Now().UnixNano()))
-	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:todo:prod:users:1:user:http-client")}
+	cmdID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:commands:1:cmd:createlist-%d", time.Now().UnixNano()))
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:todo:prod:users:1:user:http-client")}
 	cmdCtx := command.NewContext(c.Request().Context(), cmdID, actor, flux.Identifier{}, flux.Identifier{})
 
 	h.logger.DebugContext(cmdCtx, "server: executing CreateList command",
@@ -139,7 +139,7 @@ func (h *HTTPHandler) handleCreateList(c echo.Context) error {
 	)
 
 	cmd := commands.CreateList{
-		ListIdentifier: flux.NewIdentifierFromString(req.ListIdentifier),
+		ListIdentifier: flux.MustParseIdentifier(req.ListIdentifier),
 		Title:          req.Title,
 	}
 
@@ -153,8 +153,8 @@ func (h *HTTPHandler) handleCreateList(c echo.Context) error {
 }
 
 func (h *HTTPHandler) handleGetLists(c echo.Context) error {
-	queryID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:queries:1:query:lists-%d", time.Now().UnixNano()))
-	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:todo:prod:users:1:user:http-client")}
+	queryID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:queries:1:query:lists-%d", time.Now().UnixNano()))
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:todo:prod:users:1:user:http-client")}
 	queryCtx := query.NewContext(c.Request().Context(), queryID, actor, flux.Identifier{}, flux.Identifier{})
 
 	h.logger.DebugContext(queryCtx, "server: executing GetLists query", "query_id", queryID.String())
@@ -180,8 +180,8 @@ func (h *HTTPHandler) handleAddTask(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "list_identifier and task are required"})
 	}
 
-	cmdID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:commands:1:cmd:add-%d", time.Now().UnixNano()))
-	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:todo:prod:users:1:user:http-client")}
+	cmdID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:commands:1:cmd:add-%d", time.Now().UnixNano()))
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:todo:prod:users:1:user:http-client")}
 	cmdCtx := command.NewContext(c.Request().Context(), cmdID, actor, flux.Identifier{}, flux.Identifier{})
 
 	h.logger.DebugContext(cmdCtx, "server: executing AddTask command",
@@ -191,7 +191,7 @@ func (h *HTTPHandler) handleAddTask(c echo.Context) error {
 	)
 
 	cmd := commands.AddTask{
-		ListIdentifier: flux.NewIdentifierFromString(req.ListIdentifier),
+		ListIdentifier: flux.MustParseIdentifier(req.ListIdentifier),
 		Task:           req.Task,
 	}
 
@@ -215,8 +215,8 @@ func (h *HTTPHandler) handleRemoveTask(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "list_identifier and task are required"})
 	}
 
-	cmdID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:commands:1:cmd:remove-%d", time.Now().UnixNano()))
-	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:todo:prod:users:1:user:http-client")}
+	cmdID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:commands:1:cmd:remove-%d", time.Now().UnixNano()))
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:todo:prod:users:1:user:http-client")}
 	cmdCtx := command.NewContext(c.Request().Context(), cmdID, actor, flux.Identifier{}, flux.Identifier{})
 
 	h.logger.DebugContext(cmdCtx, "server: executing RemoveTask command",
@@ -226,7 +226,7 @@ func (h *HTTPHandler) handleRemoveTask(c echo.Context) error {
 	)
 
 	cmd := commands.RemoveTask{
-		ListIdentifier: flux.NewIdentifierFromString(req.ListIdentifier),
+		ListIdentifier: flux.MustParseIdentifier(req.ListIdentifier),
 		Task:           req.Task,
 	}
 
@@ -250,8 +250,8 @@ func (h *HTTPHandler) handleDoneTasks(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "list_identifier and tasks are required"})
 	}
 
-	cmdID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:commands:1:cmd:done-%d", time.Now().UnixNano()))
-	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:todo:prod:users:1:user:http-client")}
+	cmdID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:commands:1:cmd:done-%d", time.Now().UnixNano()))
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:todo:prod:users:1:user:http-client")}
 	cmdCtx := command.NewContext(c.Request().Context(), cmdID, actor, flux.Identifier{}, flux.Identifier{})
 
 	h.logger.DebugContext(cmdCtx, "server: executing DoneTasks command",
@@ -261,7 +261,7 @@ func (h *HTTPHandler) handleDoneTasks(c echo.Context) error {
 	)
 
 	cmd := commands.DoneTasks{
-		ListIdentifier: flux.NewIdentifierFromString(req.ListIdentifier),
+		ListIdentifier: flux.MustParseIdentifier(req.ListIdentifier),
 		Tasks:          req.Tasks,
 	}
 
@@ -281,8 +281,8 @@ func (h *HTTPHandler) handleGetTasks(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "list_identifier query parameter is required"})
 	}
 
-	queryID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:queries:1:query:tasks-%d", time.Now().UnixNano()))
-	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:todo:prod:users:1:user:http-client")}
+	queryID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:queries:1:query:tasks-%d", time.Now().UnixNano()))
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:todo:prod:users:1:user:http-client")}
 	queryCtx := query.NewContext(c.Request().Context(), queryID, actor, flux.Identifier{}, flux.Identifier{})
 
 	h.logger.DebugContext(queryCtx, "server: executing GetTodoList query",
@@ -291,7 +291,7 @@ func (h *HTTPHandler) handleGetTasks(c echo.Context) error {
 	)
 
 	q := queries.GetTodoList{
-		ListIdentifier: flux.NewIdentifierFromString(listIDStr),
+		ListIdentifier: flux.MustParseIdentifier(listIDStr),
 	}
 	result, err := query.Execute[queries.GetTodoList, queries.TodoList](queryCtx, h.queryBus, q)
 	if err != nil {
@@ -308,8 +308,8 @@ func (h *HTTPHandler) handleGetTasks(c echo.Context) error {
 }
 
 func (h *HTTPHandler) handleGetCounter(c echo.Context) error {
-	queryID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:queries:1:query:counter-%d", time.Now().UnixNano()))
-	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:todo:prod:users:1:user:http-client")}
+	queryID := flux.MustParseIdentifier(fmt.Sprintf("urn:todo:prod:queries:1:query:counter-%d", time.Now().UnixNano()))
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:todo:prod:users:1:user:http-client")}
 	queryCtx := query.NewContext(c.Request().Context(), queryID, actor, flux.Identifier{}, flux.Identifier{})
 
 	h.logger.DebugContext(queryCtx, "server: executing GetCounter query", "query_id", queryID.String())
