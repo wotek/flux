@@ -550,6 +550,52 @@ flux.RegisterProjectionHandler(proj, func(ctx flux.EventContext, e OrderCreated)
 flux.RegisterProjectionHandler(proj, func(ctx flux.EventContext, e UserRegistered) error { /* ... */ })
 ```
 
+#### Example: Building and Querying a Read Model
+
+The framework intentionally does **not** provide a `ReadModel` interface. Read models are simply native database tables (or MongoDB documents, etc.). You use the `Projector` to write to them, and the `QueryBus` to read from them. 
+
+The most idiomatic way to pass dependencies (like database connections) into your handlers is by using struct methods:
+
+```go
+// 1. The native Read Model struct (returned to your API)
+type UserStats struct {
+	Email       string
+	TotalOrders int
+}
+
+// 2. The Projection Handlers (Writing the read model)
+type UserStatsProjection struct {
+	db *sql.DB // Dependency injection!
+}
+
+func (p *UserStatsProjection) HandleRegistered(ctx flux.ProjectionContext, e UserRegistered) error {
+	// The context guarantees we are inside the ProjectionStore's transaction
+	_, err := p.db.ExecContext(ctx, "INSERT INTO user_stats (id, email, total_orders) VALUES ($1, $2, 0)", e.ID, e.Email)
+	return err
+}
+
+// 3. The Query Handler (Reading the read model)
+type UserStatsQueryHandler struct {
+	db *sql.DB
+}
+
+type GetUserStats struct { ID string }
+
+func (h *UserStatsQueryHandler) Handle(ctx flux.QueryContext, q GetUserStats) (UserStats, error) {
+	var stats UserStats
+	err := h.db.QueryRowContext(ctx, "SELECT email, total_orders FROM user_stats WHERE id = $1", q.ID).
+		Scan(&stats.Email, &stats.TotalOrders)
+	return stats, err
+}
+
+// 4. Wiring it up
+userStatsProj := &UserStatsProjection{db: myDatabase}
+flux.RegisterProjectionHandler(proj, userStatsProj.HandleRegistered)
+
+queryHandler := &UserStatsQueryHandler{db: myDatabase}
+flux.RegisterQueryHandler[GetUserStats, UserStats](queryBus, queryHandler)
+```
+
 #### Temporal Integration (Optional Path)
 
 Because the framework strictly decouples **Routing** from **Execution**, you are not forced to use the default `Projector` or `ProjectionStore`. If you prefer to run Projections as durable [Temporal Workflows](https://temporal.io/), the framework provides the perfect hooks to bridge the gap.
