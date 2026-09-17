@@ -1,4 +1,4 @@
-package projections
+package counter
 
 import (
 	"fmt"
@@ -8,13 +8,13 @@ import (
 	"github.com/wotek/flux/projection"
 )
 
-// NewCounterProjector creates and configures a [projection.Projector] that updates [CounterStore]
+// NewProjector creates and configures a [projection.Projector] that updates [Store]
 // based on domain events emitted by todo lists.
-func NewCounterProjector(
+func NewProjector(
 	id flux.Identifier,
 	eventStore flux.EventStore,
 	projStore projection.Store,
-	statsStore CounterStore,
+	statsStore Store,
 ) *projection.Projector {
 	projector := projection.New(id, eventStore, projStore)
 
@@ -49,12 +49,22 @@ func NewCounterProjector(
 	return projector
 }
 
-// StartCounterProjector is an alias for [NewCounterProjector] maintaining consistency with the design guide.
+// NewCounterProjector is an alias for [NewProjector].
+func NewCounterProjector(
+	id flux.Identifier,
+	eventStore flux.EventStore,
+	projStore projection.Store,
+	statsStore Store,
+) *projection.Projector {
+	return NewProjector(id, eventStore, projStore, statsStore)
+}
+
+// StartCounterProjector is an alias for [NewProjector] maintaining consistency with the design guide.
 func StartCounterProjector(
 	id flux.Identifier,
 	eventStore flux.EventStore,
 	projStore projection.Store,
-	statsStore CounterStore,
+	statsStore Store,
 ) *projection.Projector {
-	return NewCounterProjector(id, eventStore, projStore, statsStore)
+	return NewProjector(id, eventStore, projStore, statsStore)
 }

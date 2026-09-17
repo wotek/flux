@@ -1,4 +1,4 @@
-package projections
+package counter
 
 // Counter represents the aggregated read-model view of todo task metrics.
 type Counter struct {

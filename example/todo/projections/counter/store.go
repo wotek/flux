@@ -1,11 +1,11 @@
-package projections
+package counter
 
 import (
 	"context"
 )
 
-// CounterStore defines the persistence contract for tracking and querying task counter metrics.
-type CounterStore interface {
+// Store defines the persistence contract for tracking and querying task counter metrics.
+type Store interface {
 	// IncrementActive modifies the count of active tasks by the given delta.
 	IncrementActive(ctx context.Context, delta int) error
 
@@ -18,3 +18,6 @@ type CounterStore interface {
 	// GetCounter retrieves the current snapshot of task metrics.
 	GetCounter(ctx context.Context) (Counter, error)
 }
+
+// CounterStore is an alias for [Store] to provide explicit naming when desired.
+type CounterStore = Store

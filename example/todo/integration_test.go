@@ -12,7 +12,7 @@ import (
 	"github.com/wotek/flux/example/todo"
 	"github.com/wotek/flux/example/todo/commands"
 	"github.com/wotek/flux/example/todo/events"
-	"github.com/wotek/flux/example/todo/projections"
+	"github.com/wotek/flux/example/todo/projections/counter"
 	"github.com/wotek/flux/example/todo/queries"
 	projectionstore "github.com/wotek/flux/projection/store"
 	"github.com/wotek/flux/query"
@@ -30,13 +30,13 @@ func TestTodoApplication_EndToEnd(t *testing.T) {
 	queryBus := query.New()
 
 	repo := flux.NewAggregateRepository[*todo.TodoListAggregate, events.TodoEvent](eventStore)
-	statsStore := projections.NewMemoryCounterStore()
+	statsStore := counter.NewMemoryStore()
 
 	commands.RegisterHandlers(cmdBus, repo)
 	queries.RegisterHandlers(queryBus, statsStore)
 
 	projID := flux.NewIdentifierFromString("urn:todo:prod:projections:1:counter:integration")
-	projector := projections.NewCounterProjector(projID, eventStore, projStore, statsStore)
+	projector := counter.NewProjector(projID, eventStore, projStore, statsStore)
 
 	go func() {
 		_ = projector.Start(ctx)
@@ -102,10 +102,10 @@ func TestTodoApplication_EndToEnd(t *testing.T) {
 	)
 
 	deadline := time.Now().Add(2 * time.Second)
-	var counter projections.Counter
+	var snapshot counter.Counter
 	for time.Now().Before(deadline) {
-		counter, err = query.Execute[queries.GetCounter, projections.Counter](queryCtx, queryBus, queries.GetCounter{})
-		if err == nil && counter.Active == 2 && counter.Archived == 2 && counter.Removed == 1 {
+		snapshot, err = query.Execute[queries.GetCounter, counter.Counter](queryCtx, queryBus, queries.GetCounter{})
+		if err == nil && snapshot.Active == 2 && snapshot.Archived == 2 && snapshot.Removed == 1 {
 			break
 		}
 		time.Sleep(15 * time.Millisecond)
@@ -115,8 +115,8 @@ func TestTodoApplication_EndToEnd(t *testing.T) {
 		t.Fatalf("failed to query counter: %v", err)
 	}
 
-	if counter.Active != 2 || counter.Archived != 2 || counter.Removed != 1 {
+	if snapshot.Active != 2 || snapshot.Archived != 2 || snapshot.Removed != 1 {
 		t.Errorf("unexpected counter stats: active=%d (want 2), archived=%d (want 2), removed=%d (want 1)",
-			counter.Active, counter.Archived, counter.Removed)
+			snapshot.Active, snapshot.Archived, snapshot.Removed)
 	}
 }

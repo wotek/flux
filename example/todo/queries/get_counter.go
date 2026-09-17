@@ -3,33 +3,33 @@ package queries
 import (
 	"fmt"
 
-	"github.com/wotek/flux/example/todo/projections"
+	"github.com/wotek/flux/example/todo/projections/counter"
 	"github.com/wotek/flux/query"
 )
 
-// GetCounter is a read-only query requesting the current snapshot of [projections.Counter] statistics.
+// GetCounter is a read-only query requesting the current snapshot of [counter.Counter] statistics.
 type GetCounter struct{}
 
-// GetCounterHandler executes the [GetCounter] query against a [projections.CounterStore].
+// GetCounterHandler executes the [GetCounter] query against a [counter.Store].
 type GetCounterHandler struct {
-	statsStore projections.CounterStore
+	statsStore counter.Store
 }
 
 // NewGetCounterHandler constructs a new [GetCounterHandler].
-func NewGetCounterHandler(statsStore projections.CounterStore) *GetCounterHandler {
+func NewGetCounterHandler(statsStore counter.Store) *GetCounterHandler {
 	return &GetCounterHandler{statsStore: statsStore}
 }
 
-// Handle executes the [GetCounter] query, returning the current [projections.Counter].
-func (h *GetCounterHandler) Handle(ctx query.Context, _ GetCounter) (projections.Counter, error) {
-	counter, err := h.statsStore.GetCounter(ctx)
+// Handle executes the [GetCounter] query, returning the current [counter.Counter].
+func (h *GetCounterHandler) Handle(ctx query.Context, _ GetCounter) (counter.Counter, error) {
+	stats, err := h.statsStore.GetCounter(ctx)
 	if err != nil {
-		return projections.Counter{}, fmt.Errorf("retrieving counter stats: %w", err)
+		return counter.Counter{}, fmt.Errorf("retrieving counter stats: %w", err)
 	}
-	return counter, nil
+	return stats, nil
 }
 
 // RegisterGetCounterHandler registers the [GetCounterHandler] on the given query bus.
-func RegisterGetCounterHandler(bus *query.Bus, statsStore projections.CounterStore) {
+func RegisterGetCounterHandler(bus *query.Bus, statsStore counter.Store) {
 	query.RegisterHandler(bus, NewGetCounterHandler(statsStore))
 }

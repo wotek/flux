@@ -1,4 +1,4 @@
-package projections_test
+package counter_test
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"github.com/wotek/flux"
 	eventstore "github.com/wotek/flux/event/store"
 	"github.com/wotek/flux/example/todo/events"
-	"github.com/wotek/flux/example/todo/projections"
+	"github.com/wotek/flux/example/todo/projections/counter"
 	projectionstore "github.com/wotek/flux/projection/store"
 )
 
@@ -20,10 +20,10 @@ func TestCounterProjector_UpdatesMetrics(t *testing.T) {
 
 	eventStore := eventstore.New()
 	projStore := projectionstore.New()
-	statsStore := projections.NewMemoryCounterStore()
+	statsStore := counter.NewMemoryStore()
 
 	projID := flux.NewIdentifierFromString("urn:todo:prod:projections:1:counter:unit")
-	projector := projections.NewCounterProjector(projID, eventStore, projStore, statsStore)
+	projector := counter.NewProjector(projID, eventStore, projStore, statsStore)
 
 	go func() {
 		_ = projector.Start(ctx)
@@ -47,7 +47,7 @@ func TestCounterProjector_UpdatesMetrics(t *testing.T) {
 
 	// Poll until projector reaches expected counts: active=1 (C), archived=1 (B), removed=1 (A)
 	deadline := time.Now().Add(2 * time.Second)
-	var snapshot projections.Counter
+	var snapshot counter.Counter
 	var err error
 	for time.Now().Before(deadline) {
 		snapshot, err = statsStore.GetCounter(ctx)

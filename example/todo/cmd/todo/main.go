@@ -15,7 +15,7 @@ import (
 	"github.com/wotek/flux/example/todo"
 	"github.com/wotek/flux/example/todo/commands"
 	"github.com/wotek/flux/example/todo/events"
-	"github.com/wotek/flux/example/todo/projections"
+	"github.com/wotek/flux/example/todo/projections/counter"
 	"github.com/wotek/flux/example/todo/queries"
 	projectionstore "github.com/wotek/flux/projection/store"
 	"github.com/wotek/flux/query"
@@ -45,7 +45,7 @@ func run(ctx context.Context) error {
 
 	// 2. Initialize Repositories and Stores
 	repo := flux.NewAggregateRepository[*todo.TodoListAggregate, events.TodoEvent](eventStore)
-	statsStore := projections.NewMemoryCounterStore()
+	statsStore := counter.NewMemoryStore()
 
 	// 3. Register Command and Query Handlers from their respective packages
 	commands.RegisterHandlers(cmdBus, repo)
@@ -53,7 +53,7 @@ func run(ctx context.Context) error {
 
 	// 4. Configure Read Model Projector
 	projIdentifier := flux.NewIdentifierFromString("urn:todo:prod:projections:1:counter:main")
-	projector := projections.NewCounterProjector(projIdentifier, eventStore, projStore, statsStore)
+	projector := counter.NewProjector(projIdentifier, eventStore, projStore, statsStore)
 
 	g, groupCtx := errgroup.WithContext(ctx)
 
@@ -127,12 +127,12 @@ func runClient(ctx context.Context, bus *command.Bus, queryBus *query.Bus) error
 		flux.Identifier{},
 	)
 
-	var counter projections.Counter
+	var snapshot counter.Counter
 	var err error
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		counter, err = query.Execute[queries.GetCounter, projections.Counter](queryCtx, queryBus, queries.GetCounter{})
-		if err == nil && counter.Active == 3 && counter.Archived == 2 && counter.Removed == 5 {
+		snapshot, err = query.Execute[queries.GetCounter, counter.Counter](queryCtx, queryBus, queries.GetCounter{})
+		if err == nil && snapshot.Active == 3 && snapshot.Archived == 2 && snapshot.Removed == 5 {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -143,9 +143,9 @@ func runClient(ctx context.Context, bus *command.Bus, queryBus *query.Bus) error
 	}
 
 	slog.InfoContext(ctx, "client: read model verified successfully",
-		"active", counter.Active,
-		"archived", counter.Archived,
-		"removed", counter.Removed,
+		"active", snapshot.Active,
+		"archived", snapshot.Archived,
+		"removed", snapshot.Removed,
 	)
 
 	return nil
