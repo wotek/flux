@@ -52,9 +52,9 @@ type EventStore interface {
 }
 ```
 
-## 3. Decorator Repository (`snapshot.Repository`)
+## 3. Decorator Repository (`flux.SnapshotRepository`)
 
-We create a `snapshot.Repository` that wraps the standard `flux.AggregateRepository`. We use interface composition to guarantee the aggregate supports both Event Sourcing and Snapshotting at compile time.
+We create a `flux.SnapshotRepository` that wraps the standard `flux.AggregateRepository`. We use interface composition to guarantee the aggregate supports both Event Sourcing and Snapshotting at compile time.
 
 ```go
 // Aggregate constraint ensures the type passed is both a Flux Aggregate and Snapshotable.
@@ -233,10 +233,10 @@ func (c *CounterAggregate) With(data counterSnapshot) {
 
 1. **Update EventStore:** Modify `flux/event_store.go` so `Read` accepts `fromRevision uint64`. Update `event/store/in_memory.go` to handle the `fromRevision` argument correctly (skipping `env.Revision <= fromRevision`).
 2. **Expose Revision Setter:** In `flux/aggregate.go`, add `SetRevision(rev uint64)` to `AggregateRoot[E]`.
-3. **Core Snapshot Types:** Create `flux/snapshot/snapshot.go` and define `Snapshotable`, `Snapshot`, and `Store`.
-4. **Schedules:** Create `flux/snapshot/schedule.go` and implement `Every(n)`.
-5. **Repository:** Create `flux/snapshot/repository.go` and implement the decorator logic for `Load` and `Save`.
-6. **Testing & QA:** Create `flux/snapshot/repository_test.go` using a mock aggregate and an in-memory `SnapshotStore` (which you will write for the tests).
+3. **Core Snapshot Types:** Create `flux/snapshot.go` and define `Snapshotable`, `Snapshot`, and `SnapshotStore`.
+4. **Schedules:** Create `flux/snapshot_schedule.go` and implement `Every(n)`.
+5. **Repository:** Create `flux/snapshot_repository.go` and implement the decorator logic for `Load` and `Save`.
+6. **Testing & QA:** Create `flux/snapshot_repository_test.go` using a mock aggregate and an in-memory `SnapshotStore` (which you will write for the tests).
    - **Threshold Test:** Write standard table-driven, parallelized Go tests simulating an aggregate crossing the `snapshot.Every` threshold, ensuring `Save` correctly triggers the snapshot.
    - **Catch-up Test:** Write a test verifying that `Load` perfectly catches up an aggregate if new events were appended to the `EventStore` *after* the snapshot was taken.
    - **Serialization Test:** Add a specific test case where you run the snapshot struct `S` through `json.Marshal` and `json.Unmarshal` to verify that the Memento DTO accurately preserves state through standard serialization without requiring the aggregate to marshal itself.

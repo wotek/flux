@@ -176,7 +176,6 @@ type EventStore interface {
 
 	// Read retrieves a sequence of envelopes from a specific stream.
 	// `fromRevision` dictates the starting sequence number (inclusive).
-	// `limit` caps the number of events returned (0 can be used to mean no limit).
 	// It returns a StreamIterator for efficient traversal.
 	Read(ctx Context, stream Stream, fromRevision uint64) (StreamIterator, error)
 
