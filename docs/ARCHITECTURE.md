@@ -33,20 +33,32 @@ The framework follows a strict **layered directed acyclic graph (DAG)** architec
 
 ```mermaid
 flowchart TD
-    subgraph Core ["Core Primitives & Storage"]
+    subgraph Core ["Core Primitives"]
         Flux["flux<br/>(Identifier, Stream, Actor, Event, Envelope, AggregateRoot, AggregateRepository, Context)"]
+    end
+
+    subgraph EventStoreDomain ["Event Storage"]
         EventStore["event/store<br/>(InMemory EventStore)"]
     end
 
-    subgraph Messaging ["Messaging & Routing Subsystems"]
+    subgraph CommandDomain ["Command Bus"]
         Command["command<br/>(Bus, Context, Handler)"]
+    end
+
+    subgraph QueryDomain ["Query Bus"]
         Query["query<br/>(Bus, Context, Handler)"]
+    end
+
+    subgraph EventDomain ["Event Bus"]
         Event["event<br/>(Bus, Context, Handler)"]
     end
 
-    subgraph Subsystems ["Complex Subsystems"]
+    subgraph ProjectionDomain ["Projections"]
         Projection["projection<br/>(Projector, Context, Store)"]
         ProjStore["projection/store<br/>(InMemory ProjectionStore)"]
+    end
+
+    subgraph SagaDomain ["Sagas / Process Managers"]
         Saga["saga<br/>(Orchestrator, Context, Store)"]
         SagaStore["saga/store<br/>(InMemory SagaStore)"]
     end
