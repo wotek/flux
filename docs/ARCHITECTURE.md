@@ -23,7 +23,7 @@ The framework follows a strict **layered directed acyclic graph (DAG)** architec
           ▼                     ▼                       ▼                     ▼
   ┌───────────────┐     ┌───────────────┐       ┌───────────────┐     ┌───────────────┐
   │    command    │     │     query     │       │     event     │     │  event/store  │
-  │  - Bus        │     │  - Bus        │       │  - Bus        │     │  - InMemory   │
+  │  - Bus        │     │  - Bus        │       │  - Bus        │     │  - Store      │
   │  - Context    │     │  - Context    │       │  - Context    │     └───────────────┘
   │  - Handler    │     │  - Handler    │       │  - Handler    │
   └───────┬───────┘     └───────────────┘       └───────┬───────┘
@@ -42,13 +42,13 @@ The framework follows a strict **layered directed acyclic graph (DAG)** architec
           │     ┌───────────────┐                       │
           │     │  projection/  │                       │
           │     │     store     │                       │
-          │     │  - InMemory   │                       │
+          │     │  - Store      │                       │
           │     └───────────────┘                       │
           │                                             │
           │ (dispatches outbox commands)                ▼
           └─────────────────────────────────────┌───────────────┐
                                                 │  saga/store   │
-                                                │  - InMemory   │
+                                                │  - Store      │
                                                 └───────────────┘
 ```
 
@@ -61,7 +61,7 @@ flowchart TD
     end
 
     subgraph EventStoreDomain ["Event Storage"]
-        EventStore["event/store<br/>(InMemory EventStore)"]
+        EventStore["event/store<br/>(EventStore)"]
     end
 
     subgraph CommandDomain ["Command Bus"]
@@ -78,12 +78,12 @@ flowchart TD
 
     subgraph ProjectionDomain ["Projections"]
         Projection["projection<br/>(Projector, Context, Store)"]
-        ProjStore["projection/store<br/>(InMemory ProjectionStore)"]
+        ProjStore["projection/store<br/>(ProjectionStore)"]
     end
 
     subgraph SagaDomain ["Sagas / Process Managers"]
         Saga["saga<br/>(Orchestrator, Context, Store)"]
-        SagaStore["saga/store<br/>(InMemory SagaStore)"]
+        SagaStore["saga/store<br/>(SagaStore)"]
     end
 
     %% Dependencies
@@ -247,15 +247,15 @@ Orchestration engine coordinating long-running business processes and durable Ou
 
 ---
 
-### Driver Subpackages (`*/store`)
-Thread-safe in-memory implementations for testing and development:
+### Store Subpackages (`*/store`)
+Subpackages providing concrete storage implementations:
 
 * **`github.com/wotek/flux/event/store`**:
-  * `EventStore`: In-memory implementation of `flux.EventStore` with optimistic concurrency validation.
+  * `EventStore`: Implementation of `flux.EventStore` with optimistic concurrency validation.
   * `New()`: Constructor.
 * **`github.com/wotek/flux/projection/store`**:
-  * `ProjectionStore`: In-memory implementation of `projection.Store`.
+  * `ProjectionStore`: Implementation of `projection.Store`.
   * `New()`: Constructor.
 * **`github.com/wotek/flux/saga/store`**:
-  * `SagaStore[S saga.Saga[S]]`: In-memory implementation of `saga.Store` with a background Outbox Relay poller (`StartRelay(ctx)`).
+  * `SagaStore[S saga.Saga[S]]`: Implementation of `saga.Store` with an Outbox Relay worker (`StartRelay(ctx)`).
   * `New[S](cmdBus *command.Bus)`: Constructor.
