@@ -2,6 +2,7 @@ package flux_test
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,9 +20,9 @@ func TestProjector(t *testing.T) {
 	projID := flux.NewIdentifierFromString("urn:proj::::stats:1")
 	projector := flux.NewProjector(projID, eventStore, projStore)
 
-	processedCount := 0
+	var processedCount atomic.Int32
 	flux.RegisterProjectionHandler(projector, func(ctx flux.ProjectionContext, e AccountCreated) error {
-		processedCount++
+		processedCount.Add(1)
 		return nil
 	})
 
@@ -45,8 +46,8 @@ func TestProjector(t *testing.T) {
 	// Wait for projector to process
 	time.Sleep(200 * time.Millisecond)
 
-	if processedCount != 2 {
-		t.Errorf("expected 2 AccountCreated events processed, got %d", processedCount)
+	if count := processedCount.Load(); count != 2 {
+		t.Errorf("expected 2 AccountCreated events processed, got %d", count)
 	}
 
 	pos, _ := projStore.GetPosition(ctx, projID)

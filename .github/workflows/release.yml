@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish Semantic Version Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate Semantic Versioning tag format
+        run: |
+          TAG="${{ github.ref_name }}"
+          echo "Validating tag: $TAG"
+          # Strict SemVer regex with 'v' prefix: vMAJOR.MINOR.PATCH[-PRERELEASE][+BUILD]
+          SEMVER_REGEX="^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$"
+          if [[ ! "$TAG" =~ $SEMVER_REGEX ]]; then
+            echo "::error::Tag '$TAG' does not follow Semantic Versioning (vMAJOR.MINOR.PATCH)."
+            exit 1
+          fi
+          echo "Tag $TAG is valid Semantic Version."
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: true
+
+      - name: Verify tests pass before release
+        run: |
+          go vet ./...
+          go test -v -race ./...
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Warm up Go Module Proxy & pkg.go.dev
+        run: |
+          echo "Triggering Go Module Proxy index for ${{ github.ref_name }}..."
+          GOPROXY=proxy.golang.org go list -m github.com/wotek/flux@${{ github.ref_name }} || true
