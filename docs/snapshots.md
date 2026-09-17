@@ -123,9 +123,9 @@ func (r *SnapshotRepository[A, E, S]) Load(ctx flux.Context, stream flux.Stream)
 		agg = agg.New(stream) // Create empty shell
 		agg.With(snap.State)
 		
-		// The framework type-asserts to its OWN unexported interface!
-		if s, ok := any(agg).(interface{ setRevision(uint64) }); ok {
-			s.setRevision(snap.Revision)
+		// Safely update the aggregate revision using the internal capability interface
+		if setter, ok := any(agg).(revisionSetter); ok {
+			setter.setRevision(snap.Revision)
 		}
 		startRevision = snap.Revision
 	} else {

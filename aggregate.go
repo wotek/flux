@@ -25,6 +25,12 @@ type Aggregate[A Aggregate[A, E], E Event] interface {
 	New(stream Stream) A
 }
 
+// revisionSetter is an internal framework capability interface used to safely 
+// mutate aggregate revisions after successful event persistence or snapshot hydration.
+type revisionSetter interface {
+	setRevision(rev uint64)
+}
+
 // AggregateRoot is an embeddable struct providing the foundational boilerplate
 // for any domain aggregate (composition over inheritance).
 type AggregateRoot[E Event] struct {
