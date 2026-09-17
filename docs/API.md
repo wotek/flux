@@ -284,11 +284,9 @@ The **Aggregate Repository** acts as the bridge between the domain Aggregates an
 
 It is responsible for:
 1. **Loading**: Fetching raw envelopes from the `EventStore` and calling `FromEvents` on the user-provided aggregate instance to reconstitute its state.
-2. **Saving**: Taking the uncommitted events from the aggregate's `Changeset`, wrapping them in `Envelope`s (attaching the provided Actor), appending them to the `EventStore`, and finally clearing the changeset.
+2. **Saving**: Taking the uncommitted events from the aggregate's `Changeset`, wrapping them in `Envelope`s (pulling Actor and CorrelationIdentifier from the Context), appending them to the `EventStore`, and finally clearing the changeset.
 
 ```go
-// --- AGGREGATE REPOSITORY ---
-
 // AggregateRepository provides the standard unit-of-work interface for Event Sourced aggregates.
 type AggregateRepository[A Aggregate[A, E], E Event] struct {
 	// internal fields
