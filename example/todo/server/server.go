@@ -59,6 +59,22 @@ func New(opts ...Option) *Server {
 
 	cmdBus := command.New()
 	queryBus := query.New()
+
+	cmdBus.Use(func(ctx command.Context, cmd any, next func(command.Context, any) error) error {
+		ctx.Logger().Info("executing command", "command_type", fmt.Sprintf("%T", cmd))
+		err := next(ctx, cmd)
+		if err != nil {
+			ctx.Logger().Error("command failed", "error", err)
+		} else {
+			ctx.Logger().Info("command succeeded")
+		}
+		return err
+	})
+
+	queryBus.Use(func(ctx query.Context, q any, next func(query.Context, any) (any, error)) (any, error) {
+		ctx.Logger().Info("executing query", "query_type", fmt.Sprintf("%T", q))
+		return next(ctx, q)
+	})
 	repo := flux.NewAggregateRepository[*todo.TodoListAggregate, events.TodoEvent](cfg.eventStore)
 	statsStore := counter.NewMemoryStore()
 	listsStore := lists.NewMemoryStore()
