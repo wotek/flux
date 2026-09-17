@@ -75,6 +75,10 @@ func (i Identifier) String() string
 // ParseIdentifier parses a formatted URN string into an Identifier struct.
 func ParseIdentifier(s string) (Identifier, error)
 
+// NewIdentifierFromString constructs an Identifier directly from a URN string,
+// panicking if the format is invalid. Ideal for inline test usage.
+func NewIdentifierFromString(s string) Identifier
+
 // Is checks if a specific component of the identifier matches the given value.
 // E.g., id.Is(ComponentService, "payments")
 func (i Identifier) Is(c Component, value string) bool
@@ -225,13 +229,13 @@ type Aggregate[A Aggregate[A, E], E Event] interface {
 
 	// New creates a new, empty instance of the aggregate. 
 	// This is called on a nil pointer by the framework during loading.
-	New() A
+	New(stream Stream) A
 }
 
 // AggregateRoot is an embeddable struct providing the foundational boilerplate 
 // for any domain aggregate (composition over inheritance).
 type AggregateRoot[E Event] struct {
-	id        Identifier
+	stream    Stream
 	revision  uint64
 	changeset Changeset[E]
 	
@@ -242,17 +246,28 @@ type AggregateRoot[E Event] struct {
 // NewAggregateRoot initializes the boilerplate. The concrete aggregate passes its Apply method.
 // Note: Revisions are not incremented when recording new events to the changeset, only when 
 // replaying from the EventStore or after successful persistence.
-func NewAggregateRoot[E Event](id Identifier, changeset Changeset[E], apply func(E) error) AggregateRoot[E] {
+func NewAggregateRoot[E Event](stream Stream, changeset Changeset[E], apply func(E) error) AggregateRoot[E] {
 	return AggregateRoot[E]{
-		id:        id,
+		stream:    stream,
 		changeset: changeset,
 		apply:     apply,
 	}
 }
 
-func (a *AggregateRoot[E]) Identifier() Identifier { return a.id }
-func (a *AggregateRoot[E]) Changeset() Changeset[E] { return a.changeset }
-func (a *AggregateRoot[E]) Revision() uint64 { return a.revision }
+// Identifier returns the underlying globally unique identifier.
+func (a *AggregateRoot[E]) Identifier() Identifier { 
+	return a.stream.Identifier 
+}
+
+// Changeset returns the tracked uncommitted events.
+func (a *AggregateRoot[E]) Changeset() Changeset[E] { 
+	return a.changeset 
+}
+
+// Revision returns the aggregate's current sequence number.
+func (a *AggregateRoot[E]) Revision() uint64 { 
+	return a.revision 
+}
 
 // FromEvents iterates over the StreamIterator, type-asserts the generic Event 
 // into the aggregate's specific Event type E, applies it, and updates the revision.
@@ -265,7 +280,7 @@ func (a *AggregateRoot[E]) FromEvents(events StreamIterator) error {
 		// Ensure the event conforms to this aggregate's specific event type constraint.
 		domainEvent, ok := env.Event.(E)
 		if !ok {
-			return fmt.Errorf("aggregate %s cannot apply event of type %T", a.id, env.Event)
+			return fmt.Errorf("aggregate %s cannot apply event of type %T", a.Identifier(), env.Event)
 		}
 
 		if err := a.apply(domainEvent); err != nil {
@@ -295,10 +310,10 @@ type AggregateRepository[A Aggregate[A, E], E Event] struct {
 // NewAggregateRepository creates a new repository for a specific Aggregate and Event type.
 func NewAggregateRepository[A Aggregate[A, E], E Event](eventStore EventStore) *AggregateRepository[A, E]
 
-// Load fetches events for the provided aggregate ID from the Event Store and replays them.
-// It leverages the Aggregate interface's New() method to instantiate the object internally.
+// Load fetches events for the provided aggregate Stream from the Event Store and replays them.
+// It leverages the Aggregate interface's New(stream Stream) method to instantiate the object internally.
 // If the stream does not exist, it typically returns an error (e.g., ErrNotFound).
-func (r *AggregateRepository[A, E]) Load(ctx Context, id Identifier) (A, error)
+func (r *AggregateRepository[A, E]) Load(ctx Context, stream Stream) (A, error)
 
 // Save persists the uncommitted events from the aggregate's Changeset to the Event Store.
 // It is responsible for generating globally unique Identifiers for each new event occurrence,
@@ -441,13 +456,13 @@ func RegisterCommandHandler[C any](bus *CommandBus, handler CommandHandler[C])
 // ExecuteCommand routes the command to its registered handler synchronously.
 // This is the default as most CQRS commands (e.g. from an HTTP request) 
 // require immediate feedback on domain invariants.
-func ExecuteCommand[C any](ctx context.Context, bus *CommandBus, cmd C) error
+func ExecuteCommand[C any](ctx CommandContext, bus *CommandBus, cmd C) error
 
 // ExecuteCommandAsync performs a "fire-and-forget" dispatch.
 // If the bus has no distributed transport configured, it executes the handler 
 // in a background goroutine (safely detaching the context). If a transport is 
 // configured, it serializes and enqueues the command for background workers.
-func ExecuteCommandAsync[C any](ctx context.Context, bus *CommandBus, cmd C) error
+func ExecuteCommandAsync[C any](ctx CommandContext, bus *CommandBus, cmd C) error
 ```
 
 > [!TIP]
@@ -469,7 +484,7 @@ func NewQueryBus() *QueryBus
 func RegisterQueryHandler[Q any, R any](bus *QueryBus, handler QueryHandler[Q, R])
 
 // ExecuteQuery routes the query to its registered handler, returning the strongly-typed result R.
-func ExecuteQuery[Q any, R any](ctx context.Context, bus *QueryBus, query Q) (R, error)
+func ExecuteQuery[Q any, R any](ctx QueryContext, bus *QueryBus, query Q) (R, error)
 ```
 
 ### Event Bus
