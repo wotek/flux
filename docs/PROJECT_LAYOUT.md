@@ -16,12 +16,19 @@ internal/
 ├── catalog/                     # Bounded Context: Catalog
 │   ├── aggregates/              # Domain entities ensuring business invariants
 │   │   ├── product/
+│   │   │   ├── aggregate.go     # Behavior wrapper & command execution
+│   │   │   └── types/           # Pure Write-model state (used for Snapshots)
+│   │   │       └── product.go   # 'type Product struct'
 │   │   └── pricing/
 │   ├── commands/                # Write-side intents (e.g., CreateProductCmd)
 │   ├── events/                  # Domain events (e.g., ProductCreated)
-│   ├── projections/             # Domain-local read models (e.g., ProductList)
+│   ├── projections/             # Domain-local read models
+│   │   └── catalog_list/
+│   │       ├── projector.go     # Event listener & DB updater
+│   │       └── types/           # Pure Read-model state
+│   │           └── product.go   # 'type Product struct' (No private fields)
 │   ├── queries/                 # Read-side intents (e.g., GetProductByIDQuery)
-│   └── types/                   # Local value objects (e.g., SKU, Weight)
+│   └── types/                   # Domain-level shared value objects (e.g., SKU, Weight)
 │
 ├── sales/                       # Bounded Context: Sales
 │   ├── aggregates/
@@ -55,12 +62,14 @@ internal/
 
 Each domain represents a cohesive business boundary.
 
-*   **`aggregates/`**: Contains the write-model aggregates. These embed `flux.AggregateRoot`. They consume commands, enforce rules, and emit events. An aggregate should not directly query the database or call other APIs.
+*   **`aggregates/`**: Contains the write-model aggregates. These embed `flux.AggregateRoot`. They consume commands, enforce rules, and emit events.
+    *   **Subpackages & Snapshots:** Each aggregate gets its own folder (e.g., `aggregates/product/`). If the aggregate is complex, its pure state data is decoupled into an internal `types/` subpackage. This pure data struct is returned by the aggregate's `Snapshot()` method and persisted by the `SnapshotRepository`.
 *   **`commands/`**: Contains the command definitions and their respective handlers. Command handlers load the aggregate from the `AggregateRepository`, invoke business methods, and save the aggregate.
 *   **`events/`**: Defines the event payloads (structs) and marker interfaces. This package represents the public contract of the domain. Other domains will import this package to listen to what happened.
 *   **`projections/`**: Contains projectors (using `flux/projection`) that listen to local domain events and build optimized read models.
+    *   **Subpackages:** Each projection gets its own folder (e.g., `projections/catalog_list/`). The exact shape of the read model is defined in an internal `types/` subpackage.
 *   **`queries/`**: Defines query definitions and handlers that read directly from the database populated by the projections.
-*   **`types/`**: Contains value objects specific to this domain. Prefer keeping types local here unless they are definitively used by multiple independent domains.
+*   **`types/`**: Contains **Value Objects** specific to this domain (e.g., `SKU`, `PricingTier`). These are shared across the domain's aggregates and projections, unlike the state structs which are strictly localized.
 
 ## 2. Cross-Domain Modules
 
@@ -90,3 +99,41 @@ To keep the architecture clean and prevent import cycles in Go:
 3.  **Projections depend on Events:** `projections/` listen to `events/` from their own domain (or imported from other domains) to build read models.
 4.  **Workflows depend on Events and Commands:** `workflows/` listen to `events/` across the application and import `commands/` from various domains to orchestrate actions.
 5.  **Strict CQRS Separation:** The Write side (`aggregates/`, `commands/`) **must never** depend on the Read side (`projections/`, `queries/`), and vice versa. 
+
+## 4. Strict CQRS: State and View Isolation
+
+To prevent accidental data leakage and ensure perfect decoupling between the Write model and the Read model, developers should avoid sharing state structs (e.g., using the exact same struct for both the aggregate's snapshot state and the projection's read model).
+
+You can achieve optimal Domain-Driven Design rigidity by utilizing nested `types/` subpackages localized to the specific Aggregate or Projection. This allows you to keep clean, domain-centric struct names (like `Product`) without collisions.
+
+### Aggregate State (Write Model)
+The pure data struct representing the Aggregate's internal state (used for business logic and snapshots) is named `Product` and lives in a `types` subpackage strictly localized to the aggregate.
+
+```text
+internal/catalog/aggregates/product/
+├── aggregate.go         # Contains ProductAggregate
+└── types/
+    └── product.go       # Contains 'type Product struct'
+```
+
+```go
+// Usage inside aggregate.go
+import "github.com/myorg/ecommerce/internal/catalog/aggregates/product/types"
+
+func (p *ProductAggregate) Snapshot() types.Product { ... }
+```
+
+### Projection View (Read Model)
+The Read model gets its own entirely distinct struct, also named `Product`, nested under the specific projection's `types` subpackage.
+
+```text
+internal/catalog/projections/catalog_list/
+├── projector.go
+└── types/
+    └── product.go       # Contains 'type Product struct' (The Read Model)
+```
+
+**Why this is perfect:**
+1. **Zero Data Leakage:** The Projection's `types.Product` can safely omit sensitive Write-side fields (like `FraudRiskScore` or internal flags) and include additional UI-specific joined data.
+2. **Clean Naming:** By leveraging Go's package system, you get to name both structs `Product` without any stuttering or suffixing (e.g., avoiding `ProductState` or `ProductView`). Inside the aggregate, it's `types.Product`. Inside the projector, it's `types.Product`. 
+3. **Strict Isolation:** Because the Read and Write models are completely isolated and define their own types, they never need to import each other's structs, adhering perfectly to CQRS boundaries.

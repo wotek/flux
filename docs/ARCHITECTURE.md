@@ -18,38 +18,38 @@ The framework follows a strict **layered directed acyclic graph (DAG)** architec
                                     │  - Aggregate  │
                                     │  - Repository │
                                     └───────┬───────┘
-          ┌─────────────────────┬───────────┴───────────┬─────────────────────┐
-          │                     │                       │                     │
-          ▼                     ▼                       ▼                     ▼
-  ┌───────────────┐     ┌───────────────┐       ┌───────────────┐     ┌───────────────┐
-  │    command    │     │     query     │       │     event     │     │  event/store  │
-  │  - Bus        │     │  - Bus        │       │  - Bus        │     │  - Store      │
-  │  - Context    │     │  - Context    │       │  - Context    │     └───────────────┘
-  │  - Handler    │     │  - Handler    │       │  - Handler    │
-  └───────┬───────┘     └───────────────┘       └───────┬───────┘
-          │                                             │
-          │             ┌───────────────────────────────┤
-          │             │ (consumes global events)      │ (consumes global events)
-          │             ▼                               ▼
-          │     ┌───────────────┐               ┌───────────────┐
-          │     │  projection   │               │     saga      │
-          │     │  - Projector  │               │  - Orchestr.  │
-          │     │  - Context    │               │  - Context    │
-          │     │  - Store      │               │  - Store      │
-          │     └───────┬───────┘               └───────┬───────┘
-          │             │                               │
-          │             ▼                               │
-          │     ┌───────────────┐                       │
-          │     │  projection/  │                       │
-          │     │     store     │                       │
-          │     │  - Store      │                       │
-          │     └───────────────┘                       │
-          │                                             │
-          │ (dispatches outbox commands)                ▼
-          └─────────────────────────────────────┌───────────────┐
-                                                │  saga/store   │
-                                                │  - Store      │
-                                                └───────────────┘
+          ┌─────────────────────┬───────────┼───────────┬─────────────────────┐
+          │                     │           │           │                     │
+          ▼                     ▼           ▼           ▼                     ▼
+  ┌───────────────┐     ┌───────────────┐   │   ┌───────────────┐     ┌───────────────┐
+  │    command    │     │     query     │   │   │     event     │     │  event/store  │
+  │  - Bus        │     │  - Bus        │   │   │  - Bus        │     │  - Store      │
+  │  - Context    │     │  - Context    │   │   │  - Context    │     └───────────────┘
+  │  - Handler    │     │  - Handler    │   │   │  - Handler    │
+  └───────┬───────┘     └───────────────┘   │   └───────┬───────┘
+          │                                 │           │
+          │             ┌───────────────────┘           ├───────────────────────────────┐
+          │             │                               │ (consumes global events)      │ (consumes global events)
+          │             ▼                               ▼                               ▼
+          │     ┌───────────────┐               ┌───────────────┐               ┌───────────────┐
+          │     │   snapshot    │               │  projection   │               │     saga      │
+          │     │  - Repository │               │  - Projector  │               │  - Orchestr.  │
+          │     │  - Store      │               │  - Context    │               │  - Context    │
+          │     │  - Schedule   │               │  - Store      │               │  - Store      │
+          │     └───────────────┘               └───────┬───────┘               └───────┬───────┘
+          │                                             │                               │
+          │                                             ▼                               │
+          │                                     ┌───────────────┐                       │
+          │                                     │  projection/  │                       │
+          │                                     │     store     │                       │
+          │                                     │  - Store      │                       │
+          │                                     └───────────────┘                       │
+          │                                                                             │
+          │ (dispatches outbox commands)                                                ▼
+          └─────────────────────────────────────────────────────────────────────┌───────────────┐
+                                                                                │  saga/store   │
+                                                                                │  - Store      │
+                                                                                └───────────────┘
 ```
 
 ### Dependency Flow Diagram
@@ -140,13 +140,13 @@ The core module providing foundational primitives, aggregate lifecycle managemen
 * `Context`: Base execution context providing `Actor()`, `CorrelationIdentifier()`, and `CausationIdentifier()`.
 
 #### Functions
-* `NewIdentifier(org, env, service, account, resourceType, resourceID, version string) Identifier`: Constructs an Identifier.
+* `NewIdentifier(org, env, svc, account, resType, resID, version string) Identifier`: Constructs an Identifier.
 * `ParseIdentifier(s string) (Identifier, error)`: Parses an RFC-like URN into an `Identifier`.
 * `NewIdentifierFromString(s string) Identifier`: Parses an Identifier or panics (ideal for test setups).
 * `NewChangeset[E Event]() Changeset[E]`: Constructs an in-memory changeset.
 * `NewAggregateRoot[E Event](stream Stream, changeset Changeset[E], apply func(E) error) AggregateRoot[E]`: Constructs an embeddable `AggregateRoot`.
 * `NewAggregateRepository[A, E](eventStore EventStore) *AggregateRepository[A, E]`: Creates an `AggregateRepository`.
-* `NewContext(parent context.Context, actor Actor, correlationID, causationID Identifier) Context`: Constructs a base `flux.Context`.
+* `NewContext(parent context.Context, actor Actor, correlationId Identifier, causationId Identifier) Context`: Constructs a base `flux.Context`.
 
 ---
 
@@ -162,8 +162,8 @@ Provides in-memory, constant-time `O(1)` routing for CQRS command dispatching.
 
 #### Functions
 * `New() *Bus` (alias `NewBus()`): Creates a new command bus.
-* `NewContext(parent, cmdID, actor, correlationID, causationID) Context`: Creates a command context.
-* `Register[C any](bus *Bus, handler func(Context, C) error)`: Registers a closure handler for command type `C`.
+* `NewContext(parent context.Context, cmdID flux.Identifier, actor flux.Actor, correlationID flux.Identifier, causationID flux.Identifier) Context`: Creates a command context.
+* `Register[C any](bus *Bus, handler func(ctx Context, cmd C) error)`: Registers a closure handler for command type `C`.
 * `RegisterHandler[C any](bus *Bus, handler Handler[C])`: Registers an interface handler for command type `C`.
 * `Execute[C any](ctx Context, bus *Bus, cmd C) error`: Dispatches command `C` synchronously with `O(1)` performance.
 * `ExecuteAsync[C any](ctx Context, bus *Bus, cmd C) error`: Dispatches command `C` in a background goroutine with panic recovery.
@@ -182,8 +182,8 @@ Provides type-safe, reflection-free query execution and read-model retrieval.
 
 #### Functions
 * `New() *Bus` (alias `NewBus()`): Creates a new query bus.
-* `NewContext(parent, queryID, actor, correlationID, causationID) Context`: Creates a query context.
-* `Register[Q any, R any](bus *Bus, handler func(Context, Q) (R, error))`: Registers a closure handler.
+* `NewContext(parent context.Context, queryID flux.Identifier, actor flux.Actor, correlationID flux.Identifier, causationID flux.Identifier) Context`: Creates a query context.
+* `Register[Q any, R any](bus *Bus, handler func(ctx Context, query Q) (R, error))`: Registers a closure handler.
 * `RegisterHandler[Q any, R any](bus *Bus, handler Handler[Q, R])`: Registers an interface handler.
 * `Execute[Q any, R any](ctx Context, bus *Bus, query Q) (R, error)`: Executes query `Q` and returns read model `R`.
 
@@ -202,7 +202,7 @@ Provides event distribution to multiple subscribers and access to envelope metad
 #### Functions
 * `New() *Bus` (alias `NewBus()`): Creates an event bus.
 * `NewContext(parent context.Context, env flux.Envelope) Context`: Creates an event context from an envelope.
-* `Register[E flux.Event](bus *Bus, handler func(Context, E) error)`: Subscribes a closure handler.
+* `Register[E flux.Event](bus *Bus, handler func(ctx Context, event E) error)`: Subscribes a closure handler.
 * `RegisterHandler[E flux.Event](bus *Bus, handler Handler[E])`: Subscribes an interface handler.
 * `PublishEnvelope(ctx Context, bus *Bus, env flux.Envelope) error`: Dispatches an envelope to all matching subscribers.
 * `Publish[E flux.Event](ctx Context, bus *Bus, event E) error`: Wraps and publishes a bare event.
@@ -222,7 +222,7 @@ Engine for maintaining asynchronous read models and tracking global event stream
 #### Functions
 * `New(id flux.Identifier, eventStore flux.EventStore, projStore Store) *Projector`: Creates a Projector.
 * `NewContext(parent event.Context) Context`: Creates a projection context.
-* `RegisterHandler[E flux.Event](p *Projector, handler func(Context, E) error)`: Maps a domain event to projection logic.
+* `RegisterHandler[E flux.Event](p *Projector, handler func(ctx Context, event E) error)`: Maps a domain event to projection logic.
 * `(p *Projector) Start(ctx context.Context) error`: Runs the continuous tailing loop until context cancellation.
 
 ---
@@ -242,8 +242,27 @@ Orchestration engine coordinating long-running business processes and durable Ou
 * `NewOrchestrator(eventStore flux.EventStore) *Orchestrator`: Creates a Saga Orchestrator.
 * `NewContext(parent event.Context) Context`: Creates a saga context.
 * `EnqueueCommand[C any](ctx Context, cmd C)`: Safely enqueues a strongly-typed command into the saga outbox.
-* `RegisterHandler[S Saga[S], E flux.Event](o *Orchestrator, store Store[S], handler func(Context, S, E) error)`: Links an event to a saga step.
+* `RegisterHandler[S Saga[S], E flux.Event](o *Orchestrator, store Store[S], handler func(ctx Context, saga S, event E) error)`: Links an event to a saga step.
 * `(o *Orchestrator) Start(ctx context.Context) error`: Runs the orchestrator polling loop.
+
+---
+
+### Package: `github.com/wotek/flux/snapshot`
+Provides automatic aggregate snapshotting to improve load performance while enforcing strict Behavior/State separation using the Memento pattern.
+
+#### Structs & Types
+* `Snapshot[S any]`: Represents a captured point-in-time state of an Aggregate.
+* `Repository[A Aggregate[A, E, S], E flux.Event, S any]`: Decorator wrapping `flux.AggregateRepository` that automatically handles snapshot loading and saving.
+
+#### Interfaces
+* `Snapshotable[S any]`: Implemented by aggregates. Defines `Snapshot() S` and `With(state S, revision uint64)`.
+* `Store[S any]`: Persistence contract defining `Load(ctx, stream) (Snapshot[S], error)` and `Save(ctx, stream, snap) error`.
+* `Schedule[A any]`: Determines when to snapshot. Defines `Test(aggregate A) bool`.
+* `Aggregate[A any, E flux.Event, S any]`: Go generic constraint enforcing the type implements both `flux.Aggregate` and `Snapshotable[S]`.
+
+#### Functions
+* `NewRepository[A Aggregate[A, E, S], E flux.Event, S any](base, store, schedule, eventStore) *Repository[A, E, S]`: Constructs the snapshot repository decorator.
+* `Every[A flux.Aggregate[A, E], E flux.Event](n uint64) Schedule[A]`: Creates a schedule triggering every `n` events.
 
 ---
 
