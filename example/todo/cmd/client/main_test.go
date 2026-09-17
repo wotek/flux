@@ -31,7 +31,7 @@ func TestRunClient(t *testing.T) {
 	})
 
 	t.Run("interactive mode session", func(t *testing.T) {
-		in := strings.NewReader("a Test Task\nq\n")
+		in := strings.NewReader("q")
 		out := &bytes.Buffer{}
 
 		err := run(ctx, ts.URL, "urn:todo:prod:lists:1:list:cmd-interactive-test", true, in, out)

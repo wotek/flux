@@ -69,9 +69,15 @@ example/todo/
 │   ├── client.go                        # Client interface definition
 │   ├── in_memory_client.go              # InMemoryClient direct bus implementation
 │   ├── http_client.go                   # HTTPClient JSON REST implementation
-│   ├── interactive.go                   # Interactive terminal CLI dashboard & command loop
+│   ├── interactive.go                   # Interactive terminal TUI runner (Bubble Tea)
+│   ├── tui_model.go                     # Bubble Tea Elm-architecture model (Init, Update, View)
+│   ├── tui_items.go                     # List & Task items adapting to bubbles/list.Item
+│   ├── tui_keys.go                      # Custom keybindings & help definitions
+│   ├── tui_styles.go                    # Lip Gloss box, badge, and color styles
 │   ├── workflow.go                      # Canonical 10-task demo workflow runner
-│   └── client_test.go                   # Tests for InMemoryClient, HTTPClient & interactive mode
+│   ├── export_test.go                   # Test hooks for TUI model
+│   ├── interactive_test.go              # Unit tests for TUI lifecycle & state transitions
+│   └── client_test.go                   # Tests for InMemoryClient, HTTPClient & workflow
 │
 └── cmd/                                 # Application entry points
     ├── todo/                            # All-in-one runner (in-process server + client simulation)
@@ -170,60 +176,54 @@ cd example/todo
 go run ./cmd/client -server http://localhost:8080
 ```
 
-The interactive terminal client features a **hierarchical two-screen navigation flow**:
+The interactive terminal client is built with [Bubble Tea](https://github.com/charmbracelet/bubbletea), [Bubbles](https://github.com/charmbracelet/bubbles), and [Lip Gloss](https://github.com/charmbracelet/lipgloss). It provides a full-terminal, scrollable TUI with real-time CQRS updates, fuzzy search, and keyboard-driven cycling across lists and tasks:
 
 ```text
 ┌────────────────────────────────────────────────────────┐
 │            Screen 1: Lists Catalog (Entry)             │
 │  - Shows all available Todo Lists & summary stats      │
-│  - Cycle through lists, create new lists, or open one  │
+│  - Cycle with ↑/↓ or j/k, fuzzy filter with /          │
+│  - Create new list (a/n), or open selected list (enter)│
 └───────────────────────┬────────────────────────────────┘
                         │
-                        │ [Enter / o / <number>]  (Open selected list)
-                        │ [b / back]             (Return to catalog)
+                        │ [Enter / o]  (Open selected list)
+                        │ [Esc / b]    (Return to catalog)
                         ▼
 ┌────────────────────────────────────────────────────────┐
 │             Screen 2: Task Detail Screen               │
-│  - Shows current list title, URN, active & completed   │
-│  - Cycle tasks, add, remove, and archive/complete      │
+│  - Shows active and completed/archived tasks for list  │
+│  - Cycle with ↑/↓ or j/k, fuzzy filter with /          │
+│  - Add task (a), complete (c/space), delete (d)        │
 └────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-##### Screen 1: Available Lists (Entry Screen)
+##### Screen 1: Todo Lists Catalog (Entry Screen)
 
-When launched, the client displays the catalog of all known Todo List aggregates powered by the `lists` read-model projection:
+When launched, the client displays the catalog of all known Todo List aggregates powered by the `lists` and `counter` read-model projections:
 
 ```text
-================================================================================
-  FLUX CQRS TODO APP — All Todo Lists
-  Global Stats: Active: 5 | Archived: 2 | Removed: 1 | Total Lists: 2
-================================================================================
+ FLUX CQRS TODO APP   Global Stats: 5 Active | 2 Archived | 1 Removed
 
-AVAILABLE TODO LISTS (2):
-  ▶ [1] Work Tasks (Active: 3, Archived: 1)  <-- [SELECTED]
-        URN: urn:todo:prod:lists:1:list:work-1234
-    [2] Personal Tasks (Active: 2, Archived: 1)
-        URN: urn:todo:prod:lists:1:list:personal-5678
+  Todo Lists Catalog
+  2 lists
 
-Status: Welcome! Select a list to open, or create a new one.
+  > 1. Work Tasks
+       Active: 3 • Archived: 1 • urn:todo:prod:lists:1:list:work-1234
+    2. Personal Tasks
+       Active: 2 • Archived: 1 • urn:todo:prod:lists:1:list:personal-5678
 
-Commands:
-  [n] Next list      [p] Prev list      [o/Enter] Open list
-  [a] New list       [r] Refresh        [q] Quit
-  (Or type: new <title> | open <num> | <num> to open directly)
---------------------------------------------------------------------------------
-lists> 
+  enter/o open • a/n new list • r refresh • / filter • q quit
 ```
 
 **Lists Screen Controls:**
-* `n` / `p`: Cycle selection cursor forward and backward across lists
-* `<Enter>` or `o` / `open`: Open the currently selected list into Screen 2
-* `1`, `2`, ...: Open a list directly by its number
-* `a` or `new <title>`: Create a new Todo List aggregate and open its task screen
-* `r`: Refresh lists catalog from the read-model projection
-* `q`: Exit
+* `↑` / `↓` or `k` / `j`: Cycle selection cursor through available todo lists
+* `enter` or `o`: Open the selected list into Screen 2 (Tasks Screen)
+* `a` or `n`: Open inline dialog to create a new Todo List (type title, `enter` to confirm, `esc` to cancel)
+* `/`: Activate fuzzy filter to quickly search through lists
+* `r`: Refresh lists and global stats from the server read models
+* `q` or `ctrl+c`: Quit application
 
 ---
 
@@ -232,40 +232,32 @@ lists>
 Opening a list navigates into its tasks screen, displaying active and archived items:
 
 ```text
-================================================================================
-  FLUX CQRS TODO APP — Work Tasks
-  URN: urn:todo:prod:lists:1:list:work-1234
-  List Status: 3 Active | 1 Archived
-================================================================================
+ FLUX CQRS TODO APP   Global Stats: 5 Active | 2 Archived | 1 Removed
 
-ACTIVE TASKS (3):
-  ▶ [1] Prepare release notes  <-- [SELECTED]
-    [2] Deploy staging cluster
-    [3] Update documentation
+  Tasks — Work Tasks
+  4 items • urn:todo:prod:lists:1:list:work-1234
 
-ARCHIVED / COMPLETED (1):
-    ✓ Initial architecture review
+  > 1. [ACTIVE] Prepare release notes
+       Pending
+    2. [ACTIVE] Deploy staging cluster
+       Pending
+    3. [ACTIVE] Update documentation
+       Pending
+    4. [DONE] Initial architecture review
+       Completed / Archived
 
-Status: Added task: "Update documentation"
-
-Commands:
-  [n] Next task      [p] Prev task      [a] Add task       [d] Delete task
-  [c] Mark done      [b] Back to lists  [r] Refresh        [q] Quit
-  (Or type: add <text> | del <num> | done <num> | <num> to select)
---------------------------------------------------------------------------------
-tasks> 
+  a add • c/space done • d delete • esc/b back • r refresh • / filter • q quit
 ```
 
 **Tasks Screen Controls:**
-* `n` or `<Enter>`: Cycle selection cursor forward through active tasks
-* `p`: Cycle selection cursor backward through active tasks
-* `a` or `add <task>`: Add a new task to this list
-* `d` or `del [num]`: Remove the selected task (or by number)
-* `c` or `done [num]`: Mark the selected task as completed / archived (or by number)
-* `1`, `2`, ...: Select a task directly by number
-* `b` or `back`: Return back to Screen 1 (Lists Catalog)
-* `r`: Refresh tasks from the aggregate
-* `q`: Exit
+* `↑` / `↓` or `k` / `j`: Cycle selection cursor up and down through tasks
+* `a`: Open inline dialog to add a new task (type task name, `enter` to confirm, `esc` to cancel)
+* `c` or `space`: Mark the selected task as completed / archived
+* `d`: Delete / remove the selected task
+* `esc` or `b`: Return back to Screen 1 (Todo Lists Catalog)
+* `/`: Activate fuzzy filter to search tasks
+* `r`: Refresh task list and stats from the server
+* `q` or `ctrl+c`: Quit application
 
 #### 3. Run Automated Workflow Demo
 

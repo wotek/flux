@@ -1,0 +1,31 @@
+# Top-most EditorConfig file
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Standard Go conventions (enforced by gofmt)
+[*.go]
+indent_style = tab
+indent_size = 4
+
+# Protocol Buffers (common in Go microservices)
+[*.proto]
+indent_style = space
+indent_size = 2
+
+# Configuration, schemas, and CI/CD files
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+[*.json]
+indent_style = space
+indent_size = 2
+
+# Documentation
+[*.md]
+trim_trailing_whitespace = false
