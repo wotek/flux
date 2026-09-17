@@ -5,6 +5,7 @@ import (
 
 	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 )
 
@@ -15,9 +16,12 @@ type Handler[Q any, R any] interface {
 
 // Bus manages the registration and routing of queries.
 type Bus struct {
-	mu       sync.RWMutex
-	handlers map[reflect.Type]any
+	mu          sync.RWMutex
+	handlers    map[reflect.Type]any
+	middlewares []Middleware
 }
+
+type Middleware func(ctx Context, query any, next func(Context, any) (any, error)) (any, error)
 
 // New creates a new QueryBus instance.
 func New() *Bus {
@@ -71,23 +75,45 @@ func (h queryFuncHandler[Q, R]) Handle(ctx Context, query Q) (R, error) {
 	return h.fn(ctx, query)
 }
 
+func (b *Bus) Use(middlewares ...Middleware) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.middlewares = append(b.middlewares, middlewares...)
+}
+
 // Execute routes a query to its registered handler synchronously and returns the typed read model.
 func Execute[Q any, R any](ctx Context, bus *Bus, query Q) (R, error) {
 	qType := reflect.TypeOf(query)
 
 	bus.mu.RLock()
-	h, ok := bus.handlers[qType]
+	handler, ok := bus.handlers[qType]
+	middlewares := bus.middlewares
 	bus.mu.RUnlock()
 
-	var zero R
 	if !ok {
+		var zero R
 		return zero, fmt.Errorf("%w: query %v", flux.ErrNoHandler, qType)
 	}
 
-	handler, ok := h.(Handler[Q, R])
-	if !ok {
-		return zero, fmt.Errorf("handler for query %v does not return the requested type", qType)
+	exec := func(execCtx Context, execQ any) (any, error) {
+		h, ok := handler.(Handler[Q, R])
+		if !ok {
+			return nil, fmt.Errorf("%w: handler for query %v does not return the requested type", flux.ErrInvalidHandlerType, qType)
+		}
+		return h.Handle(execCtx, execQ.(Q))
 	}
 
-	return handler.Handle(ctx, query)
+	for _, mw := range slices.Backward(middlewares) {
+		next := exec
+		exec = func(execCtx Context, execQ any) (any, error) {
+			return mw(execCtx, execQ, next)
+		}
+	}
+
+	res, err := exec(ctx, query)
+	if res == nil {
+		var zero R
+		return zero, err
+	}
+	return res.(R), err
 }

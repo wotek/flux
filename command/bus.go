@@ -5,6 +5,7 @@ import (
 
 	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 )
 
@@ -15,9 +16,12 @@ type Handler[C any] interface {
 
 // Bus manages the registration and routing of commands.
 type Bus struct {
-	mu       sync.RWMutex
-	handlers map[reflect.Type]any
+	mu          sync.RWMutex
+	handlers    map[reflect.Type]any
+	middlewares []Middleware
 }
+
+type Middleware func(ctx Context, cmd any, next func(Context, any) error) error
 
 // New creates a new command Bus instance.
 func New() *Bus {
@@ -71,12 +75,19 @@ func Register[C any](bus *Bus, handler func(ctx Context, cmd C) error) {
 	bus.handlers[cmdType] = wrapper
 }
 
+func (b *Bus) Use(middlewares ...Middleware) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.middlewares = append(b.middlewares, middlewares...)
+}
+
 // Execute routes a command to its registered handler synchronously.
 func Execute[C any](ctx Context, bus *Bus, cmd C) error {
 	cmdType := reflect.TypeOf(cmd)
 
 	bus.mu.RLock()
 	h, ok := bus.handlers[cmdType]
+	middlewares := bus.middlewares
 	bus.mu.RUnlock()
 
 	if !ok {
@@ -84,8 +95,16 @@ func Execute[C any](ctx Context, bus *Bus, cmd C) error {
 	}
 
 	// 100% reflection-free O(1) execution via closure assertion
-	wrapper := h.(func(Context, any) error)
-	return wrapper(ctx, cmd)
+	exec := h.(func(Context, any) error)
+
+	for _, mw := range slices.Backward(middlewares) {
+		next := exec
+		exec = func(execCtx Context, execCmd any) error {
+			return mw(execCtx, execCmd, next)
+		}
+	}
+
+	return exec(ctx, cmd)
 }
 
 // ExecuteAsync routes a command to its registered handler asynchronously (fire-and-forget).

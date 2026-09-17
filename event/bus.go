@@ -1,7 +1,8 @@
 package event
 
 import (
-	"fmt"
+	"errors"
+	"slices"
 	"sync"
 
 	"github.com/wotek/flux"
@@ -15,9 +16,12 @@ type Handler[E flux.Event] interface {
 // Bus manages the registration and routing of events.
 // A single event type can have multiple subscribers.
 type Bus struct {
-	mu       sync.RWMutex
-	handlers map[string][]any // maps Event.Name() to slice of handlers
+	mu          sync.RWMutex
+	handlers    map[string][]any // maps Event.Name() to slice of handlers
+	middlewares []Middleware
 }
+
+type Middleware func(ctx Context, env flux.Envelope, next func(Context, flux.Envelope) error) error
 
 // New creates a new event Bus instance.
 func New() *Bus {
@@ -58,30 +62,47 @@ func Register[E flux.Event](bus *Bus, handler func(ctx Context, event E) error) 
 }
 
 // PublishEnvelope routes an Envelope to all registered subscribers.
+func (b *Bus) Use(middlewares ...Middleware) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.middlewares = append(b.middlewares, middlewares...)
+}
+
 func PublishEnvelope(ctx Context, bus *Bus, env flux.Envelope) error {
 	name := env.Event.Name()
 
 	bus.mu.RLock()
 	handlers, ok := bus.handlers[name]
+	middlewares := bus.middlewares
 	bus.mu.RUnlock()
 
 	if !ok || len(handlers) == 0 {
 		return nil
 	}
 
-	var errs []error
-	for _, h := range handlers {
-		wrapper := h.(func(Context, any) error)
-		if err := wrapper(ctx, env.Event); err != nil {
-			errs = append(errs, err)
+	exec := func(execCtx Context, execEnv flux.Envelope) error {
+		var errs []error
+		for _, h := range handlers {
+			wrapper := h.(func(Context, any) error)
+			if err := wrapper(execCtx, execEnv.Event); err != nil {
+				errs = append(errs, err)
+			}
+		}
+
+		if len(errs) > 0 {
+			return errors.Join(errs...)
+		}
+		return nil
+	}
+
+	for _, mw := range slices.Backward(middlewares) {
+		next := exec
+		exec = func(execCtx Context, execEnv flux.Envelope) error {
+			return mw(execCtx, execEnv, next)
 		}
 	}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("encountered %d errors while handling event %s", len(errs), name)
-	}
-
-	return nil
+	return exec(ctx, env)
 }
 
 // Publish wraps a domain event in an Envelope and routes it to all registered subscribers.

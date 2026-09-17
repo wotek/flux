@@ -14,4 +14,7 @@ var (
 
 	// ErrNoHandler is returned by Command and Query buses when no handler is registered for a given type.
 	ErrNoHandler = errors.New("no handler registered")
+
+	// ErrInvalidHandlerType is returned when a requested handler signature does not match the registered handler.
+	ErrInvalidHandlerType = errors.New("invalid handler type")
 )
