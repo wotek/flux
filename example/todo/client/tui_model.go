@@ -144,6 +144,10 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.isError = true
 			return m, nil
 		}
+		if m.statusMessage == "Refreshing lists..." {
+			m.statusMessage = "Lists refreshed."
+			m.isError = false
+		}
 		m.stats = msg.stats
 		items := make([]list.Item, 0, len(msg.lists))
 		for _, l := range msg.lists {
@@ -154,14 +158,18 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				archived: l.Archived,
 			})
 		}
-		m.listsModel.SetItems(items)
-		return m, nil
+		cmd := m.listsModel.SetItems(items)
+		return m, cmd
 
 	case tasksLoadedMsg:
 		if msg.err != nil {
 			m.statusMessage = "Error loading tasks: " + msg.err.Error()
 			m.isError = true
 			return m, nil
+		}
+		if m.statusMessage == "Refreshing tasks..." {
+			m.statusMessage = "Tasks refreshed."
+			m.isError = false
 		}
 		m.stats = msg.stats
 		items := make([]list.Item, 0, len(msg.tasks.Active)+len(msg.tasks.Archived))
@@ -171,8 +179,8 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, task := range msg.tasks.Archived {
 			items = append(items, todoTaskItem{task: task, archived: true})
 		}
-		m.tasksModel.SetItems(items)
-		return m, nil
+		cmd := m.tasksModel.SetItems(items)
+		return m, cmd
 
 	case actionCompletedMsg:
 		if msg.err != nil {
@@ -283,6 +291,11 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.view == viewTasks {
 			switch {
 			case key.Matches(msg, m.tasksKeys.back):
+				if m.tasksModel.FilterState() != list.Unfiltered {
+					var cmd tea.Cmd
+					m.tasksModel, cmd = m.tasksModel.Update(msg)
+					return m, cmd
+				}
 				m.view = viewLists
 				m.statusMessage = "Returned to lists catalog."
 				m.isError = false
@@ -324,7 +337,15 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	return m, nil
+	// Forward any remaining messages (e.g. list.FilterMatchesMsg, paginator, cursor ticks)
+	// to the active list model so asynchronous filter matching functions properly.
+	var cmd tea.Cmd
+	if m.view == viewLists {
+		m.listsModel, cmd = m.listsModel.Update(msg)
+	} else {
+		m.tasksModel, cmd = m.tasksModel.Update(msg)
+	}
+	return m, cmd
 }
 
 func (m *tuiModel) View() string {

@@ -116,3 +116,66 @@ func TestTUIModel_StateTransitions(t *testing.T) {
 		t.Errorf("expected lists catalog in view, got: %s", view3)
 	}
 }
+
+func TestTUIModel_RefreshAndFilter(t *testing.T) {
+	t.Parallel()
+
+	srv := server.New()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = srv.Start(ctx)
+	}()
+
+	c := client.NewInMemoryClient(srv.CommandBus(), srv.QueryBus())
+	listID := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:refresh-filter")
+
+	if err := c.CreateList(ctx, listID, "Alpha Project"); err != nil {
+		t.Fatalf("failed to create list: %v", err)
+	}
+
+	m := client.NewTestTUIModel(ctx, c, listID)
+
+	// Initialize
+	if initCmd := m.Init(); initCmd != nil {
+		m, _ = m.Update(initCmd())
+	}
+
+	// 1. Test Refresh
+	var cmd tea.Cmd
+	m, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	if cmd != nil {
+		msg := cmd()
+		m, _ = m.Update(msg)
+	}
+
+	view := m.View()
+	if !strings.Contains(view, "Lists refreshed.") {
+		t.Errorf("expected status 'Lists refreshed.', got view: %s", view)
+	}
+	if strings.Contains(view, "Refreshing lists...") {
+		t.Errorf("expected 'Refreshing lists...' to be cleared, got: %s", view)
+	}
+
+	// 2. Test Filter key '/'
+	m, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if cmd != nil {
+		msg := cmd()
+		m, _ = m.Update(msg)
+	}
+
+	// Type filter text "Alpha"
+	for _, r := range "Alpha" {
+		m, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		if cmd != nil {
+			msg := cmd()
+			m, _ = m.Update(msg)
+		}
+	}
+
+	viewFiltered := m.View()
+	if !strings.Contains(viewFiltered, "Alpha Project") {
+		t.Errorf("expected 'Alpha Project' in filtered view, got: %s", viewFiltered)
+	}
+}
