@@ -19,6 +19,7 @@ example/todo/
 │
 ├── commands/                            # Commands and co-located command handlers
 │   ├── doc.go                           # Package documentation
+│   ├── create_list.go                   # CreateList command + CreateListHandler
 │   ├── add_task.go                      # AddTask command + AddTaskHandler
 │   ├── remove_task.go                   # RemoveTask command + RemoveTaskHandler
 │   ├── done_tasks.go                    # DoneTasks command + DoneTasksHandler
@@ -28,24 +29,33 @@ example/todo/
 │   ├── doc.go                           # Package documentation
 │   ├── get_counter.go                   # GetCounter query + GetCounterHandler
 │   ├── get_todo_list.go                 # GetTodoList query + GetTodoListHandler
+│   ├── get_lists.go                     # GetLists query + GetListsHandler
 │   └── register.go                      # RegisterHandlers() batch registration helper
 │
 ├── events/                              # Strongly-typed domain events
 │   ├── doc.go                           # Package documentation
 │   ├── event.go                         # TodoEvent sealed interface
+│   ├── list_created.go                  # ListCreated event struct
 │   ├── task_added.go                    # TaskAdded event struct
 │   ├── task_removed.go                  # TaskRemoved event struct
 │   └── tasks_done.go                    # TasksDone event struct
 │
 ├── projections/                         # Read-model projections
 │   ├── doc.go                           # Projections package documentation
-│   └── counter/                         # Dedicated counter projection subpackage
-│       ├── doc.go                       # Counter package documentation
-│       ├── counter.go                   # Counter read model struct (Active, Archived, Removed)
+│   ├── counter/                         # Dedicated counter projection subpackage
+│   │   ├── doc.go                       # Counter package documentation
+│   │   ├── counter.go                   # Counter read model struct (Active, Archived, Removed)
+│   │   ├── store.go                     # Store persistence interface
+│   │   ├── memory_store.go              # MemoryStore thread-safe implementation
+│   │   ├── projector.go                 # NewProjector constructor and handlers
+│   │   └── projector_test.go            # Unit test for counter projector
+│   └── lists/                           # Dedicated lists projection subpackage
+│       ├── doc.go                       # Lists package documentation
+│       ├── list_summary.go              # ListSummary read model struct
 │       ├── store.go                     # Store persistence interface
 │       ├── memory_store.go              # MemoryStore thread-safe implementation
 │       ├── projector.go                 # NewProjector constructor and handlers
-│       └── projector_test.go            # Unit test for counter projector
+│       └── projector_test.go            # Unit test for lists projector
 │
 ├── server/                              # Server orchestration & HTTP gateway
 │   ├── doc.go                           # Package documentation
@@ -161,9 +171,9 @@ This starts the interactive terminal dashboard:
 
 ```text
 ================================================================================
-  FLUX CQRS TODO APP (Interactive Mode)
-  List: urn:todo:prod:lists:1:list:abc-123
-  Stats (Counter Projection): Active: 2 | Archived: 1 | Removed: 1
+  FLUX CQRS TODO APP — Personal Projects
+  URN: urn:todo:prod:lists:1:list:personal
+  Global Stats: Active: 2 | Archived: 1 | Removed: 1 | Total Lists: 2
 ================================================================================
 
 ACTIVE TASKS (2):
@@ -175,20 +185,24 @@ ARCHIVED / COMPLETED (1):
 
 Commands:
   [n] Next item      [p] Prev item      [a] Add task       [d] Delete selected
-  [c] Mark done      [r] Refresh        [l] Switch list    [q] Quit
+  [c] Mark done      [nl] New list      [l] Switch list    [tab] Next list
+  [ls] Overview      [r] Refresh        [q] Quit
   (Or type: add <text> | del <num> | done <num> | <num> to select)
 --------------------------------------------------------------------------------
 todo> 
 ```
 
 **Interactive Controls:**
-* `n` or `<Enter>`: Cycle cursor to next task
-* `p`: Cycle cursor to previous task
-* `a` or `add <text>`: Add a new task
+* `n` or `<Enter>`: Cycle cursor to next task in current list
+* `p`: Cycle cursor to previous task in current list
+* `a` or `add <text>`: Add a new task to current list
 * `d` or `del [num]`: Delete currently selected task (or task by number)
 * `c` or `done [num]`: Mark currently selected task as completed
 * `1`, `2`, ...: Select task by number directly
-* `l` or `list [urn]`: Switch active todo list URN
+* `nl` or `new <title>`: Create a new Todo List aggregate and switch to it
+* `ls` or `lists`: View read-model overview of all Todo Lists with summary counts
+* `l` or `switch [num|urn]`: Switch between Todo Lists
+* `tab` or `nextlist`: Cycle directly to the next Todo List
 * `r`: Refresh projection stats and task list
 * `q`: Exit
 

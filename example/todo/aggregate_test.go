@@ -19,6 +19,25 @@ func TestTodoListAggregate_Operations(t *testing.T) {
 		wantChangeset int
 	}{
 		{
+			name: "create list with title",
+			operations: func(list *todo.TodoListAggregate) {
+				list.Create("Groceries")
+			},
+			wantActive:    nil,
+			wantArchived:  nil,
+			wantChangeset: 1,
+		},
+		{
+			name: "create list is idempotent",
+			operations: func(list *todo.TodoListAggregate) {
+				list.Create("Groceries")
+				list.Create("Different Title")
+			},
+			wantActive:    nil,
+			wantArchived:  nil,
+			wantChangeset: 1,
+		},
+		{
 			name: "add single task",
 			operations: func(list *todo.TodoListAggregate) {
 				list.Add("Buy milk")

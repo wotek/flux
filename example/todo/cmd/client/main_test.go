@@ -39,7 +39,7 @@ func TestRunClient(t *testing.T) {
 			t.Fatalf("run interactive failed: %v", err)
 		}
 
-		if !strings.Contains(out.String(), "FLUX CQRS TODO APP (Interactive Mode)") {
+		if !strings.Contains(out.String(), "FLUX CQRS TODO APP") {
 			t.Fatalf("expected header in output, got:\n%s", out.String())
 		}
 	})

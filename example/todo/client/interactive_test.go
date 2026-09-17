@@ -44,6 +44,8 @@ func TestRunInteractive(t *testing.T) {
 		"c 2",
 		"1",
 		"d",
+		"nl Personal Projects",
+		"a Buy Groceries",
 		"q",
 	}, "\n") + "\n"
 
@@ -59,12 +61,14 @@ func TestRunInteractive(t *testing.T) {
 
 	// Verify key lifecycle markers were rendered in terminal session
 	expectedStrings := []string{
-		"FLUX CQRS TODO APP (Interactive Mode)",
+		"FLUX CQRS TODO APP",
 		"Added task: \"Task A\"",
 		"Added task: \"Task B\"",
 		"Added task: \"Task C\"",
 		"Completed task: \"Task B\"",
 		"Removed task: \"Task A\"",
+		"Created and switched to list \"Personal Projects\"",
+		"Added task: \"Buy Groceries\"",
 		"Goodbye!",
 	}
 

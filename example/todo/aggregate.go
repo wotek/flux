@@ -11,6 +11,7 @@ import (
 type TodoListAggregate struct {
 	flux.AggregateRoot[events.TodoEvent]
 
+	title    string
 	active   []string
 	archived []string
 }
@@ -30,6 +31,8 @@ func (l *TodoListAggregate) New(stream flux.Stream) *TodoListAggregate {
 // apply mutates the aggregate's internal state in response to historical or uncommitted events.
 func (l *TodoListAggregate) apply(event events.TodoEvent) error {
 	switch e := event.(type) {
+	case events.ListCreated:
+		l.title = e.Title
 	case events.TaskAdded:
 		if !slices.Contains(l.active, e.Task) {
 			l.active = append(l.active, e.Task)
@@ -49,6 +52,28 @@ func (l *TodoListAggregate) apply(event events.TodoEvent) error {
 		}
 	}
 	return nil
+}
+
+// Create initializes the todo list with a title (idempotent).
+func (l *TodoListAggregate) Create(title string) {
+	if l.title != "" {
+		return
+	}
+	if title == "" {
+		title = "Untitled List"
+	}
+
+	event := events.ListCreated{Title: title}
+	l.Changeset().Record(event)
+	_ = l.apply(event)
+}
+
+// Title returns the human-readable title of this todo list.
+func (l *TodoListAggregate) Title() string {
+	if l.title == "" {
+		return "Default List"
+	}
+	return l.title
 }
 
 // Add appends a new task to the active list if it is not already present (idempotent).

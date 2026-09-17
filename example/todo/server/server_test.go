@@ -129,5 +129,38 @@ func TestServerHTTPHandler(t *testing.T) {
 		if len(tasksResp.Archived) != 1 || tasksResp.Archived[0] != "Task 2" {
 			t.Fatalf("expected Archived=[Task 2], got %v", tasksResp.Archived)
 		}
+
+		// 6. Create a second list and verify GET /lists returns both
+		list2ID := "urn:todo:prod:lists:1:list:work"
+		createBody, _ := json.Marshal(map[string]string{
+			"list_identifier": list2ID,
+			"title":           "Work Tasks",
+		})
+		req = httptest.NewRequest(http.MethodPost, "/lists", bytes.NewReader(createBody))
+		rec = httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create list: expected 201, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		// Poll GET /lists until both lists appear in projection
+		deadline = time.Now().Add(2 * time.Second)
+		var listSummaries []map[string]any
+		for time.Now().Before(deadline) {
+			req = httptest.NewRequest(http.MethodGet, "/lists", nil)
+			rec = httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code == http.StatusOK {
+				_ = json.NewDecoder(rec.Body).Decode(&listSummaries)
+				if len(listSummaries) >= 2 {
+					break
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+
+		if len(listSummaries) < 2 {
+			t.Fatalf("expected at least 2 lists, got %d: %v", len(listSummaries), listSummaries)
+		}
 	})
 }

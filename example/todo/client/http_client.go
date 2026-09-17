@@ -13,6 +13,7 @@ import (
 
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/example/todo/projections/counter"
+	"github.com/wotek/flux/example/todo/projections/lists"
 	"github.com/wotek/flux/example/todo/queries"
 )
 
@@ -48,6 +49,15 @@ func NewHTTPClient(baseURL string, opts ...HTTPClientOption) *HTTPClient {
 		opt(c)
 	}
 	return c
+}
+
+// CreateList sends a POST /lists request to initialize a new todo list.
+func (c *HTTPClient) CreateList(ctx context.Context, listIdentifier flux.Identifier, title string) error {
+	payload := map[string]string{
+		"list_identifier": listIdentifier.String(),
+		"title":           title,
+	}
+	return c.sendJSON(ctx, http.MethodPost, "/lists", payload, nil)
 }
 
 // AddTask sends a POST /tasks request to the server.
@@ -94,6 +104,15 @@ func (c *HTTPClient) GetTodoList(ctx context.Context, listIdentifier flux.Identi
 		return queries.TodoList{}, fmt.Errorf("http get todo list: %w", err)
 	}
 	return todoList, nil
+}
+
+// GetLists sends a GET /lists request to the server and returns all known todo lists.
+func (c *HTTPClient) GetLists(ctx context.Context) ([]lists.ListSummary, error) {
+	var allLists []lists.ListSummary
+	if err := c.sendJSON(ctx, http.MethodGet, "/lists", nil, &allLists); err != nil {
+		return nil, fmt.Errorf("http get lists: %w", err)
+	}
+	return allLists, nil
 }
 
 func (c *HTTPClient) sendJSON(ctx context.Context, method, path string, requestBody any, responseTarget any) error {

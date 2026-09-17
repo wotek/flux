@@ -9,6 +9,7 @@ import (
 
 // RegisterHandlers registers all command handlers in this package on the given command bus.
 func RegisterHandlers(bus *command.Bus, repo *flux.AggregateRepository[*todo.TodoListAggregate, events.TodoEvent]) {
+	RegisterCreateListHandler(bus, repo)
 	RegisterAddTaskHandler(bus, repo)
 	RegisterRemoveTaskHandler(bus, repo)
 	RegisterDoneTasksHandler(bus, repo)

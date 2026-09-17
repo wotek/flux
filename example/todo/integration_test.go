@@ -33,7 +33,7 @@ func TestTodoApplication_EndToEnd(t *testing.T) {
 	statsStore := counter.NewMemoryStore()
 
 	commands.RegisterHandlers(cmdBus, repo)
-	queries.RegisterHandlers(queryBus, statsStore, repo)
+	queries.RegisterHandlers(queryBus, statsStore, nil, repo)
 
 	projID := flux.NewIdentifierFromString("urn:todo:prod:projections:1:counter:integration")
 	projector := counter.NewProjector(projID, eventStore, projStore, statsStore)

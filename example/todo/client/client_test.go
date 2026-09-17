@@ -70,6 +70,20 @@ func TestClientImplementations(t *testing.T) {
 			if len(list.Archived) != 2 {
 				t.Fatalf("expected 2 archived tasks, got %v", list.Archived)
 			}
+
+			// Create another list and verify GetLists
+			secondListID := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:" + tc.name + "-secondary")
+			if err := c.CreateList(ctx, secondListID, "Secondary List"); err != nil {
+				t.Fatalf("CreateList failed: %v", err)
+			}
+
+			allLists, err := c.GetLists(ctx)
+			if err != nil {
+				t.Fatalf("GetLists failed: %v", err)
+			}
+			if len(allLists) < 1 {
+				t.Fatalf("expected at least 1 list, got %d", len(allLists))
+			}
 		})
 	}
 }

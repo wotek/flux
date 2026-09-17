@@ -5,6 +5,7 @@ import (
 	"github.com/wotek/flux/example/todo"
 	"github.com/wotek/flux/example/todo/events"
 	"github.com/wotek/flux/example/todo/projections/counter"
+	"github.com/wotek/flux/example/todo/projections/lists"
 	"github.com/wotek/flux/query"
 )
 
@@ -12,8 +13,12 @@ import (
 func RegisterHandlers(
 	bus *query.Bus,
 	statsStore counter.Store,
+	listsStore lists.Store,
 	repo *flux.AggregateRepository[*todo.TodoListAggregate, events.TodoEvent],
 ) {
 	RegisterGetCounterHandler(bus, statsStore)
+	if listsStore != nil {
+		RegisterGetListsHandler(bus, listsStore)
+	}
 	RegisterGetTodoListHandler(bus, repo)
 }

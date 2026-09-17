@@ -10,6 +10,7 @@ import (
 	"github.com/wotek/flux/command"
 	"github.com/wotek/flux/example/todo/commands"
 	"github.com/wotek/flux/example/todo/projections/counter"
+	"github.com/wotek/flux/example/todo/projections/lists"
 	"github.com/wotek/flux/example/todo/queries"
 	"github.com/wotek/flux/query"
 )
@@ -19,6 +20,11 @@ type HTTPHandler struct {
 	cmdBus   *command.Bus
 	queryBus *query.Bus
 	mux      *http.ServeMux
+}
+
+type createListRequest struct {
+	ListIdentifier string `json:"list_identifier"`
+	Title          string `json:"title"`
 }
 
 type addTaskRequest struct {
@@ -44,6 +50,8 @@ func NewHTTPHandler(cmdBus *command.Bus, queryBus *query.Bus) *HTTPHandler {
 		mux:      http.NewServeMux(),
 	}
 
+	h.mux.HandleFunc("POST /lists", h.handleCreateList)
+	h.mux.HandleFunc("GET /lists", h.handleGetLists)
 	h.mux.HandleFunc("POST /tasks", h.handleAddTask)
 	h.mux.HandleFunc("DELETE /tasks", h.handleRemoveTask)
 	h.mux.HandleFunc("POST /tasks/done", h.handleDoneTasks)
@@ -56,6 +64,48 @@ func NewHTTPHandler(cmdBus *command.Bus, queryBus *query.Bus) *HTTPHandler {
 // ServeHTTP delegates to the internal multiplexer.
 func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mux.ServeHTTP(w, r)
+}
+
+func (h *HTTPHandler) handleCreateList(w http.ResponseWriter, r *http.Request) {
+	var req createListRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json payload: " + err.Error()})
+		return
+	}
+	if req.ListIdentifier == "" {
+		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "list_identifier is required"})
+		return
+	}
+
+	cmdID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:commands:1:cmd:createlist-%d", time.Now().UnixNano()))
+	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:todo:prod:users:1:user:http-client")}
+	cmdCtx := command.NewContext(r.Context(), cmdID, actor, flux.Identifier{}, flux.Identifier{})
+
+	cmd := commands.CreateList{
+		ListIdentifier: flux.NewIdentifierFromString(req.ListIdentifier),
+		Title:          req.Title,
+	}
+
+	if err := command.Execute(cmdCtx, h.cmdBus, cmd); err != nil {
+		respondJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, map[string]string{"status": "list created"})
+}
+
+func (h *HTTPHandler) handleGetLists(w http.ResponseWriter, r *http.Request) {
+	queryID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:queries:1:query:lists-%d", time.Now().UnixNano()))
+	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:todo:prod:users:1:user:http-client")}
+	queryCtx := query.NewContext(r.Context(), queryID, actor, flux.Identifier{}, flux.Identifier{})
+
+	res, err := query.Execute[queries.GetLists, []lists.ListSummary](queryCtx, h.queryBus, queries.GetLists{})
+	if err != nil {
+		respondJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	respondJSON(w, http.StatusOK, res)
 }
 
 func (h *HTTPHandler) handleAddTask(w http.ResponseWriter, r *http.Request) {

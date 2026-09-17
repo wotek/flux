@@ -9,6 +9,7 @@ import (
 	"github.com/wotek/flux/command"
 	"github.com/wotek/flux/example/todo/commands"
 	"github.com/wotek/flux/example/todo/projections/counter"
+	"github.com/wotek/flux/example/todo/projections/lists"
 	"github.com/wotek/flux/example/todo/queries"
 	"github.com/wotek/flux/query"
 )
@@ -31,6 +32,20 @@ func NewInMemoryClient(cmdBus *command.Bus, queryBus *query.Bus) *InMemoryClient
 			Identifier: flux.NewIdentifierFromString("urn:todo:prod:users:1:user:in-memory-client"),
 		},
 	}
+}
+
+// CreateList dispatches a [commands.CreateList] command directly to the command bus.
+func (c *InMemoryClient) CreateList(ctx context.Context, listIdentifier flux.Identifier, title string) error {
+	cmdID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:commands:1:cmd:createlist-%d", time.Now().UnixNano()))
+	cmdCtx := command.NewContext(ctx, cmdID, c.actor, flux.Identifier{}, flux.Identifier{})
+	cmd := commands.CreateList{
+		ListIdentifier: listIdentifier,
+		Title:          title,
+	}
+	if err := command.Execute(cmdCtx, c.cmdBus, cmd); err != nil {
+		return fmt.Errorf("in-memory create list: %w", err)
+	}
+	return nil
 }
 
 // AddTask dispatches an [commands.AddTask] command directly to the command bus.
@@ -93,6 +108,17 @@ func (c *InMemoryClient) GetTodoList(ctx context.Context, listIdentifier flux.Id
 	res, err := query.Execute[queries.GetTodoList, queries.TodoList](queryCtx, c.queryBus, queries.GetTodoList{ListIdentifier: listIdentifier})
 	if err != nil {
 		return queries.TodoList{}, fmt.Errorf("in-memory get todo list: %w", err)
+	}
+	return res, nil
+}
+
+// GetLists dispatches an [queries.GetLists] query directly to the query bus.
+func (c *InMemoryClient) GetLists(ctx context.Context) ([]lists.ListSummary, error) {
+	queryID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:queries:1:query:lists-%d", time.Now().UnixNano()))
+	queryCtx := query.NewContext(ctx, queryID, c.actor, flux.Identifier{}, flux.Identifier{})
+	res, err := query.Execute[queries.GetLists, []lists.ListSummary](queryCtx, c.queryBus, queries.GetLists{})
+	if err != nil {
+		return nil, fmt.Errorf("in-memory get lists: %w", err)
 	}
 	return res, nil
 }
