@@ -67,7 +67,7 @@ func (r *SnapshotRepository[A, E, S]) Load(ctx Context, stream Stream) (A, error
 	// Verify the stream actually existed (revision > 0)
 	// A new, uninitialized aggregate will have revision 0.
 	if agg.Revision() == 0 {
-		return zero, fmt.Errorf("aggregate not found: %s", stream.Identifier.String())
+		return zero, fmt.Errorf("%w: %s", ErrAggregateNotFound, stream.Identifier.String())
 	}
 
 	return agg, nil

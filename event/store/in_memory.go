@@ -45,7 +45,7 @@ func (s *EventStore) Append(ctx context.Context, stream flux.Stream, expectedRev
 	}
 
 	if currentRevision != expectedRevision {
-		return fmt.Errorf("concurrency error: expected revision %d, got %d", expectedRevision, currentRevision)
+		return fmt.Errorf("%w: expected revision %d, got %d", flux.ErrConcurrency, expectedRevision, currentRevision)
 	}
 
 	// Append events

@@ -279,7 +279,7 @@ func (a *AggregateRoot[E]) FromEvents(events StreamIterator) error {
 		// Ensure the event conforms to this aggregate's specific event type constraint.
 		domainEvent, ok := env.Event.(E)
 		if !ok {
-			return fmt.Errorf("aggregate %s cannot apply event of type %T", a.Identifier(), env.Event)
+			return fmt.Errorf("%w: aggregate %s cannot apply %T", ErrInvalidEvent, a.Identifier(), env.Event)
 		}
 
 		if err := a.apply(domainEvent); err != nil {
@@ -311,7 +311,7 @@ func NewAggregateRepository[A Aggregate[A, E], E Event](eventStore EventStore) *
 
 // Load fetches events for the provided aggregate Stream from the Event Store and replays them.
 // It leverages the Aggregate interface's New(stream Stream) method to instantiate the object internally.
-// If the stream does not exist, it typically returns an error (e.g., ErrNotFound).
+// If the stream does not exist, it returns an error wrapping [ErrAggregateNotFound].
 func (r *AggregateRepository[A, E]) Load(ctx Context, stream Stream) (A, error)
 
 // Save persists the uncommitted events from the aggregate's Changeset to the Event Store.
@@ -395,6 +395,23 @@ func (r *SnapshotRepository[A, E, S]) Save(ctx Context, aggregate A) error
 
 // Every returns a [SnapshotSchedule] that triggers every n events.
 func Every[A Aggregate[A, E], E Event](n uint64) SnapshotSchedule[A]
+```
+
+### Sentinel Errors
+
+The framework exports standard sentinel errors to allow consumers to programmatically evaluate failure reasons using `errors.Is()`.
+
+```go
+var (
+	// ErrAggregateNotFound is returned when an aggregate cannot be loaded from the EventStore or SnapshotStore.
+	ErrAggregateNotFound = errors.New("aggregate not found")
+
+	// ErrConcurrency is returned by an EventStore when an optimistic concurrency check fails.
+	ErrConcurrency = errors.New("optimistic concurrency check failed")
+
+	// ErrInvalidEvent is returned when an aggregate's FromEvents encounters an event type it cannot apply.
+	ErrInvalidEvent = errors.New("invalid event type for aggregate")
+)
 ```
 
 ### Message Bus / Dispatcher

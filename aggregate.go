@@ -84,7 +84,7 @@ func (a *AggregateRoot[E]) FromEvents(events StreamIterator) error {
 		// Ensure the event conforms to this aggregate's specific event type constraint.
 		domainEvent, ok := env.Event.(E)
 		if !ok {
-			return fmt.Errorf("aggregate %s cannot apply event of type %T", a.stream.Identifier.String(), env.Event)
+			return fmt.Errorf("%w: aggregate %s cannot apply %T", ErrInvalidEvent, a.stream.Identifier.String(), env.Event)
 		}
 
 		if err := a.apply(domainEvent); err != nil {

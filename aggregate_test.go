@@ -1,6 +1,7 @@
 package flux
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 )
@@ -106,6 +107,9 @@ func TestAggregateRoot_FromEvents_WrongType(t *testing.T) {
 	err := agg.FromEvents(sliceIterator(envelopes))
 	if err == nil {
 		t.Fatalf("expected error applying wrong event type")
+	}
+	if !errors.Is(err, ErrInvalidEvent) {
+		t.Fatalf("expected ErrInvalidEvent, got %v", err)
 	}
 }
 

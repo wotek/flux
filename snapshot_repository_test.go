@@ -430,6 +430,9 @@ func TestSnapshotRepository_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error loading non-existent aggregate, got nil")
 	}
+	if !errors.Is(err, flux.ErrAggregateNotFound) {
+		t.Fatalf("expected ErrAggregateNotFound, got %v", err)
+	}
 }
 
 // TestSnapshotRepository_CustomSchedule verifies that SnapshotScheduleFunc works as expected.

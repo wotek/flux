@@ -2,6 +2,7 @@ package flux_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/wotek/flux"
@@ -141,5 +142,25 @@ func TestAggregateRepository_ConcurrencyError(t *testing.T) {
 	err := repo.Save(ctx, aggB)
 	if err == nil {
 		t.Fatalf("expected concurrency error when saving aggB, but got nil")
+	}
+	if !errors.Is(err, flux.ErrConcurrency) {
+		t.Fatalf("expected ErrConcurrency, got %v", err)
+	}
+}
+
+func TestAggregateRepository_NotFound(t *testing.T) {
+	ctx := flux.NewContext(context.Background(), flux.Actor{}, flux.Identifier{}, flux.Identifier{})
+	store := eventstore.New()
+	repo := flux.NewAggregateRepository[*BankAccount, BankEvent](store)
+
+	id := flux.NewIdentifierFromString("urn:bank:prod:accounts:123:account:does-not-exist")
+	stream := flux.Stream{Identifier: id}
+
+	_, err := repo.Load(ctx, stream)
+	if err == nil {
+		t.Fatalf("expected error loading non-existent aggregate, got nil")
+	}
+	if !errors.Is(err, flux.ErrAggregateNotFound) {
+		t.Fatalf("expected ErrAggregateNotFound, got %v", err)
 	}
 }

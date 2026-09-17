@@ -1,6 +1,8 @@
 package query
 
 import (
+	"github.com/wotek/flux"
+
 	"fmt"
 	"reflect"
 	"sync"
@@ -93,7 +95,7 @@ func Execute[Q any, R any](ctx Context, bus *Bus, query Q) (R, error) {
 
 	var zero R
 	if !ok {
-		return zero, fmt.Errorf("no handler registered for query %v", qType)
+		return zero, fmt.Errorf("%w: query %v", flux.ErrNoHandler, qType)
 	}
 
 	handler, ok := h.(Handler[Q, R])

@@ -58,7 +58,7 @@ func RegisterHandler[S Saga[S], E flux.Event](o *Orchestrator, store Store[S], h
 			// 3. Execute Handler
 			domainEvent, ok := env.Event.(E)
 			if !ok {
-				return fmt.Errorf("invalid event type for saga handler")
+				return fmt.Errorf("%w: for saga handler", flux.ErrInvalidEvent)
 			}
 
 			if err := handler(sagaCtx, sagaInstance, domainEvent); err != nil {

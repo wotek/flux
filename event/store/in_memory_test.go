@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 	"uuid"
@@ -110,5 +111,36 @@ func TestEventStore_ReadWithFromRevision(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestEventStore_ConcurrencyError(t *testing.T) {
+	t.Parallel()
+
+	store := eventstore.New()
+	ctx := context.Background()
+	stream := flux.Stream{
+		Identifier: flux.NewIdentifierFromString("urn:test:prod:items:123:item:concurrency"),
+	}
+
+	initialEvents := []flux.Envelope{
+		makeEnvelope(stream, 1, "first"),
+	}
+
+	if err := store.Append(ctx, stream, 0, initialEvents); err != nil {
+		t.Fatalf("failed to append initial event: %v", err)
+	}
+
+	// Attempt to append with wrong expected revision (0 instead of 1)
+	conflictingEvents := []flux.Envelope{
+		makeEnvelope(stream, 2, "second"),
+	}
+
+	err := store.Append(ctx, stream, 0, conflictingEvents)
+	if err == nil {
+		t.Fatalf("expected concurrency error, got nil")
+	}
+	if !errors.Is(err, flux.ErrConcurrency) {
+		t.Fatalf("expected ErrConcurrency, got %v", err)
 	}
 }

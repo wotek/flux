@@ -1,6 +1,8 @@
 package command
 
 import (
+	"github.com/wotek/flux"
+
 	"fmt"
 	"reflect"
 	"sync"
@@ -92,7 +94,7 @@ func Execute[C any](ctx Context, bus *Bus, cmd C) error {
 	bus.mu.RUnlock()
 
 	if !ok {
-		return fmt.Errorf("no handler registered for command %v", cmdType)
+		return fmt.Errorf("%w: command %v", flux.ErrNoHandler, cmdType)
 	}
 
 	// 100% reflection-free O(1) execution via closure assertion
@@ -114,7 +116,7 @@ func ExecuteAsync[C any](ctx Context, bus *Bus, cmd C) error {
 	bus.mu.RUnlock()
 
 	if !ok {
-		return fmt.Errorf("no handler registered for command %v", cmdType)
+		return fmt.Errorf("%w: command %v", flux.ErrNoHandler, cmdType)
 	}
 
 	go func() {
