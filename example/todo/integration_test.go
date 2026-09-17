@@ -10,6 +10,9 @@ import (
 	"github.com/wotek/flux/command"
 	eventstore "github.com/wotek/flux/event/store"
 	"github.com/wotek/flux/example/todo"
+	"github.com/wotek/flux/example/todo/commands"
+	"github.com/wotek/flux/example/todo/events"
+	"github.com/wotek/flux/example/todo/projections"
 	projectionstore "github.com/wotek/flux/projection/store"
 	"github.com/wotek/flux/query"
 )
@@ -25,14 +28,14 @@ func TestTodoApplication_EndToEnd(t *testing.T) {
 	cmdBus := command.New()
 	queryBus := query.New()
 
-	repo := flux.NewAggregateRepository[*todo.TodoListAggregate, todo.TodoEvent](eventStore)
-	statsStore := todo.NewMemoryCounterStore()
+	repo := flux.NewAggregateRepository[*todo.TodoListAggregate, events.TodoEvent](eventStore)
+	statsStore := projections.NewMemoryCounterStore()
 
 	todo.RegisterCommandHandlers(cmdBus, repo)
-	todo.RegisterQueryHandlers(queryBus, statsStore)
+	projections.RegisterQueryHandlers(queryBus, statsStore)
 
 	projID := flux.NewIdentifierFromString("urn:todo:prod:projections:1:counter:integration")
-	projector := todo.NewCounterProjector(projID, eventStore, projStore, statsStore)
+	projector := projections.NewCounterProjector(projID, eventStore, projStore, statsStore)
 
 	go func() {
 		_ = projector.Start(ctx)
@@ -48,7 +51,7 @@ func TestTodoApplication_EndToEnd(t *testing.T) {
 
 	// 1. Add 5 tasks
 	for i := 1; i <= 5; i++ {
-		cmd := todo.AddTask{
+		cmd := commands.AddTask{
 			ListIdentifier: listID,
 			Task:           fmt.Sprintf("Task %d", i),
 		}
@@ -58,7 +61,7 @@ func TestTodoApplication_EndToEnd(t *testing.T) {
 	}
 
 	// 2. Remove Task 1
-	if err := command.Execute(newCmdCtx("remove"), cmdBus, todo.RemoveTask{
+	if err := command.Execute(newCmdCtx("remove"), cmdBus, commands.RemoveTask{
 		ListIdentifier: listID,
 		Task:           "Task 1",
 	}); err != nil {
@@ -66,7 +69,7 @@ func TestTodoApplication_EndToEnd(t *testing.T) {
 	}
 
 	// 3. Mark Task 2 and Task 4 done
-	if err := command.Execute(newCmdCtx("done"), cmdBus, todo.DoneTasks{
+	if err := command.Execute(newCmdCtx("done"), cmdBus, commands.DoneTasks{
 		ListIdentifier: listID,
 		Tasks:          []string{"Task 2", "Task 4"},
 	}); err != nil {
@@ -98,9 +101,9 @@ func TestTodoApplication_EndToEnd(t *testing.T) {
 	)
 
 	deadline := time.Now().Add(2 * time.Second)
-	var counter todo.Counter
+	var counter projections.Counter
 	for time.Now().Before(deadline) {
-		counter, err = query.Execute[todo.GetCounter, todo.Counter](queryCtx, queryBus, todo.GetCounter{})
+		counter, err = query.Execute[projections.GetCounter, projections.Counter](queryCtx, queryBus, projections.GetCounter{})
 		if err == nil && counter.Active == 2 && counter.Archived == 2 && counter.Removed == 1 {
 			break
 		}

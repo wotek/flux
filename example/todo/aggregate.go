@@ -4,11 +4,12 @@ import (
 	"slices"
 
 	"github.com/wotek/flux"
+	"github.com/wotek/flux/example/todo/events"
 )
 
 // TodoListAggregate is the domain aggregate root maintaining the lifecycle of a todo list.
 type TodoListAggregate struct {
-	flux.AggregateRoot[TodoEvent]
+	flux.AggregateRoot[events.TodoEvent]
 
 	active   []string
 	archived []string
@@ -17,7 +18,7 @@ type TodoListAggregate struct {
 // NewTodoListAggregate constructs a new [TodoListAggregate] bound to the given stream.
 func NewTodoListAggregate(stream flux.Stream) *TodoListAggregate {
 	list := &TodoListAggregate{}
-	list.AggregateRoot = flux.NewAggregateRoot[TodoEvent](stream, flux.NewChangeset[TodoEvent](), list.apply)
+	list.AggregateRoot = flux.NewAggregateRoot[events.TodoEvent](stream, flux.NewChangeset[events.TodoEvent](), list.apply)
 	return list
 }
 
@@ -27,17 +28,17 @@ func (l *TodoListAggregate) New(stream flux.Stream) *TodoListAggregate {
 }
 
 // apply mutates the aggregate's internal state in response to historical or uncommitted events.
-func (l *TodoListAggregate) apply(event TodoEvent) error {
+func (l *TodoListAggregate) apply(event events.TodoEvent) error {
 	switch e := event.(type) {
-	case TaskAdded:
+	case events.TaskAdded:
 		if !slices.Contains(l.active, e.Task) {
 			l.active = append(l.active, e.Task)
 		}
-	case TaskRemoved:
+	case events.TaskRemoved:
 		l.active = slices.DeleteFunc(l.active, func(t string) bool {
 			return t == e.Task
 		})
-	case TasksDone:
+	case events.TasksDone:
 		for _, task := range e.Tasks {
 			l.active = slices.DeleteFunc(l.active, func(t string) bool {
 				return t == task
@@ -56,7 +57,7 @@ func (l *TodoListAggregate) Add(task string) {
 		return
 	}
 
-	event := TaskAdded{Task: task}
+	event := events.TaskAdded{Task: task}
 	l.Changeset().Record(event)
 	_ = l.apply(event)
 }
@@ -67,7 +68,7 @@ func (l *TodoListAggregate) Remove(task string) {
 		return
 	}
 
-	event := TaskRemoved{Task: task}
+	event := events.TaskRemoved{Task: task}
 	l.Changeset().Record(event)
 	_ = l.apply(event)
 }
@@ -85,7 +86,7 @@ func (l *TodoListAggregate) Done(tasks ...string) {
 		return
 	}
 
-	event := TasksDone{Tasks: validTasks}
+	event := events.TasksDone{Tasks: validTasks}
 	l.Changeset().Record(event)
 	_ = l.apply(event)
 }

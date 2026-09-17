@@ -5,11 +5,13 @@ import (
 
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/command"
+	"github.com/wotek/flux/example/todo/commands"
+	"github.com/wotek/flux/example/todo/events"
 )
 
 // RegisterCommandHandlers registers command handlers for todo domain operations on the given [command.Bus].
-func RegisterCommandHandlers(bus *command.Bus, repo *flux.AggregateRepository[*TodoListAggregate, TodoEvent]) {
-	command.Register(bus, func(ctx command.Context, cmd AddTask) error {
+func RegisterCommandHandlers(bus *command.Bus, repo *flux.AggregateRepository[*TodoListAggregate, events.TodoEvent]) {
+	command.Register(bus, func(ctx command.Context, cmd commands.AddTask) error {
 		stream := flux.Stream{Identifier: cmd.ListIdentifier}
 		list, err := repo.Load(ctx, stream)
 		if err != nil {
@@ -24,7 +26,7 @@ func RegisterCommandHandlers(bus *command.Bus, repo *flux.AggregateRepository[*T
 		return nil
 	})
 
-	command.Register(bus, func(ctx command.Context, cmd RemoveTask) error {
+	command.Register(bus, func(ctx command.Context, cmd commands.RemoveTask) error {
 		stream := flux.Stream{Identifier: cmd.ListIdentifier}
 		list, err := repo.Load(ctx, stream)
 		if err != nil {
@@ -38,7 +40,7 @@ func RegisterCommandHandlers(bus *command.Bus, repo *flux.AggregateRepository[*T
 		return nil
 	})
 
-	command.Register(bus, func(ctx command.Context, cmd DoneTasks) error {
+	command.Register(bus, func(ctx command.Context, cmd commands.DoneTasks) error {
 		stream := flux.Stream{Identifier: cmd.ListIdentifier}
 		list, err := repo.Load(ctx, stream)
 		if err != nil {
@@ -54,6 +56,6 @@ func RegisterCommandHandlers(bus *command.Bus, repo *flux.AggregateRepository[*T
 }
 
 // RegisterHandlers is an alias for [RegisterCommandHandlers] to maintain naming compatibility with the design guide.
-func RegisterHandlers(bus *command.Bus, repo *flux.AggregateRepository[*TodoListAggregate, TodoEvent]) {
+func RegisterHandlers(bus *command.Bus, repo *flux.AggregateRepository[*TodoListAggregate, events.TodoEvent]) {
 	RegisterCommandHandlers(bus, repo)
 }

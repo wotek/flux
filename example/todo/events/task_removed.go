@@ -1,4 +1,4 @@
-package todo
+package events
 
 // TaskRemoved indicates that an active task was removed from a todo list.
 type TaskRemoved struct {

@@ -1,11 +1,10 @@
 // Package todo provides a reference implementation of a Todo list application
 // built on the flux event-sourcing and CQRS framework.
 //
-// The package demonstrates:
-//   - Pure domain modeling with [flux.AggregateRoot] and [TodoListAggregate].
-//   - Strongly-typed, reflection-free domain events ([TaskAdded], [TaskRemoved], [TasksDone]).
-//   - Decoupled commands ([AddTask], [RemoveTask], [DoneTasks]) routed via [command.Bus].
-//   - Asynchronous read-model projections ([Counter]) backed by [projection.Projector].
-//   - Thread-safe storage abstractions using [CounterStore].
-//   - Queries ([GetCounter]) dispatched through [query.Bus].
+// The package is organized into domain-specific subpackages:
+//   - [github.com/wotek/flux/example/todo/events]: Domain events emitted by the aggregate.
+//   - [github.com/wotek/flux/example/todo/commands]: Strongly-typed commands dispatched by clients.
+//   - [github.com/wotek/flux/example/todo/projections]: Read models, storage contracts, and projectors.
+//
+// The root package contains the domain [TodoListAggregate] and command handlers wiring.
 package todo

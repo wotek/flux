@@ -1,4 +1,4 @@
-package todo
+package events
 
 // TasksDone indicates that one or more active tasks were marked as completed.
 type TasksDone struct {

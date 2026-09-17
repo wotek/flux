@@ -13,6 +13,9 @@ import (
 	"github.com/wotek/flux/command"
 	eventstore "github.com/wotek/flux/event/store"
 	"github.com/wotek/flux/example/todo"
+	"github.com/wotek/flux/example/todo/commands"
+	"github.com/wotek/flux/example/todo/events"
+	"github.com/wotek/flux/example/todo/projections"
 	projectionstore "github.com/wotek/flux/projection/store"
 	"github.com/wotek/flux/query"
 )
@@ -40,16 +43,16 @@ func run(ctx context.Context) error {
 	queryBus := query.New()
 
 	// 2. Initialize Repositories and Stores
-	repo := flux.NewAggregateRepository[*todo.TodoListAggregate, todo.TodoEvent](eventStore)
-	statsStore := todo.NewMemoryCounterStore()
+	repo := flux.NewAggregateRepository[*todo.TodoListAggregate, events.TodoEvent](eventStore)
+	statsStore := projections.NewMemoryCounterStore()
 
 	// 3. Register Command and Query Handlers
 	todo.RegisterCommandHandlers(cmdBus, repo)
-	todo.RegisterQueryHandlers(queryBus, statsStore)
+	projections.RegisterQueryHandlers(queryBus, statsStore)
 
 	// 4. Configure Read Model Projector
 	projIdentifier := flux.NewIdentifierFromString("urn:todo:prod:projections:1:counter:main")
-	projector := todo.NewCounterProjector(projIdentifier, eventStore, projStore, statsStore)
+	projector := projections.NewCounterProjector(projIdentifier, eventStore, projStore, statsStore)
 
 	g, groupCtx := errgroup.WithContext(ctx)
 
@@ -83,7 +86,7 @@ func runClient(ctx context.Context, bus *command.Bus, queryBus *query.Bus) error
 	slog.InfoContext(ctx, "client: adding 10 tasks...")
 	for i := 1; i <= 10; i++ {
 		cmdCtx := newCmdCtx("add")
-		cmd := todo.AddTask{
+		cmd := commands.AddTask{
 			ListIdentifier: listIdentifier,
 			Task:           fmt.Sprintf("Task %d", i),
 		}
@@ -95,7 +98,7 @@ func runClient(ctx context.Context, bus *command.Bus, queryBus *query.Bus) error
 	slog.InfoContext(ctx, "client: removing odd tasks (1, 3, 5, 7, 9)...")
 	for i := 1; i <= 10; i += 2 {
 		cmdCtx := newCmdCtx("remove")
-		cmd := todo.RemoveTask{
+		cmd := commands.RemoveTask{
 			ListIdentifier: listIdentifier,
 			Task:           fmt.Sprintf("Task %d", i),
 		}
@@ -106,7 +109,7 @@ func runClient(ctx context.Context, bus *command.Bus, queryBus *query.Bus) error
 
 	slog.InfoContext(ctx, "client: marking Task 6 and Task 10 as completed...")
 	doneCmdCtx := newCmdCtx("done")
-	doneCmd := todo.DoneTasks{
+	doneCmd := commands.DoneTasks{
 		ListIdentifier: listIdentifier,
 		Tasks:          []string{"Task 6", "Task 10"},
 	}
@@ -123,11 +126,11 @@ func runClient(ctx context.Context, bus *command.Bus, queryBus *query.Bus) error
 		flux.Identifier{},
 	)
 
-	var counter todo.Counter
+	var counter projections.Counter
 	var err error
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		counter, err = query.Execute[todo.GetCounter, todo.Counter](queryCtx, queryBus, todo.GetCounter{})
+		counter, err = query.Execute[projections.GetCounter, projections.Counter](queryCtx, queryBus, projections.GetCounter{})
 		if err == nil && counter.Active == 3 && counter.Archived == 2 && counter.Removed == 5 {
 			break
 		}

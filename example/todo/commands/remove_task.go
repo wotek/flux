@@ -1,4 +1,4 @@
-package todo
+package commands
 
 import "github.com/wotek/flux"
 

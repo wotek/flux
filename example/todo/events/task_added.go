@@ -1,4 +1,4 @@
-package todo
+package events
 
 // TaskAdded indicates that a new task was added to a todo list.
 type TaskAdded struct {
