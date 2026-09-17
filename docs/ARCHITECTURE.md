@@ -11,22 +11,45 @@ The framework follows a strict **layered directed acyclic graph (DAG)** architec
 ### Package Hierarchy Overview
 
 ```text
-                            ┌───────────────┐
-                            │  flux (core)  │  (Actor, Identifier, Stream, Context)
-                            └───────┬───────┘
-                ┌───────────────────┼───────────────────┐
-                ▼                   ▼                   ▼
-        ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
-        │    command    │   │     query     │   │     event     │
-        │  - Bus        │   │  - Bus        │   │  - Bus        │
-        │  - Context    │   │  - Context    │   │  - Context    │
-        │  - Handler    │   │  - Handler    │   │  - Handler    │
-        └───────┬───────┘   └───────────────┘   └───────────────┘
-                │
-                ▼ (optional command dispatch)
-        ┌───────────────┐
-        │     saga      │
-        └───────────────┘
+                                    ┌───────────────┐
+                                    │  flux (core)  │
+                                    │  - Primitives │
+                                    │  - Context    │
+                                    │  - Aggregate  │
+                                    │  - Repository │
+                                    └───────┬───────┘
+          ┌─────────────────────┬───────────┴───────────┬─────────────────────┐
+          │                     │                       │                     │
+          ▼                     ▼                       ▼                     ▼
+  ┌───────────────┐     ┌───────────────┐       ┌───────────────┐     ┌───────────────┐
+  │    command    │     │     query     │       │     event     │     │  event/store  │
+  │  - Bus        │     │  - Bus        │       │  - Bus        │     │  - InMemory   │
+  │  - Context    │     │  - Context    │       │  - Context    │     └───────────────┘
+  │  - Handler    │     │  - Handler    │       │  - Handler    │
+  └───────┬───────┘     └───────────────┘       └───────┬───────┘
+          │                                             │
+          │             ┌───────────────────────────────┤
+          │             │ (consumes global events)      │ (consumes global events)
+          │             ▼                               ▼
+          │     ┌───────────────┐               ┌───────────────┐
+          │     │  projection   │               │     saga      │
+          │     │  - Projector  │               │  - Orchestr.  │
+          │     │  - Context    │               │  - Context    │
+          │     │  - Store      │               │  - Store      │
+          │     └───────┬───────┘               └───────┬───────┘
+          │             │                               │
+          │             ▼                               │
+          │     ┌───────────────┐                       │
+          │     │  projection/  │                       │
+          │     │     store     │                       │
+          │     │  - InMemory   │                       │
+          │     └───────────────┘                       │
+          │                                             │
+          │ (dispatches outbox commands)                ▼
+          └─────────────────────────────────────┌───────────────┐
+                                                │  saga/store   │
+                                                │  - InMemory   │
+                                                └───────────────┘
 ```
 
 ### Dependency Flow Diagram
