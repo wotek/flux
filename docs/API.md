@@ -369,6 +369,22 @@ type EventContext interface {
 	Position() uint64
 	Metadata() map[string]string
 }
+
+// ProjectionContext extends EventContext. It acts as a distinct type boundary 
+// guaranteeing that the context is bound to the projection's active database transaction.
+type ProjectionContext interface {
+	EventContext
+}
+
+// SagaContext extends EventContext, giving saga handlers the ability to dispatch commands.
+type SagaContext interface {
+	EventContext
+	
+	// Dispatch queues a command to be executed.
+	// The framework automatically copies the CorrelationIdentifier from the 
+	// triggering EventContext into the dispatched CommandContext.
+	Dispatch(cmd any)
+}
 ```
 
 #### Constructors
@@ -378,6 +394,8 @@ func NewContext(parent context.Context, actor Actor, correlationId Identifier, c
 func NewCommandContext(parent context.Context, cmdId Identifier, actor Actor, correlationId Identifier, causationId Identifier) CommandContext
 func NewQueryContext(parent context.Context, queryId Identifier, actor Actor, correlationId Identifier, causationId Identifier) QueryContext
 func NewEventContext(parent context.Context, env Envelope) EventContext
+func NewProjectionContext(parent EventContext) ProjectionContext
+func NewSagaContext(parent EventContext) SagaContext
 ```
 
 ### Handlers
@@ -509,7 +527,7 @@ func NewProjector(id Identifier, eventStore EventStore, projStore ProjectionStor
 // RegisterProjectionHandler wires a specific event type to the projection's logic.
 // It leverages the same generic type-safety as the EventBus, but executes the handler 
 // strictly within the ProjectionStore's Update() transaction boundary.
-func RegisterProjectionHandler[E Event](p *Projector, handler func(ctx EventContext, event E) error)
+func RegisterProjectionHandler[E Event](p *Projector, handler func(ctx ProjectionContext, event E) error)
 
 // Start begins tailing the EventStore in the background until the context is canceled.
 func (p *Projector) Start(ctx context.Context) error
@@ -548,3 +566,43 @@ flux.RegisterEventHandler[OrderCreated](bus, func(ctx flux.EventContext, e Order
 ```
 
 Because Temporal workflows durably persist their own local state and handle retries natively, this approach eliminates the need to manually track `Position` cursors or manage database transactions.
+
+### Sagas / Process Managers
+
+A **Saga** (or Process Manager) coordinates long-running business processes that span multiple aggregates. It listens to domain events, maintains internal state to track the progress of the workflow, and dispatches commands to other aggregates.
+
+```go
+// Saga defines the contract for a process manager.
+type Saga interface {
+	// Identifier returns the globally unique ID of this saga instance.
+	// This is typically derived from the CorrelationIdentifier of the triggering event.
+	Identifier() Identifier
+}
+
+// SagaStore defines how the internal state of a saga is persisted between events.
+type SagaStore interface {
+	Load(ctx context.Context, id Identifier, saga Saga) error
+	Save(ctx context.Context, saga Saga) error
+}
+
+// Orchestrator is the background worker that listens to the global event stream 
+// and routes events to the appropriate saga instances.
+type Orchestrator struct {
+	// internal fields
+}
+
+func NewOrchestrator(eventStore EventStore, sagaStore SagaStore, commandBus *CommandBus) *Orchestrator
+
+// RegisterSagaHandler wires a specific event type to a saga's state transition.
+func RegisterSagaHandler[S Saga, E Event](o *Orchestrator, handler func(ctx SagaContext, saga S, event E) error)
+```
+
+#### Temporal Integration (Optional Path)
+
+Because Sagas are inherently stateful and frequently require timers (e.g., "if payment isn't confirmed in 10 minutes, issue a refund command"), they are notoriously complex to build in vanilla databases. This makes them the absolute **perfect candidate** for Temporal workflows.
+
+If you choose to run your Sagas in Temporal, you do not need the `SagaStore` or `Orchestrator`. 
+Instead:
+1. You use the `EventBus` to push events into a Temporal Workflow (just like Projections).
+2. The Temporal Workflow *is* your Saga. It natively maintains its own local state variables.
+3. When the Workflow wants to dispatch a command, it executes a Temporal `Activity` that calls `flux.ExecuteCommandAsync(ctx, bus, myCmd)`.
