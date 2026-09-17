@@ -103,7 +103,7 @@ func ExecuteAsync[C any](ctx Context, bus *Bus, cmd C) error {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("panic executing async command %T: %v\n", cmd, r)
+				ctx.Logger().Error("panic executing async command", "command_type", fmt.Sprintf("%T", cmd), "panic", r)
 			}
 		}()
 		_ = Execute(ctx, bus, cmd)
@@ -111,4 +111,3 @@ func ExecuteAsync[C any](ctx Context, bus *Bus, cmd C) error {
 
 	return nil
 }
-

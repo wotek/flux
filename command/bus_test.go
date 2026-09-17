@@ -10,11 +10,11 @@ import (
 	"github.com/wotek/flux/command"
 )
 
-type dummyCmd struct { val string }
+type dummyCmd struct{ val string }
 
 func TestCommandBus_ExecuteAsync(t *testing.T) {
 	bus := command.New()
-	
+
 	done := make(chan struct{})
 	command.Register(bus, func(ctx command.Context, cmd dummyCmd) error {
 		defer close(done)
@@ -25,7 +25,7 @@ func TestCommandBus_ExecuteAsync(t *testing.T) {
 	})
 
 	ctx := command.NewContext(context.Background(), flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
-	
+
 	// Test normal async
 	err := command.ExecuteAsync(ctx, bus, dummyCmd{val: "ok"})
 	if err != nil {
@@ -57,7 +57,7 @@ func TestCommandBus_ExecuteAsync(t *testing.T) {
 func TestCommandBus_ExecuteAsync_NoHandler(t *testing.T) {
 	bus := command.New()
 	ctx := command.NewContext(context.Background(), flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
-	
+
 	err := command.ExecuteAsync(ctx, bus, dummyCmd{})
 	if err == nil {
 		t.Fatal("expected error, got nil")

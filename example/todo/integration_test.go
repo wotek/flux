@@ -94,8 +94,7 @@ func TestTodoApplication_EndToEnd(t *testing.T) {
 
 	// 5. Verify projection read model via query bus
 	queryCtx := query.NewContext(
-		ctx,
-		flux.MustParseIdentifier("urn:todo:prod:queries:1:query:test-counter"),
+		ctx, flux.MustParseIdentifier("urn:todo:prod:queries:1:query:test-counter"),
 		actor,
 		flux.Identifier{},
 		flux.Identifier{},

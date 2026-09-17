@@ -120,8 +120,7 @@ func runClient(ctx context.Context, bus *command.Bus, queryBus *query.Bus) error
 
 	// Poll read model until projector catches up to expected state
 	queryCtx := query.NewContext(
-		ctx,
-		flux.MustParseIdentifier("urn:todo:prod:queries:1:query:check-counter"),
+		ctx, flux.MustParseIdentifier("urn:todo:prod:queries:1:query:check-counter"),
 		actor,
 		flux.Identifier{},
 		flux.Identifier{},
