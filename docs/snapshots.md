@@ -6,7 +6,7 @@ This document outlines the design and implementation plan for adding Aggregate S
 
 To prevent polluting the Domain Aggregate API with infrastructure-level serialization concerns (like `json.Marshaler`), we employ the **Memento Pattern**. The aggregate exports and restores its state via a simple, strongly-typed DTO (the "Memento" or "State"), which the snapshot store can serialize automatically. 
 
-All snapshot logic is cleanly isolated in a new `snapshot` subpackage.
+All snapshot logic is seamlessly integrated directly into the core `flux` package.
 
 ```go
 package flux
