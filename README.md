@@ -15,6 +15,8 @@ A lightweight, high-performance, and type-safe **Event Sourcing & CQRS** framewo
 
 * **100% Reflection-Free Execution:** Fast, constant-time `O(1)` routing for commands, queries, and events using type-erased closure wrappers instead of runtime reflection.
 * **Type-Safe Generic Aggregates:** Generic aggregate root (`AggregateRoot[TEvent]`) enforcing compile-time event typing and self-referencing aggregate instantiation.
+* **Aggregate Snapshotting:** Memento-pattern based snapshots (`SnapshotRepository`) to accelerate loading long-lived aggregates without polluting domain logic with persistence concerns.
+* **Sentinel Errors:** Programmatic error evaluation (e.g., `flux.ErrConcurrency`, `flux.ErrAggregateNotFound`) using standard Go `errors.Is()`.
 * **Structured Resource Identifiers:** RFC-like URN identifiers (`urn:<org>:<env>:<service>:<account>:<type>:<id>[@version]`) stored as compact, zero-allocation strings.
 * **Complete CQRS Ecosystem:**
   * **Command Bus (`command`):** In-memory single-handler routing with `command.Context`.
