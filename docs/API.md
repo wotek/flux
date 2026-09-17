@@ -380,11 +380,16 @@ type ProjectionContext interface {
 type SagaContext interface {
 	EventContext
 	
-	// Dispatch queues a command to be executed.
-	// The framework automatically copies the CorrelationIdentifier from the 
-	// triggering EventContext into the dispatched CommandContext.
-	Dispatch(cmd any)
+	// dispatch is unexported. It is used internally by the framework's 
+	// strongly-typed EnqueueCommand helper to safely queue commands.
+	dispatch(cmd any)
 }
+
+// EnqueueCommand safely queues a strongly-typed command to be dispatched.
+// To prevent "dual-write" anomalies (where a command fires but the saga state fails to save), 
+// the framework guarantees that enqueued commands are ONLY sent to the CommandBus 
+// after the Orchestrator successfully persists the Saga's updated state.
+func EnqueueCommand[C any](ctx SagaContext, cmd C)
 ```
 
 #### Constructors
@@ -595,6 +600,26 @@ func NewOrchestrator(eventStore EventStore, sagaStore SagaStore, commandBus *Com
 
 // RegisterSagaHandler wires a specific event type to a saga's state transition.
 func RegisterSagaHandler[S Saga, E Event](o *Orchestrator, handler func(ctx SagaContext, saga S, event E) error)
+```
+
+#### Usage Example: The Outbox Pattern
+
+To prevent "dual-write" anomalies (where a command executes successfully but the Saga fails to save its state, causing the command to be duplicated on retry), Sagas do **not** execute commands synchronously. Instead, they use `EnqueueCommand`. The framework handles the transactional safety automatically.
+
+```go
+// Example: A Saga handling user onboarding
+flux.RegisterSagaHandler(orchestrator, func(ctx flux.SagaContext, saga *OnboardingSaga, e UserRegistered) error {
+	// 1. Update internal saga state based on the event
+	saga.ID = ctx.CorrelationIdentifier()
+	saga.Status = "AWAITING_WELCOME_EMAIL"
+
+	// 2. Safely queue a strongly-typed command
+	// The Orchestrator will automatically persist the saga state to the SagaStore 
+	// before actually routing this command to the CommandBus.
+	flux.EnqueueCommand(ctx, SendWelcomeEmail{Email: e.Email})
+
+	return nil // Returning nil tells the Orchestrator to commit state and fire queued commands
+})
 ```
 
 #### Temporal Integration (Optional Path)
