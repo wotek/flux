@@ -15,6 +15,13 @@ import (
 
 type dummyCmd struct{ val string }
 
+type mockCommandContext struct {
+	command.Context
+	l *slog.Logger
+}
+func (m mockCommandContext) Logger() *slog.Logger { return m.l }
+
+
 func TestCommandBus_ExecuteAsync(t *testing.T) {
 	bus := command.New()
 
@@ -77,9 +84,6 @@ func TestCommandBus_Middleware(t *testing.T) {
 	var buf bytes.Buffer
 	handler := slog.NewJSONHandler(&buf, nil)
 	logger := slog.New(handler)
-	oldDefault := slog.Default()
-	slog.SetDefault(logger)
-	defer slog.SetDefault(oldDefault)
 
 	order := []string{}
 
@@ -108,7 +112,13 @@ func TestCommandBus_Middleware(t *testing.T) {
 
 	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:acme:prod:payments:tenant-1:actor:1")}
 	corrID := flux.MustParseIdentifier("urn:acme:prod:payments:tenant-1:correlation:2")
-	ctx := command.NewContext(context.Background(), flux.Identifier{}, actor, corrID, flux.Identifier{})
+	
+	baseCtx := command.NewContext(context.Background(), flux.Identifier{}, actor, corrID, flux.Identifier{})
+	ctx := mockCommandContext{
+		Context: baseCtx,
+		l: logger.With("actor", actor.Identifier.String(), "correlation_id", corrID.String()),
+	}
+
 	err := command.Execute(ctx, bus, dummyCmd{val: "test"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

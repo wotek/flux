@@ -15,6 +15,13 @@ import (
 
 type PingEvent struct{}
 
+type mockEventContext struct {
+	event.Context
+	l *slog.Logger
+}
+func (m mockEventContext) Logger() *slog.Logger { return m.l }
+
+
 func (e PingEvent) Name() string { return "PingEvent" }
 
 type MyEventHandler struct {
@@ -75,10 +82,7 @@ func TestEventBus_Middleware(t *testing.T) {
 	var buf bytes.Buffer
 	handler := slog.NewJSONHandler(&buf, nil)
 	logger := slog.New(handler)
-	oldDefault := slog.Default()
-	slog.SetDefault(logger)
-	defer slog.SetDefault(oldDefault)
-	
+		
 	order := []string{}
 	
 	mw1 := func(ctx event.Context, env flux.Envelope, next func(event.Context, flux.Envelope) error) error {
@@ -117,7 +121,11 @@ func TestEventBus_Middleware(t *testing.T) {
 	
 	// Create context with metadata
 	baseCtx := command.NewContext(context.Background(), flux.Identifier{}, actor, corrID, flux.Identifier{})
-	ctx := event.NewContext(baseCtx, env)
+	evtCtx := event.NewContext(baseCtx, env)
+	ctx := mockEventContext{
+		Context: evtCtx,
+		l: logger.With("actor", actor.Identifier.String(), "correlation_id", corrID.String()),
+	}
 	
 	err := event.PublishEnvelope(ctx, bus, env)
 	if err != nil {

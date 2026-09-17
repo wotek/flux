@@ -73,6 +73,13 @@ func TestQueryBus_FunctionalHandler(t *testing.T) {
 
 type dummyQuery struct{}
 
+type mockQueryContext struct {
+	query.Context
+	l *slog.Logger
+}
+func (m mockQueryContext) Logger() *slog.Logger { return m.l }
+
+
 func TestQueryBus_Middleware(t *testing.T) {
 	bus := query.New()
 	
@@ -80,10 +87,7 @@ func TestQueryBus_Middleware(t *testing.T) {
 	var buf bytes.Buffer
 	handler := slog.NewJSONHandler(&buf, nil)
 	logger := slog.New(handler)
-	oldDefault := slog.Default()
-	slog.SetDefault(logger)
-	defer slog.SetDefault(oldDefault)
-	
+		
 	order := []string{}
 	
 	mw1 := func(ctx query.Context, q any, next func(query.Context, any) (any, error)) (any, error) {
@@ -110,7 +114,11 @@ func TestQueryBus_Middleware(t *testing.T) {
 	
 	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:acme:prod:payments:tenant-1:actor:1")}
 	corrID := flux.MustParseIdentifier("urn:acme:prod:payments:tenant-1:correlation:2")
-	ctx := query.NewContext(context.Background(), flux.Identifier{}, actor, corrID, flux.Identifier{})
+	baseCtx := query.NewContext(context.Background(), flux.Identifier{}, actor, corrID, flux.Identifier{})
+	ctx := mockQueryContext{
+		Context: baseCtx,
+		l: logger.With("actor", actor.Identifier.String(), "correlation_id", corrID.String()),
+	}
 	res, err := query.Execute[dummyQuery, string](ctx, bus, dummyQuery{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
