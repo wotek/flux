@@ -411,6 +411,9 @@ var (
 
 	// ErrInvalidEvent is returned when an aggregate's FromEvents encounters an event type it cannot apply.
 	ErrInvalidEvent = errors.New("invalid event type for aggregate")
+
+	// ErrNoHandler is returned by Command and Query buses when no handler is registered for a given type.
+	ErrNoHandler = errors.New("no handler registered")
 )
 ```
 

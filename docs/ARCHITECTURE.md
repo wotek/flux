@@ -138,9 +138,9 @@ The core module providing foundational primitives, aggregate lifecycle managemen
 
 #### Interfaces
 * `Event`: Marker interface implemented by domain events; requires `Name() string`.
-* `Aggregate[A, E]`: Go 1.26 self-referencing generic constraint implemented by aggregate roots. Requires `Identifier() Identifier`, `Revision() uint64`, `Changeset() Changeset[E]`, `FromEvents(iter.Seq2[Envelope, error]) error`, and `New(Stream) A`.
+* `Aggregate[A, E]`: Go 1.26 self-referencing generic constraint implemented by aggregate roots. Requires `Identifier() Identifier`, `Revision() uint64`, `Changeset() Changeset[E]`, `FromEvents(StreamIterator) error`, and `New(Stream) A`.
 * `Changeset[E Event]`: Interface for recording and retrieving uncommitted domain events.
-* `EventStore`: Persistence contract defining `Append(ctx, stream, expectedRevision, events)`, `Read(ctx, stream)`, and `Stream(ctx, fromPosition)`.
+* `EventStore`: Persistence contract defining `Append(ctx, stream, expectedRevision, events)`, `Read(ctx, stream, fromRevision)`, and `Stream(ctx, fromPosition)`.
 \* `Context`: Base execution context providing `Actor\(\)`, `CorrelationIdentifier\(\)`, and `CausationIdentifier\(\)`.
 * `Snapshotable[S any]`: Implemented by aggregates. Defines `Snapshot() S` and `With(state S)`.
 * `SnapshotStore[S any]`: Persistence contract defining `Load(ctx, stream) (Snapshot[S], error)` and `Save(ctx, stream, snap) error`.
