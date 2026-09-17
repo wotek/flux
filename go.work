@@ -1,0 +1,9 @@
+go 1.27.1
+
+use (
+	.
+	./example/e-commerce
+	./example/todo
+)
+
+replace github.com/wotek/flux v0.0.0 => ./

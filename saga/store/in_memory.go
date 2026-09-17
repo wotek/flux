@@ -46,6 +46,9 @@ func (s *SagaStore[S]) Load(ctx context.Context, id flux.Identifier) (S, error) 
 
 	var zero S
 	if state, exists := s.state[id.String()]; exists {
+		if c, ok := any(state).(interface{ Clone() S }); ok {
+			return c.Clone(), nil
+		}
 		return state, nil
 	}
 
@@ -58,7 +61,11 @@ func (s *SagaStore[S]) Save(ctx context.Context, sagaInstance S, commands []any)
 	defer s.mu.Unlock()
 
 	// Atomically save state and outbox commands
-	s.state[sagaInstance.Identifier().String()] = sagaInstance
+	if c, ok := any(sagaInstance).(interface{ Clone() S }); ok {
+		s.state[sagaInstance.Identifier().String()] = c.Clone()
+	} else {
+		s.state[sagaInstance.Identifier().String()] = sagaInstance
+	}
 
 	for _, cmd := range commands {
 		s.outbox = append(s.outbox, OutboxMessage{Command: cmd})
