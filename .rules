@@ -120,4 +120,6 @@ You are an expert Go engineer writing clean, idiomatic, and high-performance Go 
 3. **Documentation Maintenance:**
    - Maintain `docs/API.md` alongside every design step.
    - Document every newly defined struct, interface, method, and domain concept with concise, clear Go docstrings and usage context.
+   - **No Shortcuts in Documentation:** When updating API references, architectural documents, or code blocks, NEVER use ellipses (`...`) or truncations to summarize method signatures or code. Always write out the exact, full method signatures explicitly exactly as they exist in the codebase.
+   - **Preserve Document Integrity:** When modifying large markdown documents, explicitly verify the full document contents to avoid accidentally truncating or removing existing sections during a rewrite.
 4. **Clarification Protocol:** Ask targeted questions whenever requirements, constraints, or boundary edge cases are ambiguous before proposing a design.
