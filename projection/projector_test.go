@@ -41,7 +41,7 @@ func TestProjector(t *testing.T) {
 	})
 
 	// Start projector in background
-	go projector.Start(ctx)
+	go func() { _ = projector.Start(ctx) }()
 
 	// Append some events
 	streamID := flux.MustParseIdentifier("urn:bank::::acc:1")

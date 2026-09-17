@@ -60,7 +60,7 @@ func TestSagaOrchestrator(t *testing.T) {
 		s.Status = "AWAITING_WELCOME_EMAIL"
 
 		// Safely queue the command
-		saga.EnqueueCommand(ctx, SendWelcomeEmail{Email: e.Email})
+		saga.EnqueueCommand(ctx, SendWelcomeEmail(e))
 		return nil
 	})
 
@@ -69,7 +69,7 @@ func TestSagaOrchestrator(t *testing.T) {
 	command.RegisterHandler(cmdBus, TestWelcomeHandler{received: cmdReceived})
 
 	// Start orchestrator
-	go orchestrator.Start(ctx)
+	go func() { _ = orchestrator.Start(ctx) }()
 
 	// Append an event that will trigger the saga
 	correlationID := flux.MustParseIdentifier("urn:user::auth:1:user:abc")

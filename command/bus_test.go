@@ -56,7 +56,7 @@ func TestCommandBus_ExecuteAsync(t *testing.T) {
 		panic("intentional panic 2")
 	})
 
-	command.ExecuteAsync(ctx, bus2, dummyCmd{val: "panic"})
+	_ = command.ExecuteAsync(ctx, bus2, dummyCmd{val: "panic"})
 	select {
 	case <-done2:
 	case <-time.After(1 * time.Second):

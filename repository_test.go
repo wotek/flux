@@ -59,12 +59,12 @@ func (a *BankAccount) apply(e BankEvent) error {
 
 func (a *BankAccount) Create(owner string) {
 	a.Changeset().Record(AccountCreated{Owner: owner})
-	a.apply(AccountCreated{Owner: owner})
+	_ = a.apply(AccountCreated{Owner: owner})
 }
 
 func (a *BankAccount) Deposit(amount int) {
 	a.Changeset().Record(MoneyDeposited{Amount: amount})
-	a.apply(MoneyDeposited{Amount: amount})
+	_ = a.apply(MoneyDeposited{Amount: amount})
 }
 
 func TestAggregateRepository_SaveAndLoad(t *testing.T) {
