@@ -110,5 +110,24 @@ func TestServerHTTPHandler(t *testing.T) {
 		if snapshot.Active != 1 || snapshot.Archived != 1 || snapshot.Removed != 1 {
 			t.Fatalf("unexpected snapshot: %+v", snapshot)
 		}
+
+		// 5. Query tasks list via HTTP
+		req = httptest.NewRequest(http.MethodGet, "/tasks?list_identifier="+listID, nil)
+		rec = httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("get tasks: expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var tasksResp struct {
+			Active   []string `json:"active"`
+			Archived []string `json:"archived"`
+		}
+		_ = json.NewDecoder(rec.Body).Decode(&tasksResp)
+		if len(tasksResp.Active) != 1 || tasksResp.Active[0] != "Task 3" {
+			t.Fatalf("expected Active=[Task 3], got %v", tasksResp.Active)
+		}
+		if len(tasksResp.Archived) != 1 || tasksResp.Archived[0] != "Task 2" {
+			t.Fatalf("expected Archived=[Task 2], got %v", tasksResp.Archived)
+		}
 	})
 }

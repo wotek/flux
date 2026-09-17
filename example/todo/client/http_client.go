@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/example/todo/projections/counter"
+	"github.com/wotek/flux/example/todo/queries"
 )
 
 var _ Client = (*HTTPClient)(nil)
@@ -82,6 +84,16 @@ func (c *HTTPClient) GetCounter(ctx context.Context) (counter.Counter, error) {
 		return counter.Counter{}, fmt.Errorf("http get counter: %w", err)
 	}
 	return snapshot, nil
+}
+
+// GetTodoList sends a GET /tasks?list_identifier=... request to the server and returns the task list.
+func (c *HTTPClient) GetTodoList(ctx context.Context, listIdentifier flux.Identifier) (queries.TodoList, error) {
+	endpoint := fmt.Sprintf("/tasks?list_identifier=%s", url.QueryEscape(listIdentifier.String()))
+	var todoList queries.TodoList
+	if err := c.sendJSON(ctx, http.MethodGet, endpoint, nil, &todoList); err != nil {
+		return queries.TodoList{}, fmt.Errorf("http get todo list: %w", err)
+	}
+	return todoList, nil
 }
 
 func (c *HTTPClient) sendJSON(ctx context.Context, method, path string, requestBody any, responseTarget any) error {

@@ -85,3 +85,14 @@ func (c *InMemoryClient) GetCounter(ctx context.Context) (counter.Counter, error
 	}
 	return res, nil
 }
+
+// GetTodoList dispatches an [queries.GetTodoList] query directly to the query bus.
+func (c *InMemoryClient) GetTodoList(ctx context.Context, listIdentifier flux.Identifier) (queries.TodoList, error) {
+	queryID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:queries:1:query:tasks-%d", time.Now().UnixNano()))
+	queryCtx := query.NewContext(ctx, queryID, c.actor, flux.Identifier{}, flux.Identifier{})
+	res, err := query.Execute[queries.GetTodoList, queries.TodoList](queryCtx, c.queryBus, queries.GetTodoList{ListIdentifier: listIdentifier})
+	if err != nil {
+		return queries.TodoList{}, fmt.Errorf("in-memory get todo list: %w", err)
+	}
+	return res, nil
+}

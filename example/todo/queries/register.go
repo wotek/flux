@@ -1,11 +1,19 @@
 package queries
 
 import (
+	"github.com/wotek/flux"
+	"github.com/wotek/flux/example/todo"
+	"github.com/wotek/flux/example/todo/events"
 	"github.com/wotek/flux/example/todo/projections/counter"
 	"github.com/wotek/flux/query"
 )
 
 // RegisterHandlers registers all query handlers in this package on the given query bus.
-func RegisterHandlers(bus *query.Bus, statsStore counter.Store) {
+func RegisterHandlers(
+	bus *query.Bus,
+	statsStore counter.Store,
+	repo *flux.AggregateRepository[*todo.TodoListAggregate, events.TodoEvent],
+) {
 	RegisterGetCounterHandler(bus, statsStore)
+	RegisterGetTodoListHandler(bus, repo)
 }

@@ -47,6 +47,7 @@ func NewHTTPHandler(cmdBus *command.Bus, queryBus *query.Bus) *HTTPHandler {
 	h.mux.HandleFunc("POST /tasks", h.handleAddTask)
 	h.mux.HandleFunc("DELETE /tasks", h.handleRemoveTask)
 	h.mux.HandleFunc("POST /tasks/done", h.handleDoneTasks)
+	h.mux.HandleFunc("GET /tasks", h.handleGetTasks)
 	h.mux.HandleFunc("GET /counter", h.handleGetCounter)
 
 	return h
@@ -139,6 +140,29 @@ func (h *HTTPHandler) handleDoneTasks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]string{"status": "tasks marked done"})
+}
+
+func (h *HTTPHandler) handleGetTasks(w http.ResponseWriter, r *http.Request) {
+	listIDStr := r.URL.Query().Get("list_identifier")
+	if listIDStr == "" {
+		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "list_identifier query parameter is required"})
+		return
+	}
+
+	queryID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:queries:1:query:tasks-%d", time.Now().UnixNano()))
+	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:todo:prod:users:1:user:http-client")}
+	queryCtx := query.NewContext(r.Context(), queryID, actor, flux.Identifier{}, flux.Identifier{})
+
+	q := queries.GetTodoList{
+		ListIdentifier: flux.NewIdentifierFromString(listIDStr),
+	}
+	result, err := query.Execute[queries.GetTodoList, queries.TodoList](queryCtx, h.queryBus, q)
+	if err != nil {
+		respondJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	respondJSON(w, http.StatusOK, result)
 }
 
 func (h *HTTPHandler) handleGetCounter(w http.ResponseWriter, r *http.Request) {

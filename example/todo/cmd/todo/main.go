@@ -49,7 +49,7 @@ func run(ctx context.Context) error {
 
 	// 3. Register Command and Query Handlers from their respective packages
 	commands.RegisterHandlers(cmdBus, repo)
-	queries.RegisterHandlers(queryBus, statsStore)
+	queries.RegisterHandlers(queryBus, statsStore, repo)
 
 	// 4. Configure Read Model Projector
 	projIdentifier := flux.NewIdentifierFromString("urn:todo:prod:projections:1:counter:main")

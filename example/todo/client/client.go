@@ -5,6 +5,7 @@ import (
 
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/example/todo/projections/counter"
+	"github.com/wotek/flux/example/todo/queries"
 )
 
 // Client abstracts interaction with the Todo CQRS system,
@@ -21,4 +22,7 @@ type Client interface {
 
 	// GetCounter queries the counter read-model projection.
 	GetCounter(ctx context.Context) (counter.Counter, error)
+
+	// GetTodoList queries the active and archived tasks for a given list.
+	GetTodoList(ctx context.Context, listIdentifier flux.Identifier) (queries.TodoList, error)
 }

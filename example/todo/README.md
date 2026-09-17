@@ -27,6 +27,7 @@ example/todo/
 ├── queries/                             # Queries and co-located query handlers
 │   ├── doc.go                           # Package documentation
 │   ├── get_counter.go                   # GetCounter query + GetCounterHandler
+│   ├── get_todo_list.go                 # GetTodoList query + GetTodoListHandler
 │   └── register.go                      # RegisterHandlers() batch registration helper
 │
 ├── events/                              # Strongly-typed domain events
@@ -58,8 +59,9 @@ example/todo/
 │   ├── client.go                        # Client interface definition
 │   ├── in_memory_client.go              # InMemoryClient direct bus implementation
 │   ├── http_client.go                   # HTTPClient JSON REST implementation
+│   ├── interactive.go                   # Interactive terminal CLI dashboard & command loop
 │   ├── workflow.go                      # Canonical 10-task demo workflow runner
-│   └── client_test.go                   # Tests for InMemoryClient & HTTPClient
+│   └── client_test.go                   # Tests for InMemoryClient, HTTPClient & interactive mode
 │
 └── cmd/                                 # Application entry points
     ├── todo/                            # All-in-one runner (in-process server + client simulation)
@@ -146,7 +148,7 @@ level=INFO msg="server: starting background counter projector..."
 level=INFO msg="server: starting HTTP gateway..." addr=:8080
 ```
 
-#### 2. Run Client CLI
+#### 2. Run Interactive Client (Default)
 
 In a separate terminal:
 
@@ -155,15 +157,47 @@ cd example/todo
 go run ./cmd/client -server http://localhost:8080
 ```
 
-Output:
+This starts the interactive terminal dashboard:
+
 ```text
-level=INFO msg="connecting to server..." url=http://localhost:8080 list=urn:todo:prod:lists:1:list:abc-123
-level=INFO msg="client workflow: adding 10 tasks..." list=urn:todo:prod:lists:1:list:abc-123
-level=INFO msg="client workflow: removing odd tasks (1, 3, 5, 7, 9)..."
-level=INFO msg="client workflow: marking Task 6 and Task 10 as completed..."
-level=INFO msg="client workflow: awaiting read model projection convergence..."
-level=INFO msg="client workflow: read model converged" active=3 archived=2 removed=5
-level=INFO msg="workflow executed successfully!" active=3 archived=2 removed=5
+================================================================================
+  FLUX CQRS TODO APP (Interactive Mode)
+  List: urn:todo:prod:lists:1:list:abc-123
+  Stats (Counter Projection): Active: 2 | Archived: 1 | Removed: 1
+================================================================================
+
+ACTIVE TASKS (2):
+  ▶ [1] Buy groceries  <-- [SELECTED]
+    [2] Read Flux documentation
+
+ARCHIVED / COMPLETED (1):
+    ✓ Set up project
+
+Commands:
+  [n] Next item      [p] Prev item      [a] Add task       [d] Delete selected
+  [c] Mark done      [r] Refresh        [l] Switch list    [q] Quit
+  (Or type: add <text> | del <num> | done <num> | <num> to select)
+--------------------------------------------------------------------------------
+todo> 
+```
+
+**Interactive Controls:**
+* `n` or `<Enter>`: Cycle cursor to next task
+* `p`: Cycle cursor to previous task
+* `a` or `add <text>`: Add a new task
+* `d` or `del [num]`: Delete currently selected task (or task by number)
+* `c` or `done [num]`: Mark currently selected task as completed
+* `1`, `2`, ...: Select task by number directly
+* `l` or `list [urn]`: Switch active todo list URN
+* `r`: Refresh projection stats and task list
+* `q`: Exit
+
+#### 3. Run Automated Workflow Demo
+
+To run the automated 10-task test workflow without interactive prompts:
+
+```bash
+go run ./cmd/client -server http://localhost:8080 -demo
 ```
 
 ---

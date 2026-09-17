@@ -58,6 +58,18 @@ func TestClientImplementations(t *testing.T) {
 			if snapshot.Active != 3 || snapshot.Archived != 2 || snapshot.Removed != 5 {
 				t.Fatalf("unexpected snapshot: %+v", snapshot)
 			}
+
+			// Verify GetTodoList
+			list, err := c.GetTodoList(ctx, listID)
+			if err != nil {
+				t.Fatalf("GetTodoList failed: %v", err)
+			}
+			if len(list.Active) != 3 {
+				t.Fatalf("expected 3 active tasks, got %v", list.Active)
+			}
+			if len(list.Archived) != 2 {
+				t.Fatalf("expected 2 archived tasks, got %v", list.Archived)
+			}
 		})
 	}
 }

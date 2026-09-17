@@ -54,7 +54,7 @@ func New(opts ...Option) *Server {
 	statsStore := counter.NewMemoryStore()
 
 	commands.RegisterHandlers(cmdBus, repo)
-	queries.RegisterHandlers(queryBus, statsStore)
+	queries.RegisterHandlers(queryBus, statsStore, repo)
 
 	projIdentifier := flux.NewIdentifierFromString("urn:todo:prod:projections:1:counter:main")
 	projector := counter.NewProjector(projIdentifier, cfg.eventStore, cfg.projectionStore, statsStore)
