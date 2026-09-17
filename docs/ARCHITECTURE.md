@@ -8,6 +8,27 @@ This document provides a comprehensive overview of the `flux` framework architec
 
 The framework follows a strict **layered directed acyclic graph (DAG)** architecture. Core domain models and primitives remain self-contained at the root, while messaging buses, projections, and sagas reside in dedicated subpackages that depend unidirectionally on the core.
 
+### Package Hierarchy Overview
+
+```text
+                            ┌───────────────┐
+                            │  flux (core)  │  (Actor, Identifier, Stream, Context)
+                            └───────┬───────┘
+                ┌───────────────────┼───────────────────┐
+                ▼                   ▼                   ▼
+        ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
+        │    command    │   │     query     │   │     event     │
+        │  - Bus        │   │  - Bus        │   │  - Bus        │
+        │  - Context    │   │  - Context    │   │  - Context    │
+        │  - Handler    │   │  - Handler    │   │  - Handler    │
+        └───────┬───────┘   └───────────────┘   └───────────────┘
+                │
+                ▼ (optional command dispatch)
+        ┌───────────────┐
+        │     saga      │
+        └───────────────┘
+```
+
 ### Dependency Flow Diagram
 
 ```mermaid
