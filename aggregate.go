@@ -62,6 +62,11 @@ func (a *AggregateRoot[E]) Revision() uint64 {
 	return a.revision
 }
 
+// setRevision is an internal framework helper to safely update the revision after persistence or snapshot hydration.
+func (a *AggregateRoot[E]) setRevision(rev uint64) {
+	a.revision = rev
+}
+
 // FromEvents iterates over the StreamIterator, type-asserts the generic Event
 // into the aggregate's specific Event type E, applies it, and updates the revision.
 func (a *AggregateRoot[E]) FromEvents(events StreamIterator) error {

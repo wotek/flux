@@ -74,6 +74,11 @@ func (r *AggregateRepository[A, E]) Save(ctx Context, aggregate A) error {
 		return fmt.Errorf("failed to append events to store: %w", err)
 	}
 
+	// Safely update the aggregate revision using the internal capability interface
+	if s, ok := any(aggregate).(interface{ setRevision(uint64) }); ok {
+		s.setRevision(baseRevision + uint64(len(uncommitted)))
+	}
+
 	changeset.Clear()
 	return nil
 }

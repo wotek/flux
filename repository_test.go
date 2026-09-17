@@ -84,6 +84,10 @@ func TestAggregateRepository_SaveAndLoad(t *testing.T) {
 		t.Fatalf("failed to save aggregate: %v", err)
 	}
 
+	if account.Revision() != 3 {
+		t.Errorf("expected original aggregate instance to have revision 3 after save, got %d", account.Revision())
+	}
+
 	if account.Changeset().HasChanges() {
 		t.Errorf("expected changeset to be cleared after save")
 	}
