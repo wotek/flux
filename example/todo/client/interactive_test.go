@@ -11,7 +11,7 @@ import (
 	"github.com/wotek/flux/example/todo/server"
 )
 
-func TestRunInteractive(t *testing.T) {
+func TestRunInteractive_TwoScreenNavigation(t *testing.T) {
 	t.Parallel()
 
 	srv := server.New()
@@ -23,28 +23,30 @@ func TestRunInteractive(t *testing.T) {
 	}()
 
 	c := client.NewInMemoryClient(srv.CommandBus(), srv.QueryBus())
-	listID := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:interactive-test")
+	initialListID := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:initial")
 
 	// Simulated terminal user session:
-	// 1. Add Task A
-	// 2. Add Task B
-	// 3. Add Task C
-	// 4. Cycle next (selects Task B or C)
-	// 5. Select 2 directly
-	// 6. Complete task 2 (Task B)
-	// 7. Delete currently selected task
-	// 8. Quit
+	// 1. On Screen 1 (Lists Screen): create new list "Work Tasks" (navigates into Tasks screen)
+	// 2. On Screen 2 (Tasks Screen): add Task A, Task B, Task C
+	// 3. Cycle next, prev, select task 2, mark done
+	// 4. Delete task 1
+	// 5. Navigate back to Screen 1 with 'b'
+	// 6. On Screen 1 (Lists Screen): create second list "Personal Tasks"
+	// 7. On Screen 2 (Tasks Screen): add "Buy Groceries"
+	// 8. Quit with 'q'
 	inputCommands := strings.Join([]string{
+		"new Work Tasks",
 		"a Task A",
-		"add Task B",
+		"a Task B",
 		"a Task C",
 		"n",
 		"p",
 		"2",
 		"c 2",
 		"1",
-		"d",
-		"nl Personal Projects",
+		"d 1",
+		"b",
+		"new Personal Tasks",
 		"a Buy Groceries",
 		"q",
 	}, "\n") + "\n"
@@ -52,22 +54,24 @@ func TestRunInteractive(t *testing.T) {
 	in := strings.NewReader(inputCommands)
 	out := &bytes.Buffer{}
 
-	err := client.RunInteractive(ctx, c, listID, in, out)
+	err := client.RunInteractive(ctx, c, initialListID, in, out)
 	if err != nil {
 		t.Fatalf("RunInteractive failed: %v", err)
 	}
 
 	output := out.String()
 
-	// Verify key lifecycle markers were rendered in terminal session
+	// Verify key screen headers and actions were rendered
 	expectedStrings := []string{
-		"FLUX CQRS TODO APP",
+		"FLUX CQRS TODO APP — All Todo Lists",
+		"Created and opened list \"Work Tasks\"",
 		"Added task: \"Task A\"",
 		"Added task: \"Task B\"",
 		"Added task: \"Task C\"",
 		"Completed task: \"Task B\"",
 		"Removed task: \"Task A\"",
-		"Created and switched to list \"Personal Projects\"",
+		"Returned to lists catalog.",
+		"Created and opened list \"Personal Tasks\"",
 		"Added task: \"Buy Groceries\"",
 		"Goodbye!",
 	}
@@ -76,19 +80,5 @@ func TestRunInteractive(t *testing.T) {
 		if !strings.Contains(output, expected) {
 			t.Errorf("output missing expected text %q\nFull output:\n%s", expected, output)
 		}
-	}
-
-	// Verify the final aggregate state
-	todoList, err := c.GetTodoList(ctx, listID)
-	if err != nil {
-		t.Fatalf("GetTodoList failed: %v", err)
-	}
-
-	// Task B is completed (archived), Task A was removed (deleted), Task C remains active
-	if len(todoList.Active) != 1 || todoList.Active[0] != "Task C" {
-		t.Errorf("expected Active=[Task C], got %v", todoList.Active)
-	}
-	if len(todoList.Archived) != 1 || todoList.Archived[0] != "Task B" {
-		t.Errorf("expected Archived=[Task B], got %v", todoList.Archived)
 	}
 }

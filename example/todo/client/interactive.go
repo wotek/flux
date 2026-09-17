@@ -13,12 +13,24 @@ import (
 	"github.com/wotek/flux/example/todo/projections/lists"
 )
 
-// RunInteractive launches an interactive CLI session allowing the user to
-// list and cycle through multiple todo lists, view tasks, and add/remove/complete items.
-func RunInteractive(ctx context.Context, c Client, currentListID flux.Identifier, in io.Reader, out io.Writer) error {
+type screenView int
+
+const (
+	viewLists screenView = iota
+	viewTasks
+)
+
+// RunInteractive launches an interactive CLI session. The entry screen presents
+// all available todo lists with options to manage them, and allows navigating into
+// a selected list to view, add, remove, and complete tasks.
+func RunInteractive(ctx context.Context, c Client, initialListID flux.Identifier, in io.Reader, out io.Writer) error {
 	scanner := bufio.NewScanner(in)
+	currentView := viewLists
+	selectedListIdx := 0
 	selectedTaskIdx := 0
-	statusMessage := "Welcome! Type 'h' or 'help' for available commands."
+	currentListID := initialListID
+	currentListTitle := "Default List"
+	statusMessage := "Welcome! Select a list to open, or create a new one."
 
 	for {
 		select {
@@ -27,30 +39,149 @@ func RunInteractive(ctx context.Context, c Client, currentListID flux.Identifier
 		default:
 		}
 
-		// 1. Fetch all known lists from read-model projection
+		// Always fetch current global lists & stats
 		allLists, _ := c.GetLists(ctx)
-
-		// 2. Fetch current list tasks from aggregate
-		todoList, err := c.GetTodoList(ctx, currentListID)
-		if err != nil {
-			statusMessage = fmt.Sprintf("Error loading list: %v", err)
-		}
-
-		// 3. Fetch global stats
 		stats, _ := c.GetCounter(ctx)
 
-		// 4. Find title for current list
-		currentTitle := "Default List"
-		currentListIdx := -1
-		for i, l := range allLists {
+		// ---------------------------------------------------------------------
+		// SCREEN 1: AVAILABLE LISTS CATALOG
+		// ---------------------------------------------------------------------
+		if currentView == viewLists {
+			listCount := len(allLists)
+			if listCount == 0 {
+				selectedListIdx = -1
+			} else {
+				if selectedListIdx < 0 {
+					selectedListIdx = 0
+				} else if selectedListIdx >= listCount {
+					selectedListIdx = listCount - 1
+				}
+			}
+
+			renderListsScreen(out, allLists, selectedListIdx, stats.Active, stats.Archived, stats.Removed, statusMessage)
+			statusMessage = ""
+
+			fmt.Fprint(out, "lists> ")
+			if !scanner.Scan() {
+				fmt.Fprintln(out, "\nExiting interactive session.")
+				return scanner.Err()
+			}
+
+			input := strings.TrimSpace(scanner.Text())
+			cmd, arg, hasArg := parseCommand(input)
+
+			if input == "" {
+				// Empty Enter opens the currently selected list (if any), or does nothing
+				if selectedListIdx >= 0 && selectedListIdx < listCount {
+					currentListID = flux.NewIdentifierFromString(allLists[selectedListIdx].Identifier)
+					currentListTitle = allLists[selectedListIdx].Title
+					selectedTaskIdx = 0
+					currentView = viewTasks
+					statusMessage = fmt.Sprintf("Opened list: %q", currentListTitle)
+				}
+				continue
+			}
+
+			switch cmd {
+			case "q", "quit", "exit":
+				fmt.Fprintln(out, "Goodbye!")
+				return nil
+
+			case "h", "help":
+				statusMessage = "Commands: [n]ext, [p]rev, [o]pen [num], [a]dd/new <title>, [r]efresh, [q]uit, or enter list number to open."
+
+			case "n", "next", "j":
+				if listCount > 0 {
+					selectedListIdx = (selectedListIdx + 1) % listCount
+					statusMessage = fmt.Sprintf("Selected list [%d]: %s", selectedListIdx+1, allLists[selectedListIdx].Title)
+				}
+
+			case "p", "prev", "k":
+				if listCount > 0 {
+					selectedListIdx = (selectedListIdx - 1 + listCount) % listCount
+					statusMessage = fmt.Sprintf("Selected list [%d]: %s", selectedListIdx+1, allLists[selectedListIdx].Title)
+				}
+
+			case "o", "open":
+				targetIdx := selectedListIdx
+				if hasArg {
+					num, err := strconv.Atoi(arg)
+					if err == nil && num >= 1 && num <= listCount {
+						targetIdx = num - 1
+					} else {
+						statusMessage = fmt.Sprintf("Invalid list number: %s", arg)
+						continue
+					}
+				}
+				if targetIdx >= 0 && targetIdx < listCount {
+					currentListID = flux.NewIdentifierFromString(allLists[targetIdx].Identifier)
+					currentListTitle = allLists[targetIdx].Title
+					selectedTaskIdx = 0
+					currentView = viewTasks
+					statusMessage = fmt.Sprintf("Opened list: %q", currentListTitle)
+				} else {
+					statusMessage = "No list available to open. Press 'a' to create one."
+				}
+
+			case "a", "new", "create", "add":
+				title := arg
+				if !hasArg {
+					fmt.Fprint(out, "Enter new list title: ")
+					if scanner.Scan() {
+						title = strings.TrimSpace(scanner.Text())
+					}
+				}
+				if title == "" {
+					title = "New Todo List"
+				}
+				slug := strings.ToLower(strings.ReplaceAll(title, " ", "-"))
+				newListID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:lists:1:list:%s-%d", slug, time.Now().UnixNano()%10000))
+				if err := c.CreateList(ctx, newListID, title); err != nil {
+					statusMessage = fmt.Sprintf("Error creating list: %v", err)
+				} else {
+					currentListID = newListID
+					currentListTitle = title
+					selectedTaskIdx = 0
+					currentView = viewTasks
+					statusMessage = fmt.Sprintf("Created and opened list %q", title)
+				}
+
+			case "r", "refresh":
+				statusMessage = "Refreshed lists."
+
+			default:
+				// Number typed directly opens that list
+				num, err := strconv.Atoi(cmd)
+				if err == nil && num >= 1 && num <= listCount {
+					currentListID = flux.NewIdentifierFromString(allLists[num-1].Identifier)
+					currentListTitle = allLists[num-1].Title
+					selectedTaskIdx = 0
+					currentView = viewTasks
+					statusMessage = fmt.Sprintf("Opened list: %q", currentListTitle)
+				} else {
+					statusMessage = fmt.Sprintf("Unknown command %q. Type 'h' for help.", input)
+				}
+			}
+
+			continue
+		}
+
+		// ---------------------------------------------------------------------
+		// SCREEN 2: TASKS DETAIL SCREEN FOR A SPECIFIC LIST
+		// ---------------------------------------------------------------------
+		todoList, err := c.GetTodoList(ctx, currentListID)
+		if err != nil {
+			statusMessage = fmt.Sprintf("Error loading tasks: %v", err)
+		}
+
+		// Sync title if list appears in projection
+		for _, l := range allLists {
 			if l.Identifier == currentListID.String() {
-				currentTitle = l.Title
-				currentListIdx = i
+				currentListTitle = l.Title
 				break
 			}
 		}
 
-		// 5. Keep task cursor within bounds
 		activeCount := len(todoList.Active)
 		if activeCount == 0 {
 			selectedTaskIdx = -1
@@ -62,12 +193,10 @@ func RunInteractive(ctx context.Context, c Client, currentListID flux.Identifier
 			}
 		}
 
-		// 6. Render dashboard
-		renderDashboard(out, currentTitle, currentListID.String(), allLists, todoList.Active, todoList.Archived, selectedTaskIdx, stats.Active, stats.Archived, stats.Removed, statusMessage)
+		renderTasksScreen(out, currentListTitle, currentListID.String(), todoList.Active, todoList.Archived, selectedTaskIdx, statusMessage)
 		statusMessage = ""
 
-		// 7. Prompt user
-		fmt.Fprint(out, "todo> ")
+		fmt.Fprint(out, "tasks> ")
 		if !scanner.Scan() {
 			fmt.Fprintln(out, "\nExiting interactive session.")
 			return scanner.Err()
@@ -75,7 +204,7 @@ func RunInteractive(ctx context.Context, c Client, currentListID flux.Identifier
 
 		input := strings.TrimSpace(scanner.Text())
 		if input == "" {
-			// Empty enter cycles to next task in current list
+			// Empty enter cycles forward through active tasks
 			if activeCount > 0 {
 				selectedTaskIdx = (selectedTaskIdx + 1) % activeCount
 			}
@@ -85,17 +214,21 @@ func RunInteractive(ctx context.Context, c Client, currentListID flux.Identifier
 		cmd, arg, hasArg := parseCommand(input)
 
 		switch cmd {
+		case "b", "back", "lists", "catalog":
+			currentView = viewLists
+			statusMessage = "Returned to lists catalog."
+
 		case "q", "quit", "exit":
 			fmt.Fprintln(out, "Goodbye!")
 			return nil
 
 		case "h", "help":
-			statusMessage = "Commands: [n]ext, [p]rev, [a]dd <task>, [d]elete [num], [c]omplete [num], [nl] new list <title>, [ls] lists, [l] switch list, [tab] next list, [r]efresh, [q]uit."
+			statusMessage = "Commands: [n]ext, [p]rev, [a]dd <task>, [d]elete [num], [c]omplete [num], [b]ack to lists, [r]efresh, [q]uit."
 
 		case "n", "next", "j":
 			if activeCount > 0 {
 				selectedTaskIdx = (selectedTaskIdx + 1) % activeCount
-				statusMessage = fmt.Sprintf("Cycled to task [%d]: %s", selectedTaskIdx+1, todoList.Active[selectedTaskIdx])
+				statusMessage = fmt.Sprintf("Selected task [%d]: %s", selectedTaskIdx+1, todoList.Active[selectedTaskIdx])
 			} else {
 				statusMessage = "No active tasks to cycle through."
 			}
@@ -103,7 +236,7 @@ func RunInteractive(ctx context.Context, c Client, currentListID flux.Identifier
 		case "p", "prev", "k":
 			if activeCount > 0 {
 				selectedTaskIdx = (selectedTaskIdx - 1 + activeCount) % activeCount
-				statusMessage = fmt.Sprintf("Cycled to task [%d]: %s", selectedTaskIdx+1, todoList.Active[selectedTaskIdx])
+				statusMessage = fmt.Sprintf("Selected task [%d]: %s", selectedTaskIdx+1, todoList.Active[selectedTaskIdx])
 			} else {
 				statusMessage = "No active tasks to cycle through."
 			}
@@ -150,7 +283,7 @@ func RunInteractive(ctx context.Context, c Client, currentListID flux.Identifier
 				statusMessage = "No active task selected to delete."
 			}
 
-		case "c", "done", "complete":
+		case "c", "done", "complete", "archive":
 			targetIdx := selectedTaskIdx
 			if hasArg {
 				num, err := strconv.Atoi(arg)
@@ -173,90 +306,10 @@ func RunInteractive(ctx context.Context, c Client, currentListID flux.Identifier
 				statusMessage = "No active task selected to complete."
 			}
 
-		case "nl", "new", "create", "newlist":
-			title := arg
-			if !hasArg {
-				fmt.Fprint(out, "Enter new list title: ")
-				if scanner.Scan() {
-					title = strings.TrimSpace(scanner.Text())
-				}
-			}
-			if title == "" {
-				title = "New Todo List"
-			}
-			slug := strings.ToLower(strings.ReplaceAll(title, " ", "-"))
-			newListID := flux.NewIdentifierFromString(fmt.Sprintf("urn:todo:prod:lists:1:list:%s-%d", slug, time.Now().UnixNano()%10000))
-			if err := c.CreateList(ctx, newListID, title); err != nil {
-				statusMessage = fmt.Sprintf("Error creating list: %v", err)
-			} else {
-				currentListID = newListID
-				selectedTaskIdx = 0
-				statusMessage = fmt.Sprintf("Created and switched to list %q (%s)", title, newListID.String())
-			}
-
-		case "ls", "lists":
-			renderListsOverview(out, allLists, currentListID.String())
-			fmt.Fprint(out, "Press Enter to return to active list...")
-			_ = scanner.Scan()
-
-		case "tab", "nextlist":
-			if len(allLists) > 1 {
-				nextIdx := (currentListIdx + 1) % len(allLists)
-				currentListID = flux.NewIdentifierFromString(allLists[nextIdx].Identifier)
-				selectedTaskIdx = 0
-				statusMessage = fmt.Sprintf("Switched to list: %s (%s)", allLists[nextIdx].Title, allLists[nextIdx].Identifier)
-			} else {
-				statusMessage = "Only 1 list known. Create another list using 'nl <title>'."
-			}
-
-		case "l", "switch", "list":
-			if hasArg {
-				// Check if user passed a 1-based number from allLists
-				num, err := strconv.Atoi(arg)
-				if err == nil && num >= 1 && num <= len(allLists) {
-					currentListID = flux.NewIdentifierFromString(allLists[num-1].Identifier)
-					selectedTaskIdx = 0
-					statusMessage = fmt.Sprintf("Switched to list: %s", allLists[num-1].Title)
-				} else {
-					currentListID = flux.NewIdentifierFromString(arg)
-					selectedTaskIdx = 0
-					statusMessage = fmt.Sprintf("Switched to list URN: %s", arg)
-				}
-			} else {
-				if len(allLists) == 0 {
-					fmt.Fprint(out, "Enter target list URN: ")
-					if scanner.Scan() {
-						urn := strings.TrimSpace(scanner.Text())
-						if urn != "" {
-							currentListID = flux.NewIdentifierFromString(urn)
-							selectedTaskIdx = 0
-							statusMessage = fmt.Sprintf("Switched to list: %s", urn)
-						}
-					}
-				} else {
-					renderListsOverview(out, allLists, currentListID.String())
-					fmt.Fprint(out, "Select list number or enter URN: ")
-					if scanner.Scan() {
-						chosen := strings.TrimSpace(scanner.Text())
-						num, err := strconv.Atoi(chosen)
-						if err == nil && num >= 1 && num <= len(allLists) {
-							currentListID = flux.NewIdentifierFromString(allLists[num-1].Identifier)
-							selectedTaskIdx = 0
-							statusMessage = fmt.Sprintf("Switched to list: %s", allLists[num-1].Title)
-						} else if chosen != "" {
-							currentListID = flux.NewIdentifierFromString(chosen)
-							selectedTaskIdx = 0
-							statusMessage = fmt.Sprintf("Switched to list: %s", chosen)
-						}
-					}
-				}
-			}
-
 		case "r", "refresh":
-			statusMessage = "Refreshed."
+			statusMessage = "Refreshed list."
 
 		default:
-			// Check if user entered a task index number directly
 			num, err := strconv.Atoi(cmd)
 			if err == nil && num >= 1 && num <= activeCount {
 				selectedTaskIdx = num - 1
@@ -278,12 +331,45 @@ func parseCommand(input string) (cmd string, arg string, hasArg bool) {
 	return cmd, arg, hasArg
 }
 
-func renderDashboard(out io.Writer, listTitle, listURN string, allLists []lists.ListSummary, active, archived []string, selectedIdx, statsActive, statsArchived, statsRemoved int, msg string) {
+func renderListsScreen(out io.Writer, allLists []lists.ListSummary, selectedIdx, statsActive, statsArchived, statsRemoved int, msg string) {
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "================================================================================")
+	fmt.Fprintln(out, "  FLUX CQRS TODO APP — All Todo Lists")
+	fmt.Fprintf(out, "  Global Stats: Active: %d | Archived: %d | Removed: %d | Total Lists: %d\n", statsActive, statsArchived, statsRemoved, len(allLists))
+	fmt.Fprintln(out, "================================================================================")
+
+	fmt.Fprintf(out, "\nAVAILABLE TODO LISTS (%d):\n", len(allLists))
+	if len(allLists) == 0 {
+		fmt.Fprintln(out, "  (No lists found — press 'a' or 'new <title>' to create your first list!)")
+	} else {
+		for i, l := range allLists {
+			cursor := "  "
+			suffix := ""
+			if i == selectedIdx {
+				cursor = "▶ "
+				suffix = "  <-- [SELECTED]"
+			}
+			fmt.Fprintf(out, "%s[%d] %s (Active: %d, Archived: %d)%s\n      URN: %s\n", cursor, i+1, l.Title, l.Active, l.Archived, suffix, l.Identifier)
+		}
+	}
+
+	if msg != "" {
+		fmt.Fprintf(out, "\nStatus: %s\n", msg)
+	}
+
+	fmt.Fprintln(out, "\nCommands:")
+	fmt.Fprintln(out, "  [n] Next list      [p] Prev list      [o/Enter] Open list")
+	fmt.Fprintln(out, "  [a] New list       [r] Refresh        [q] Quit")
+	fmt.Fprintln(out, "  (Or type: new <title> | open <num> | <num> to open directly)")
+	fmt.Fprintln(out, "--------------------------------------------------------------------------------")
+}
+
+func renderTasksScreen(out io.Writer, listTitle, listURN string, active, archived []string, selectedIdx int, msg string) {
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "================================================================================")
 	fmt.Fprintf(out, "  FLUX CQRS TODO APP — %s\n", listTitle)
 	fmt.Fprintf(out, "  URN: %s\n", listURN)
-	fmt.Fprintf(out, "  Global Stats: Active: %d | Archived: %d | Removed: %d | Total Lists: %d\n", statsActive, statsArchived, statsRemoved, len(allLists))
+	fmt.Fprintf(out, "  List Status: %d Active | %d Archived\n", len(active), len(archived))
 	fmt.Fprintln(out, "================================================================================")
 
 	fmt.Fprintf(out, "\nACTIVE TASKS (%d):\n", len(active))
@@ -313,27 +399,8 @@ func renderDashboard(out io.Writer, listTitle, listURN string, allLists []lists.
 	}
 
 	fmt.Fprintln(out, "\nCommands:")
-	fmt.Fprintln(out, "  [n] Next item      [p] Prev item      [a] Add task       [d] Delete selected")
-	fmt.Fprintln(out, "  [c] Mark done      [nl] New list      [l] Switch list    [tab] Next list")
-	fmt.Fprintln(out, "  [ls] Overview      [r] Refresh        [q] Quit")
-	fmt.Fprintln(out, "--------------------------------------------------------------------------------")
-}
-
-func renderListsOverview(out io.Writer, allLists []lists.ListSummary, currentURN string) {
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, "--------------------------------------------------------------------------------")
-	fmt.Fprintln(out, "  ALL TODO LISTS (Read-Model Overview)")
-	fmt.Fprintln(out, "--------------------------------------------------------------------------------")
-	if len(allLists) == 0 {
-		fmt.Fprintln(out, "  No lists found yet. Press 'nl <title>' to create one.")
-	} else {
-		for i, l := range allLists {
-			marker := "  "
-			if l.Identifier == currentURN {
-				marker = "▶ "
-			}
-			fmt.Fprintf(out, "%s[%d] %s (Active: %d, Archived: %d)\n      URN: %s\n", marker, i+1, l.Title, l.Active, l.Archived, l.Identifier)
-		}
-	}
+	fmt.Fprintln(out, "  [n] Next task      [p] Prev task      [a] Add task       [d] Delete task")
+	fmt.Fprintln(out, "  [c] Mark done      [b] Back to lists  [r] Refresh        [q] Quit")
+	fmt.Fprintln(out, "  (Or type: add <text> | del <num> | done <num> | <num> to select)")
 	fmt.Fprintln(out, "--------------------------------------------------------------------------------")
 }
