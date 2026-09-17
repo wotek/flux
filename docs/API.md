@@ -426,6 +426,20 @@ The framework utilizes three distinct buses to implement CQRS (Command Query Res
 
 By leveraging Go Generics and package-level execution functions, we achieve 100% type safety on inputs and outputs without forcing Commands or Queries to implement marker interfaces.
 
+
+The Dispatcher buses (`command`, `query`, and `event`) natively support middleware chaining (interceptors). This allows developers to inject cross-cutting concerns like global telemetry, authentication barriers, database transaction management, and OpenTelemetry spans without polluting domain logic.
+
+Middlewares are registered using the `Use()` method:
+```go
+bus.Use(func(ctx command.Context, cmd any, next func(command.Context, any) error) error {
+    ctx.Logger().Info("Executing command", "type", fmt.Sprintf("%T", cmd))
+    err := next(ctx, cmd)
+    return err
+})
+```
+Middlewares execute in the order they are provided, chaining perfectly down to the underlying handler.
+
+
 ### Contexts
 
 To bridge the gap between keeping domain payloads lean and providing explicit, type-safe metadata (avoiding "magic" context keys), the framework defines custom contexts. 
@@ -446,6 +460,7 @@ type Context interface {
 	Actor() Actor
 	CorrelationIdentifier() Identifier
 	CausationIdentifier() Identifier
+	Logger() *slog.Logger
 }
 
 // package command
@@ -524,6 +539,16 @@ func NewContext(parent event.Context) Context
 func NewContext(parent event.Context) Context
 ```
 
+
+#### Contextual Logging & Distributed Tracing
+
+The base `flux.Context` inherently integrates with the standard Go `log/slog` package. Calling `ctx.Logger()` returns an `*slog.Logger` instance that is automatically pre-configured with contextual tracing attributes:
+- `actor`: The URN of the user or system executing the operation.
+- `correlation_id`: The transaction boundary identifier.
+- `causation_id`: The ID of the preceding message (useful for async event handlers and sagas).
+
+By leveraging `ctx.Logger().Info(...)`, developers achieve zero-effort distributed tracing across the entire command-event-query lifecycle.
+
 ### Handlers
 
 Handlers define the interface for processing Commands, Queries, and Events. They receive their respective strongly-typed contexts.
@@ -582,7 +607,7 @@ func ExecuteAsync[C any](ctx Context, bus *Bus, cmd C) error
 ```
 
 > [!TIP]
-> The framework intentionally avoids "batch" or "multi-command" dispatch methods. Because `ExecuteCommand` is completely thread-safe, developers can use native Go primitives (like `sync.WaitGroup` or `golang.org/x/sync/errgroup`) to execute commands sequentially or in parallel. Long-running orchestrations should use Sagas instead of sequential scripts.
+> The framework intentionally avoids "batch" or "multi-command" dispatch methods. Because `command.Execute` is completely thread-safe, developers can use native Go primitives (like `sync.WaitGroup` or `golang.org/x/sync/errgroup`) to execute commands sequentially or in parallel. Long-running orchestrations should use Sagas instead of sequential scripts.
 
 ### Query Bus
 

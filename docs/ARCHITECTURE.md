@@ -170,7 +170,8 @@ Provides in-memory, constant-time `O(1)` routing for CQRS command dispatching.
 * `Handler[C any]`: Defines `Handle(ctx Context, cmd C) error` for processing command `C`.
 
 #### Functions
-* `New() *Bus` (alias `NewBus()`): Creates a new command bus.
+* `New() *Bus`: Creates a new command bus.
+* `(*Bus).Use(middlewares ...Middleware)`: Registers interceptors in the bus.
 * `NewContext(parent context.Context, cmdID flux.Identifier, actor flux.Actor, correlationID flux.Identifier, causationID flux.Identifier) Context`: Creates a command context.
 * `Register[C any](bus *Bus, handler func(ctx Context, cmd C) error)`: Registers a closure handler for command type `C`.
 * `RegisterHandler[C any](bus *Bus, handler Handler[C])`: Registers an interface handler for command type `C`.
@@ -190,7 +191,8 @@ Provides type-safe, reflection-free query execution and read-model retrieval.
 * `Handler[Q any, R any]`: Defines `Handle(ctx Context, query Q) (R, error)`.
 
 #### Functions
-* `New() *Bus` (alias `NewBus()`): Creates a new query bus.
+* `New() *Bus`: Creates a new query bus.
+* `(*Bus).Use(middlewares ...Middleware)`: Registers interceptors in the bus.
 * `NewContext(parent context.Context, queryID flux.Identifier, actor flux.Actor, correlationID flux.Identifier, causationID flux.Identifier) Context`: Creates a query context.
 * `Register[Q any, R any](bus *Bus, handler func(ctx Context, query Q) (R, error))`: Registers a closure handler.
 * `RegisterHandler[Q any, R any](bus *Bus, handler Handler[Q, R])`: Registers an interface handler.
@@ -209,7 +211,8 @@ Provides event distribution to multiple subscribers and access to envelope metad
 * `Handler[E flux.Event]`: Defines `Handle(ctx Context, event E) error`.
 
 #### Functions
-* `New() *Bus` (alias `NewBus()`): Creates an event bus.
+* `New() *Bus`: Creates an event bus.
+* `(*Bus).Use(middlewares ...Middleware)`: Registers interceptors in the bus.
 * `NewContext(parent context.Context, env flux.Envelope) Context`: Creates an event context from an envelope.
 * `Register[E flux.Event](bus *Bus, handler func(ctx Context, event E) error)`: Subscribes a closure handler.
 * `RegisterHandler[E flux.Event](bus *Bus, handler Handler[E])`: Subscribes an interface handler.
