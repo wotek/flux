@@ -8,15 +8,19 @@ import (
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/command"
 	eventstore "github.com/wotek/flux/event/store"
-	ecommercecmd "github.com/wotek/flux/example/e-commerce/internal/command"
-	"github.com/wotek/flux/example/e-commerce/internal/domain/customer"
-	"github.com/wotek/flux/example/e-commerce/internal/domain/order"
-	"github.com/wotek/flux/example/e-commerce/internal/domain/pricing"
-	"github.com/wotek/flux/example/e-commerce/internal/domain/product"
-	"github.com/wotek/flux/example/e-commerce/internal/domain/types"
+	pricingagg "github.com/wotek/flux/example/e-commerce/internal/catalog/aggregates/pricing"
+	productagg "github.com/wotek/flux/example/e-commerce/internal/catalog/aggregates/product"
+	catalogcmd "github.com/wotek/flux/example/e-commerce/internal/catalog/commands"
+	catalogevents "github.com/wotek/flux/example/e-commerce/internal/catalog/events"
+	catalogproj "github.com/wotek/flux/example/e-commerce/internal/catalog/projections"
 	"github.com/wotek/flux/example/e-commerce/internal/identity"
-	"github.com/wotek/flux/example/e-commerce/internal/projection/catalog"
-	"github.com/wotek/flux/example/e-commerce/internal/saga/payment"
+	customeragg "github.com/wotek/flux/example/e-commerce/internal/sales/aggregates/customer"
+	orderagg "github.com/wotek/flux/example/e-commerce/internal/sales/aggregates/order"
+	salescmd "github.com/wotek/flux/example/e-commerce/internal/sales/commands"
+	salesevents "github.com/wotek/flux/example/e-commerce/internal/sales/events"
+	salestypes "github.com/wotek/flux/example/e-commerce/internal/sales/types"
+	"github.com/wotek/flux/example/e-commerce/internal/types"
+	paymentwf "github.com/wotek/flux/example/e-commerce/internal/workflows/payment"
 	projectionstore "github.com/wotek/flux/projection/store"
 	"github.com/wotek/flux/saga"
 	sagastore "github.com/wotek/flux/saga/store"
@@ -33,27 +37,28 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 	es := eventstore.New()
 	ps := projectionstore.New()
 
-	productRepo := flux.NewAggregateRepository[*product.ProductAggregate, product.ProductEvent](es)
-	pricingRepo := flux.NewAggregateRepository[*pricing.PricingAggregate, pricing.PricingEvent](es)
-	customerRepo := flux.NewAggregateRepository[*customer.CustomerAggregate, customer.CustomerEvent](es)
-	orderRepo := flux.NewAggregateRepository[*order.OrderAggregate, order.OrderEvent](es)
+	productRepo := flux.NewAggregateRepository[*productagg.ProductAggregate, catalogevents.ProductEvent](es)
+	pricingRepo := flux.NewAggregateRepository[*pricingagg.PricingAggregate, catalogevents.PricingEvent](es)
+	customerRepo := flux.NewAggregateRepository[*customeragg.CustomerAggregate, salesevents.CustomerEvent](es)
+	orderRepo := flux.NewAggregateRepository[*orderagg.OrderAggregate, salesevents.OrderEvent](es)
 
 	// 2. Command Handlers
-	ecommercecmd.RegisterHandlers(cmdBus, productRepo, pricingRepo, customerRepo, orderRepo)
+	catalogcmd.RegisterHandlers(cmdBus, productRepo, pricingRepo)
+	salescmd.RegisterHandlers(cmdBus, customerRepo, orderRepo)
 
 	// 3. Projections
-	catStore := catalog.NewMemoryCatalogStore()
+	catStore := catalogproj.NewMemoryStore()
 	catalogProjID := flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:projection:catalog")
-	catalogProjector := catalog.NewCatalogProjector(catalogProjID, es, ps, catStore)
+	catalogProjector := catalogproj.NewProductCatalogProjector(catalogProjID, es, ps, catStore)
 	go func() {
 		_ = catalogProjector.Start(ctx)
 	}()
 
-	// 4. Sagas
-	paymentSagaStore := sagastore.New[*payment.PaymentSaga](cmdBus)
+	// 4. Sagas / Workflows
+	paymentSagaStore := sagastore.New[*paymentwf.PaymentSaga](cmdBus)
 	paymentSagaStore.StartRelay(ctx)
 	orchestrator := saga.NewOrchestrator(es)
-	payment.RegisterPaymentSaga(orchestrator, paymentSagaStore)
+	paymentwf.RegisterPaymentSaga(orchestrator, paymentSagaStore)
 	go func() {
 		_ = orchestrator.Start(ctx)
 	}()
@@ -61,12 +66,12 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 	actor := flux.Actor{Identifier: flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:user:buyer")}
 
 	// -------------------------------------------------------------
-	// Scenario A: Product Creation and Pricing
+	// Scenario A: Product Creation and Pricing (Catalog Domain)
 	// -------------------------------------------------------------
 	prodID := "item-laptop-1"
 	pCmdCtx := command.NewContext(ctx, flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:command:c1"), actor, identity.NewProductIdentifier(prodID), flux.Identifier{})
 
-	if err := command.Execute(pCmdCtx, cmdBus, ecommercecmd.CreateProduct{
+	if err := command.Execute(pCmdCtx, cmdBus, catalogcmd.CreateProduct{
 		ProductID: prodID,
 		Name:      "MacBook Pro",
 		Stock:     10,
@@ -74,7 +79,7 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 		t.Fatalf("CreateProduct failed: %v", err)
 	}
 
-	if err := command.Execute(pCmdCtx, cmdBus, ecommercecmd.SetPrice{
+	if err := command.Execute(pCmdCtx, cmdBus, catalogcmd.SetPrice{
 		ProductID: prodID,
 		Price:     249900,
 	}); err != nil {
@@ -82,7 +87,7 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 	}
 
 	// Verify catalog projection converged
-	var catView catalog.ProductView
+	var catView catalogproj.ProductView
 	var found bool
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -97,12 +102,12 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 	}
 
 	// -------------------------------------------------------------
-	// Scenario B: Customer Registration and Address Management
+	// Scenario B: Customer Registration and Address Management (Sales Domain)
 	// -------------------------------------------------------------
 	custID := "cust-alice"
 	cCmdCtx := command.NewContext(ctx, flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:command:c2"), actor, identity.NewCustomerIdentifier(custID), flux.Identifier{})
 
-	if err := command.Execute(cCmdCtx, cmdBus, ecommercecmd.RegisterCustomer{
+	if err := command.Execute(cCmdCtx, cmdBus, salescmd.RegisterCustomer{
 		CustomerID: custID,
 		Name:       "Alice Smith",
 		Email:      "alice@example.com",
@@ -110,7 +115,7 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 		t.Fatalf("RegisterCustomer failed: %v", err)
 	}
 
-	if err := command.Execute(cCmdCtx, cmdBus, ecommercecmd.AddAddress{
+	if err := command.Execute(cCmdCtx, cmdBus, salescmd.AddAddress{
 		CustomerID: custID,
 		Address: types.Address{
 			ID:      "addr-1",
@@ -124,13 +129,13 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 	}
 
 	// -------------------------------------------------------------
-	// Scenario C: Order Placement & Inventory Reservation
+	// Scenario C: Order Placement & Inventory Reservation (Sales + Catalog)
 	// -------------------------------------------------------------
 	orderID := "ord-12345"
 	orderURN := identity.NewOrderIdentifier(orderID)
 
 	// Reserve stock: decrease stock by 2 for the order
-	if err := command.Execute(pCmdCtx, cmdBus, ecommercecmd.AdjustStock{
+	if err := command.Execute(pCmdCtx, cmdBus, catalogcmd.AdjustStock{
 		ProductID: prodID,
 		Quantity:  -2,
 	}); err != nil {
@@ -139,10 +144,10 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 
 	// Place order
 	oCmdCtx := command.NewContext(ctx, flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:command:c3"), actor, orderURN, flux.Identifier{})
-	if err := command.Execute(oCmdCtx, cmdBus, ecommercecmd.PlaceOrder{
+	if err := command.Execute(oCmdCtx, cmdBus, salescmd.PlaceOrder{
 		OrderID:    orderID,
 		CustomerID: custID,
-		Items: []types.LineItem{
+		Items: []salestypes.LineItem{
 			{ProductID: prodID, Name: "MacBook Pro", Price: 249900, Quantity: 2},
 		},
 	}); err != nil {
@@ -150,7 +155,7 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 	}
 
 	// -------------------------------------------------------------
-	// Scenario D: Payment Timeout triggers Saga Compensation
+	// Scenario D: Payment Timeout triggers Workflow / Saga Compensation
 	// -------------------------------------------------------------
 	// Append PaymentTimeout event on a timer stream correlated with the order URN
 	timerStream := flux.Stream{Identifier: flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:timer:timeout-" + orderID)}
@@ -159,7 +164,7 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 			Identifier:            flux.NewIdentifierFromString("urn:flux:ecommerce:shop:default:event:timeout-" + orderID),
 			Stream:                timerStream,
 			Revision:              1,
-			Event:                 payment.PaymentTimeout{OrderID: orderID},
+			Event:                 paymentwf.PaymentTimeout{OrderID: orderID},
 			Actor:                 actor,
 			CorrelationIdentifier: orderURN,
 			CreatedAt:             time.Now(),
@@ -177,7 +182,7 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 	orderStream := flux.Stream{Identifier: orderURN}
 	for time.Now().Before(deadline) {
 		ord, err := orderRepo.Load(fluxCtx, orderStream)
-		if err == nil && ord.Status() == order.OrderStatusCancelled {
+		if err == nil && ord.Status() == salestypes.OrderStatusCancelled {
 			orderCancelled = true
 		}
 
