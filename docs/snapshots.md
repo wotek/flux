@@ -9,7 +9,7 @@ To prevent polluting the Domain Aggregate API with infrastructure-level serializ
 All snapshot logic is cleanly isolated in a new `snapshot` subpackage.
 
 ```go
-package snapshot
+package flux
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 // Snapshotable defines how an aggregate safely exposes and restores its internal state.
 type Snapshotable[S any] interface {
 	Snapshot() S
-	With(state S, revision uint64)
+	With(state S)
 }
 
 // Snapshot represents a captured point-in-time state of an Aggregate.
@@ -29,13 +29,13 @@ type Snapshot[S any] struct {
 }
 
 // Store defines how snapshots are persisted and retrieved.
-type Store[S any] interface {
+type SnapshotStore[S any] interface {
 	Load(ctx context.Context, stream flux.Stream) (Snapshot[S], error)
 	Save(ctx context.Context, stream flux.Stream, snap Snapshot[S]) error
 }
 
 // Schedule determines if an aggregate should be snapshotted based on its current state.
-type Schedule[A any] interface {
+type SnapshotSchedule[A any] interface {
 	Test(aggregate A) bool
 }
 ```
@@ -63,20 +63,20 @@ type Aggregate[A any, E flux.Event, S any] interface {
 	Snapshotable[S]
 }
 
-type Repository[A Aggregate[A, E, S], E flux.Event, S any] struct {
+type SnapshotRepository[A Aggregate[A, E, S], E flux.Event, S any] struct {
 	base       *flux.AggregateRepository[A, E]
-	store      Store[S]
-	schedule   Schedule[A]
+	store      SnapshotStore[S]
+	schedule   SnapshotSchedule[A]
 	eventStore flux.EventStore
 }
 
-func NewRepository[A Aggregate[A, E, S], E flux.Event, S any](
+func NewSnapshotRepository[A Aggregate[A, E, S], E flux.Event, S any](
 	base *flux.AggregateRepository[A, E],
-	store Store[S],
-	schedule Schedule[A],
+	store SnapshotStore[S],
+	schedule SnapshotSchedule[A],
 	eventStore flux.EventStore,
-) *Repository[A, E, S] {
-	return &Repository[A, E, S]{
+) *SnapshotRepository[A, E, S] {
+	return &SnapshotRepository[A, E, S]{
 		base:       base,
 		store:      store,
 		schedule:   schedule,
@@ -90,7 +90,7 @@ func NewRepository[A Aggregate[A, E, S], E flux.Event, S any](
 When `.Save()` is called, we delegate to the base repository, test the schedule, extract the Memento state, and persist the snapshot if true.
 
 ```go
-func (r *Repository[A, E, S]) Save(ctx flux.Context, aggregate A) error {
+func (r *SnapshotRepository[A, E, S]) Save(ctx flux.Context, aggregate A) error {
 	if err := r.base.Save(ctx, aggregate); err != nil {
 		return err
 	}
@@ -114,14 +114,19 @@ func (r *Repository[A, E, S]) Save(ctx flux.Context, aggregate A) error {
 We rehydrate fully in a single `Load()` call to prevent returning a "stale" aggregate.
 
 ```go
-func (r *Repository[A, E, S]) Load(ctx flux.Context, stream flux.Stream) (A, error) {
+func (r *SnapshotRepository[A, E, S]) Load(ctx flux.Context, stream flux.Stream) (A, error) {
 	var agg A
 	var startRevision uint64 = 0
 
 	if snap, err := r.store.Load(ctx, stream); err == nil {
 		// Rehydrate from snapshot
 		agg = agg.New(stream) // Create empty shell
-		agg.With(snap.State, snap.Revision)
+		agg.With(snap.State)
+		
+		// The framework type-asserts to its OWN unexported interface!
+		if s, ok := any(agg).(interface{ setRevision(uint64) }); ok {
+			s.setRevision(snap.Revision)
+		}
 		startRevision = snap.Revision
 	} else {
 		// Fallback to purely event-sourced
@@ -166,9 +171,9 @@ func (p *ProductAggregate) Snapshot() types.Product {
 	return p.data
 }
 
-func (p *ProductAggregate) With(data types.Product, rev uint64) {
+func (p *ProductAggregate) With(data types.Product) {
 	p.data = data
-	p.AggregateRoot.SetRevision(rev)
+	// Revision is handled safely by the framework!
 }
 ```
 *Benefit: True Behavior/State separation. The pure `types.Product` can be reused in projections or passed safely to other domain services.*
@@ -193,9 +198,9 @@ func (c *CounterAggregate) Snapshot() counterSnapshot {
 	return counterSnapshot{Clicks: c.clicks}
 }
 
-func (c *CounterAggregate) With(data counterSnapshot, rev uint64) {
+func (c *CounterAggregate) With(data counterSnapshot) {
 	c.clicks = data.Clicks
-	c.AggregateRoot.SetRevision(rev)
+	// Revision is handled safely by the framework!
 }
 ```
 *Benefit: No unnecessary abstraction overhead. The `SnapshotRepository` serializes the `counterSnapshot` perfectly without the `CounterAggregate` needing to export its internal fields.*
@@ -206,23 +211,23 @@ func (c *CounterAggregate) With(data counterSnapshot, rev uint64) {
 - Modify `EventStore.Read(..., fromRevision uint64)`
 
 ### `flux/aggregate.go`
-- Add `func (a *AggregateRoot[E]) SetRevision(rev uint64)`
+- Add unexported `func (a *AggregateRoot[E]) setRevision(rev uint64)`
 
-### `flux/snapshot/snapshot.go`
+### `flux/snapshot.go`
 - `type Snapshotable[S any] interface`
 - `type Snapshot[S any] struct`
-- `type Store[S any] interface`
+- `type SnapshotStore[S any] interface`
 
-### `flux/snapshot/schedule.go`
-- `type Schedule[A any] interface`
+### `flux/snapshot_schedule.go`
+- `type SnapshotSchedule[A any] interface`
 - `func Every[A flux.Aggregate[A, E], E flux.Event](n uint64) Schedule[A]`
 
-### `flux/snapshot/repository.go`
+### `flux/snapshot_repository.go`
 - `type Aggregate[A any, E flux.Event, S any] interface`
-- `type Repository[A Aggregate[A, E, S], E flux.Event, S any] struct`
-- `func NewRepository(...) *Repository`
-- `func (r *Repository) Load(...)`
-- `func (r *Repository) Save(...)`
+- `type SnapshotRepository[A Aggregate[A, E, S], E flux.Event, S any] struct`
+- `func NewSnapshotRepository(...) *SnapshotRepository`
+- `func (r *SnapshotRepository) Load(...)`
+- `func (r *SnapshotRepository) Save(...)`
 
 ## 8. Implementation Instructions (For Agents)
 

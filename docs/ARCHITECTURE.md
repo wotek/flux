@@ -17,6 +17,7 @@ The framework follows a strict **layered directed acyclic graph (DAG)** architec
                                     │  - Context    │
                                     │  - Aggregate  │
                                     │  - Repository │
+                                    │  - Snapshot   │
                                     └───────┬───────┘
           ┌─────────────────────┬───────────┼───────────┬─────────────────────┐
           │                     │           │           │                     │
@@ -33,7 +34,8 @@ The framework follows a strict **layered directed acyclic graph (DAG)** architec
           │             ▼                               ▼                               ▼
           │     ┌───────────────┐               ┌───────────────┐               ┌───────────────┐
           │     │   snapshot    │               │  projection   │               │     saga      │
-          │     │  - Repository │               │  - Projector  │               │  - Orchestr.  │
+          │     │  - Repository │
+                                    │  - Snapshot   │               │  - Projector  │               │  - Orchestr.  │
           │     │  - Store      │               │  - Context    │               │  - Context    │
           │     │  - Schedule   │               │  - Store      │               │  - Store      │
           │     └───────────────┘               └───────┬───────┘               └───────┬───────┘
@@ -130,14 +132,19 @@ The core module providing foundational primitives, aggregate lifecycle managemen
 * `Envelope`: Wraps a domain event payload with revision, global position, actor, causation, correlation, and timestamp metadata.
 * `Changeset[E Event]`: Tracks uncommitted events generated during aggregate operations.
 * `AggregateRoot[E Event]`: Embeddable base for building aggregates with automatic revision tracking, event replaying, and changeset management.
-* `AggregateRepository[A Aggregate[A, E], E Event]`: Unit-of-work repository for loading aggregates from an `EventStore` and saving uncommitted events with optimistic concurrency verification.
+\* `AggregateRepository\[A Aggregate\[A, E\], E Event\]`: Unit-of-work repository for loading aggregates from an `EventStore` and saving uncommitted events with optimistic concurrency verification.
+* `Snapshot[S any]`: Represents a captured point-in-time state of an Aggregate.
+* `SnapshotRepository[A Aggregate[A, E], E Event, S any]`: Decorator wrapping `flux.AggregateRepository` that automatically handles snapshot loading and saving.
 
 #### Interfaces
 * `Event`: Marker interface implemented by domain events; requires `Name() string`.
 * `Aggregate[A, E]`: Go 1.26 self-referencing generic constraint implemented by aggregate roots. Requires `Identifier() Identifier`, `Revision() uint64`, `Changeset() Changeset[E]`, `FromEvents(iter.Seq2[Envelope, error]) error`, and `New(Stream) A`.
 * `Changeset[E Event]`: Interface for recording and retrieving uncommitted domain events.
 * `EventStore`: Persistence contract defining `Append(ctx, stream, expectedRevision, events)`, `Read(ctx, stream)`, and `Stream(ctx, fromPosition)`.
-* `Context`: Base execution context providing `Actor()`, `CorrelationIdentifier()`, and `CausationIdentifier()`.
+\* `Context`: Base execution context providing `Actor\(\)`, `CorrelationIdentifier\(\)`, and `CausationIdentifier\(\)`.
+* `Snapshotable[S any]`: Implemented by aggregates. Defines `Snapshot() S` and `With(state S)`.
+* `SnapshotStore[S any]`: Persistence contract defining `Load(ctx, stream) (Snapshot[S], error)` and `Save(ctx, stream, snap) error`.
+* `SnapshotSchedule[A any]`: Determines when to snapshot. Defines `Test(aggregate A) bool`.
 
 #### Functions
 * `NewIdentifier(org, env, svc, account, resType, resID, version string) Identifier`: Constructs an Identifier.
@@ -145,7 +152,9 @@ The core module providing foundational primitives, aggregate lifecycle managemen
 * `NewIdentifierFromString(s string) Identifier`: Parses an Identifier or panics (ideal for test setups).
 * `NewChangeset[E Event]() Changeset[E]`: Constructs an in-memory changeset.
 * `NewAggregateRoot[E Event](stream Stream, changeset Changeset[E], apply func(E) error) AggregateRoot[E]`: Constructs an embeddable `AggregateRoot`.
-* `NewAggregateRepository[A, E](eventStore EventStore) *AggregateRepository[A, E]`: Creates an `AggregateRepository`.
+\* `NewAggregateRepository\[A, E\]\(eventStore EventStore\) \*AggregateRepository\[A, E\]`: Creates an `AggregateRepository`.
+* `NewSnapshotRepository[A Aggregate[A, E], E Event, S any](base *AggregateRepository[A, E], store SnapshotStore[S], schedule SnapshotSchedule[A], eventStore EventStore) *SnapshotRepository[A, E, S]`: Constructs the snapshot repository decorator.
+* `Every[A Aggregate[A, E], E Event](n uint64) SnapshotSchedule[A]`: Creates a schedule triggering every `n` events.
 * `NewContext(parent context.Context, actor Actor, correlationId Identifier, causationId Identifier) Context`: Constructs a base `flux.Context`.
 
 ---
@@ -244,25 +253,6 @@ Orchestration engine coordinating long-running business processes and durable Ou
 * `EnqueueCommand[C any](ctx Context, cmd C)`: Safely enqueues a strongly-typed command into the saga outbox.
 * `RegisterHandler[S Saga[S], E flux.Event](o *Orchestrator, store Store[S], handler func(ctx Context, saga S, event E) error)`: Links an event to a saga step.
 * `(o *Orchestrator) Start(ctx context.Context) error`: Runs the orchestrator polling loop.
-
----
-
-### Package: `github.com/wotek/flux/snapshot`
-Provides automatic aggregate snapshotting to improve load performance while enforcing strict Behavior/State separation using the Memento pattern.
-
-#### Structs & Types
-* `Snapshot[S any]`: Represents a captured point-in-time state of an Aggregate.
-* `Repository[A Aggregate[A, E, S], E flux.Event, S any]`: Decorator wrapping `flux.AggregateRepository` that automatically handles snapshot loading and saving.
-
-#### Interfaces
-* `Snapshotable[S any]`: Implemented by aggregates. Defines `Snapshot() S` and `With(state S, revision uint64)`.
-* `Store[S any]`: Persistence contract defining `Load(ctx, stream) (Snapshot[S], error)` and `Save(ctx, stream, snap) error`.
-* `Schedule[A any]`: Determines when to snapshot. Defines `Test(aggregate A) bool`.
-* `Aggregate[A any, E flux.Event, S any]`: Go generic constraint enforcing the type implements both `flux.Aggregate` and `Snapshotable[S]`.
-
-#### Functions
-* `NewRepository[A Aggregate[A, E, S], E flux.Event, S any](base, store, schedule, eventStore) *Repository[A, E, S]`: Constructs the snapshot repository decorator.
-* `Every[A flux.Aggregate[A, E], E flux.Event](n uint64) Schedule[A]`: Creates a schedule triggering every `n` events.
 
 ---
 
