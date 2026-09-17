@@ -1,0 +1,123 @@
+# Go Package Rules & Conventions
+
+You are an expert Go engineer writing clean, idiomatic, and high-performance Go code. Adhere strictly to the following conventions when generating, refactoring, or reviewing code in this repository.
+
+---
+
+## 1. Toolchain & Standard Library Standards
+
+* **Go Version Target:** Modern Go.
+* **Built-in Generics & Standard Helpers:**
+  * Use standard library generic packages (`slices`, `maps`, `cmp`) instead of writing custom iteration helpers or pulling third-party utility libraries.
+  * Use `clear()` for resetting maps/slices where appropriate.
+  * Use standard `min()` and `max()` built-ins.
+* **Structured Logging:**
+  * Use standard `log/slog` for structured logging. Never use `log.Println` or legacy formatters in library code.
+  * Always pass `context.Context` to logging calls (`slog.InfoContext`, `slog.ErrorContext`).
+* **Concurrency:**
+  * Use `golang.org/x/sync/errgroup` for coordinating concurrent operations with error propagation and context cancellation.
+
+---
+
+## 2. API Design & Idiomatic Go
+
+* **Accept Interfaces, Return Structs:** Functions and constructors should accept narrow interfaces and return concrete struct types.
+* **Interface Segregation:**
+  * Keep interfaces small (1–2 methods; e.g., `io.Reader`, `fmt.Stringer`).
+  * Define interfaces at the consumer site where they are used, not at the producer site.
+* **Context Propagation:**
+  * Every I/O, network, database, or long-running function MUST accept `ctx context.Context` as its **first parameter**.
+  * Never store a `context.Context` inside a `struct`.
+* **Configuration:**
+  * For constructors with optional parameters, use the **Functional Options pattern** (`type Option func(*Config)`).
+  * Design structs to have useful **zero values** whenever feasible.
+* **Clean Exports:**
+  * Keep the public API surface minimal. Keep internal helpers and types unexported (`lowercase`).
+  * Avoid global state, singletons, and package-level `init()` functions that mutate state.
+
+---
+
+## 3. Error Handling
+
+* **Wrapping & Context:**
+  * Wrap errors using `fmt.Errorf("action description: %w", err)` to preserve the causal chain.
+  * Keep error strings lowercase without trailing punctuation (e.g., `fmt.Errorf("decoding payload: %w", err)`).
+* **Error Inspection & Generic Matching:**
+  * Use `errors.Is()` to check for sentinel errors.
+  * Prefer generic error extraction via `errors.AsType[T](err)` (or `errors.As()` with pointer targets) over direct type assertions (`err.(*CustomError)`).
+  * Never use direct equality checks (`err == ErrNotFound`) when unwrapping wrapped errors.
+  * Use `errors.Join()` when aggregating multiple concurrent or sequential non-fatal errors.
+* **Panic Policy:**
+  * Never panic in library/package code. Return descriptive errors up the call stack.
+
+---
+
+## 4. Testing Conventions
+
+* **Table-Driven Tests:** Standardize unit tests on table-driven layouts with clear test cases.
+* **Parallel Execution:**
+  * Add `t.Parallel()` to top-level tests and loop bodies.
+* **Standard Test Helpers:**
+  * Use `t.Helper()` inside custom test assertions and setups.
+  * Use `t.Cleanup()` for teardown instead of `defer` inside subtests.
+  * Use `t.TempDir()` for filesystem operations.
+* **Testing Philosophy:**
+  * Prefer standard library `testing` package. If structural diffs are needed, rely on `github.com/google/go-cmp/cmp`.
+  * Put external package tests in `package foo_test` to test the public API from a consumer's perspective.
+
+---
+
+## 5. Performance & Memory Management
+
+* **Preallocation:** Always preallocate slices and maps when capacity is known in advance (`make([]T, 0, cap)` or `make(map[K]V, cap)`).
+* **String Building:** Use `strings.Builder` or `bytes.Buffer` for string/byte concatenation in loops.
+* **Pointer vs. Value Semantics:**
+  * Be consistent with receiver types for a given struct (do not mix pointer and value receivers arbitrarily).
+  * Use pointer receivers if the method mutates the struct or if the struct contains synchronization primitives (e.g., `sync.Mutex`).
+
+---
+
+## 6. Code Style & Tooling
+
+* Code must be formatted with standard `gofmt` / `goimports`.
+* Ensure every exported type, function, and constant has a meaningful Go doc comment starting with the identifier's name.
+* Run and satisfy `golangci-lint` default linters (`govet`, `staticcheck`, `errcheck`, `unused`, `gosec`).
+
+---
+
+## 7. Documentation & Go Doc Comments
+
+* **No Docblocks:** Never use `@param`, `@return`, `@throws`, or `/** */` docblock syntax.
+* **Sentence Structure:** Every exported identifier (type, const, var, func, method) must have a doc comment starting with its name as a complete English sentence (e.g., `// Client manages API communication...`).
+* **Go 1.19+ Formatting:**
+  * Use doc links like `[Type]` or `[pkg.Type]` instead of plain-text references.
+  * Use standard `# Headings`, lists (`* `), or indented code blocks for complex documentation.
+  * Document sentinel errors and edge cases in prose, not type lists.
+* **Package Comments:** Each package must have a package-level comment immediately preceding `package <name>` in a designated `doc.go` file (or the primary entry point).
+
+---
+
+## 8. Project Scope & Architectural Patterns
+- Developing a Go framework for event-sourced systems.
+- Core design patterns & concepts:
+  - Event Sourcing (ES) & Command Query Responsibility Segregation (CQRS)
+  - Message Bus & Projections
+  - Sagas / Process Managers
+  - Stream, Event, and Event Envelope
+  - Event Store
+  - Actor (identity of user/system initiating state changes)
+  - Identifier (hierarchical, deterministic format based on the AWS ARN concept)
+  - Terminology: Always use `Identifier` over `ID` (e.g., `StreamIdentifier` over `StreamID`, `Identifier` instead of `ID` in structs).
+
+---
+
+## 9. Workflow & Execution Rules
+1. **Design First, Implement Later:** Do not write concrete implementation logic until the architectural specification and API shape are explicitly approved.
+2. **Bottom-Up, One Concept at a Time:**
+   - Design concepts sequentially, starting from zero-dependency primitives up through higher-level orchestration.
+   - Initial starting point: `Stream`.
+   - For each concept: define structs, interfaces, method signatures, invariants, and idiomatic Go type definitions.
+3. **Documentation Maintenance:**
+   - Maintain `docs/API.md` alongside every design step.
+   - Document every newly defined struct, interface, method, and domain concept with concise, clear Go docstrings and usage context.
+4. **Clarification Protocol:** Ask targeted questions whenever requirements, constraints, or boundary edge cases are ambiguous before proposing a design.
