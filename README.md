@@ -164,6 +164,7 @@ if err := command.Execute(cmdCtx, cmdBus, CreateAccountCommand{Owner: "Alice"});
 
 * **[Architecture & Dependency Graph](docs/ARCHITECTURE.md):** Detailed module hierarchy, cycle analysis, and complete exported API reference.
 * **[API Design Specification](docs/API.md):** Complete specification of aggregates, repositories, contexts, projections, and sagas.
+* **[Todo Reference Application](example/todo/README.md):** Complete CQRS and Event Sourced reference implementation with domain events, co-located handlers, and read-model projections.
 * **[Identifier](docs/API.md#identifier):** Uniform Resource Name (`URN`) addressing any system component.
 * **[Envelope](docs/API.md#event-and-envelope):** Wraps domain events with revision, global position, actor, timestamps, and causation data.
 * **[AggregateRepository](docs/API.md#aggregate-repository):** Handles snapshotting, rehydration, and atomic event appending.
