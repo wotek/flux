@@ -1,22 +1,24 @@
-package flux
+package projection
 
 import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/wotek/flux"
 )
 
 // Projector is the background worker that powers a Projection.
-// It tails the EventStore starting from the ProjectionStore.GetPosition().
+// It tails the EventStore starting from the Store.GetPosition().
 type Projector struct {
-	id         Identifier
-	eventStore EventStore
-	projStore  ProjectionStore
-	handlers   map[string]any // maps Event.Name() to func(ProjectionContext, E) error
+	id         flux.Identifier
+	eventStore flux.EventStore
+	projStore  Store
+	handlers   map[string]any // maps Event.Name() to func(Context, E) error
 }
 
-// NewProjector creates a new Projector instance.
-func NewProjector(id Identifier, eventStore EventStore, projStore ProjectionStore) *Projector {
+// New creates a new Projector instance.
+func New(id flux.Identifier, eventStore flux.EventStore, projStore Store) *Projector {
 	return &Projector{
 		id:         id,
 		eventStore: eventStore,
@@ -25,19 +27,29 @@ func NewProjector(id Identifier, eventStore EventStore, projStore ProjectionStor
 	}
 }
 
-// RegisterProjectionHandler wires a specific event type to the projection's logic.
-func RegisterProjectionHandler[E Event](p *Projector, handler func(ctx ProjectionContext, event E) error) {
+// NewProjector is an alias for New to maintain explicit naming.
+func NewProjector(id flux.Identifier, eventStore flux.EventStore, projStore Store) *Projector {
+	return New(id, eventStore, projStore)
+}
+
+// RegisterHandler wires a specific event type to the projection's logic.
+func RegisterHandler[E flux.Event](p *Projector, handler func(ctx Context, event E) error) {
 	var event E
 	name := event.Name()
 	if _, exists := p.handlers[name]; exists {
 		panic(fmt.Sprintf("handler already registered for projection event %s", name))
 	}
 
-	wrapper := func(ctx ProjectionContext, rawEvent any) error {
+	wrapper := func(ctx Context, rawEvent any) error {
 		return handler(ctx, rawEvent.(E))
 	}
 
 	p.handlers[name] = wrapper
+}
+
+// RegisterProjectionHandler is an alias for RegisterHandler.
+func RegisterProjectionHandler[E flux.Event](p *Projector, handler func(ctx Context, event E) error) {
+	RegisterHandler(p, handler)
 }
 
 // Start begins tailing the EventStore in the background until the context is canceled.
@@ -52,8 +64,7 @@ func (p *Projector) Start(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			// Continuous tailing would ideally use a long-polling or subscription mechanism.
-			// For this spec, we poll the stream.
+			// Continuous tailing polls the stream.
 			iterator, err := p.eventStore.Stream(ctx, position)
 			if err != nil {
 				return fmt.Errorf("failed to stream events: %w", err)
@@ -85,7 +96,7 @@ func (p *Projector) Start(ctx context.Context) error {
 	}
 }
 
-func (p *Projector) processEnvelope(ctx context.Context, env Envelope) error {
+func (p *Projector) processEnvelope(ctx context.Context, env flux.Envelope) error {
 	h, exists := p.handlers[env.Event.Name()]
 	if !exists {
 		// Ignore events we don't care about
@@ -95,11 +106,11 @@ func (p *Projector) processEnvelope(ctx context.Context, env Envelope) error {
 	}
 
 	return p.projStore.Update(ctx, p.id, env, func(txCtx context.Context) error {
-		projCtx := NewProjectionContext(NewEventContext(txCtx, env))
+		projCtx := NewContext(flux.NewEventContext(txCtx, env))
 
 		// Because we store closures of type untypedProjectionHandler, we can safely
 		// assert and execute directly without reflection.
-		wrapper := h.(func(ProjectionContext, any) error)
+		wrapper := h.(func(Context, any) error)
 		return wrapper(projCtx, env.Event)
 	})
 }

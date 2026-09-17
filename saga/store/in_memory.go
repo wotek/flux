@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/wotek/flux"
+	"github.com/wotek/flux/saga"
 )
 
 // OutboxMessage simulates a durable outbox table record.
@@ -15,7 +16,7 @@ type OutboxMessage struct {
 }
 
 // SagaStore simulates a database table for sagas and an outbox table for commands.
-type SagaStore[S flux.Saga[S]] struct {
+type SagaStore[S saga.Saga[S]] struct {
 	mu      sync.RWMutex
 	state   map[string]S
 	outbox  []OutboxMessage
@@ -25,7 +26,7 @@ type SagaStore[S flux.Saga[S]] struct {
 
 // New creates a memory-backed Saga store.
 // It accepts a CommandBus to simulate the background Outbox Relay.
-func New[S flux.Saga[S]](cmdBus *flux.CommandBus) *SagaStore[S] {
+func New[S saga.Saga[S]](cmdBus *flux.CommandBus) *SagaStore[S] {
 	return &SagaStore[S]{
 		state:  make(map[string]S),
 		outbox: make([]OutboxMessage, 0),
@@ -34,7 +35,7 @@ func New[S flux.Saga[S]](cmdBus *flux.CommandBus) *SagaStore[S] {
 }
 
 // NewSagaStore is an alias for New to maintain backwards compatibility.
-func NewSagaStore[S flux.Saga[S]](cmdBus *flux.CommandBus) *SagaStore[S] {
+func NewSagaStore[S saga.Saga[S]](cmdBus *flux.CommandBus) *SagaStore[S] {
 	return New[S](cmdBus)
 }
 
@@ -51,12 +52,12 @@ func (s *SagaStore[S]) Load(ctx context.Context, id flux.Identifier) (S, error) 
 	return zero.New(), nil
 }
 
-func (s *SagaStore[S]) Save(ctx context.Context, saga S, commands []any) error {
+func (s *SagaStore[S]) Save(ctx context.Context, sagaInstance S, commands []any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Atomically save state and outbox commands
-	s.state[saga.Identifier().String()] = saga
+	s.state[sagaInstance.Identifier().String()] = sagaInstance
 
 	for _, cmd := range commands {
 		s.outbox = append(s.outbox, OutboxMessage{Command: cmd})

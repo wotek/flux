@@ -1,4 +1,4 @@
-package flux_test
+package saga_test
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/wotek/flux"
 	eventstore "github.com/wotek/flux/event/store"
+	"github.com/wotek/flux/saga"
 	sagastore "github.com/wotek/flux/saga/store"
 )
 
@@ -50,15 +51,15 @@ func TestSagaOrchestrator(t *testing.T) {
 	// Start the background relay
 	sagaStore.StartRelay(ctx)
 
-	orchestrator := flux.NewOrchestrator(eventStore)
+	orchestrator := saga.NewOrchestrator(eventStore)
 
 	// Register Saga
-	flux.RegisterSagaHandler(orchestrator, sagaStore, func(ctx flux.SagaContext, saga *OnboardingSaga, e UserRegistered) error {
-		saga.ID = ctx.CorrelationIdentifier()
-		saga.Status = "AWAITING_WELCOME_EMAIL"
+	saga.RegisterHandler(orchestrator, sagaStore, func(ctx saga.Context, s *OnboardingSaga, e UserRegistered) error {
+		s.ID = ctx.CorrelationIdentifier()
+		s.Status = "AWAITING_WELCOME_EMAIL"
 
 		// Safely queue the command
-		flux.EnqueueCommand(ctx, SendWelcomeEmail{Email: e.Email})
+		saga.EnqueueCommand(ctx, SendWelcomeEmail{Email: e.Email})
 		return nil
 	})
 

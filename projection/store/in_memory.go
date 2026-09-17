@@ -5,9 +5,12 @@ import (
 	"sync"
 
 	"github.com/wotek/flux"
+	"github.com/wotek/flux/projection"
 )
 
-// ProjectionStore is an in-memory implementation of flux.ProjectionStore.
+var _ projection.Store = (*ProjectionStore)(nil)
+
+// ProjectionStore is an in-memory implementation of projection.Store.
 type ProjectionStore struct {
 	mu        sync.RWMutex
 	positions map[string]uint64

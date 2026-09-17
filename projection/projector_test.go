@@ -1,4 +1,4 @@
-package flux_test
+package projection_test
 
 import (
 	"context"
@@ -8,8 +8,21 @@ import (
 
 	"github.com/wotek/flux"
 	eventstore "github.com/wotek/flux/event/store"
+	"github.com/wotek/flux/projection"
 	projstore "github.com/wotek/flux/projection/store"
 )
+
+type AccountCreated struct {
+	Owner string
+}
+
+func (e AccountCreated) Name() string { return "AccountCreated" }
+
+type MoneyDeposited struct {
+	Amount int
+}
+
+func (e MoneyDeposited) Name() string { return "MoneyDeposited" }
 
 func TestProjector(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -19,10 +32,10 @@ func TestProjector(t *testing.T) {
 	projectionStore := projstore.New()
 
 	projID := flux.NewIdentifierFromString("urn:proj::::stats:1")
-	projector := flux.NewProjector(projID, eventStore, projectionStore)
+	projector := projection.New(projID, eventStore, projectionStore)
 
 	var processedCount atomic.Int32
-	flux.RegisterProjectionHandler(projector, func(ctx flux.ProjectionContext, e AccountCreated) error {
+	projection.RegisterHandler(projector, func(ctx projection.Context, e AccountCreated) error {
 		processedCount.Add(1)
 		return nil
 	})

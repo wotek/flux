@@ -36,21 +36,6 @@ type EventContext interface {
 	Metadata() map[string]string
 }
 
-// ProjectionContext extends EventContext. It acts as a distinct type boundary
-// guaranteeing that the context is bound to the projection's active database transaction.
-type ProjectionContext interface {
-	EventContext
-}
-
-// SagaContext extends EventContext, giving saga handlers the ability to dispatch commands.
-type SagaContext interface {
-	EventContext
-
-	// dispatch is unexported. It is used internally by the framework's
-	// strongly-typed EnqueueCommand helper to safely queue commands.
-	dispatch(cmd any)
-}
-
 type baseContext struct {
 	context.Context
 	actor       Actor
@@ -132,43 +117,6 @@ func NewEventContext(parent context.Context, env Envelope) EventContext {
 		position: env.Position,
 		metadata: env.Metadata,
 	}
-}
-
-type projectionContext struct {
-	EventContext
-}
-
-// NewProjectionContext creates a new ProjectionContext from an EventContext.
-func NewProjectionContext(parent EventContext) ProjectionContext {
-	return &projectionContext{
-		EventContext: parent,
-	}
-}
-
-type sagaContext struct {
-	EventContext
-	queuedCommands []any
-}
-
-func (s *sagaContext) dispatch(cmd any) {
-	s.queuedCommands = append(s.queuedCommands, cmd)
-}
-
-func (s *sagaContext) QueuedCommands() []any {
-	return s.queuedCommands
-}
-
-// NewSagaContext creates a new SagaContext from an EventContext.
-func NewSagaContext(parent EventContext) SagaContext {
-	return &sagaContext{
-		EventContext:   parent,
-		queuedCommands: make([]any, 0),
-	}
-}
-
-// EnqueueCommand safely queues a strongly-typed command to be dispatched.
-func EnqueueCommand[C any](ctx SagaContext, cmd C) {
-	ctx.dispatch(cmd)
 }
 
 // NewContext creates a new generic base Context.

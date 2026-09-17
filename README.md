@@ -20,8 +20,8 @@ A lightweight, high-performance, and type-safe **Event Sourcing & CQRS** framewo
   * **Command Bus:** Strict single-handler execution with context propagation.
   * **Query Bus:** Strongly typed queries returning typed results.
   * **Event Bus:** Multi-subscriber asynchronous/synchronous event routing.
-  * **Projector:** Projection state lifecycle management with checkpoint tracking.
-  * **Saga & Orchestrator:** Multi-step business transaction coordinators with compensation and causal metadata.
+  * **Projector (`projection`):** Projection state lifecycle management with checkpoint tracking.
+  * **Saga & Orchestrator (`saga`):** Multi-step business transaction coordinators with compensation and causal metadata.
 * **Context & Metadata Propagation:** First-class auditability preserving `Actor`, `CorrelationIdentifier`, and `CausationIdentifier` across all events and commands.
 * **Pluggable Storage:** Built-in in-memory stores (`event/store`, `projection/store`, `saga/store`) with clean interfaces for implementing durable event and projection databases.
 
