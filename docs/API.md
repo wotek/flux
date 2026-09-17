@@ -168,18 +168,18 @@ type EventStore interface {
 	// The `expectedRevision` is used for optimistic concurrency control (e.g.,
 	// rejecting the append if the stream's current revision does not match expectedRevision).
 	// Constants ExpectedRevisionAny and ExpectedRevisionNoStream can be used for special behavior.
-	Append(ctx context.Context, stream Stream, expectedRevision uint64, envelopes []Envelope) error
+	Append(ctx Context, stream Stream, expectedRevision uint64, envelopes []Envelope) error
 
 	// Read retrieves a sequence of envelopes from a specific stream.
 	// `fromRevision` dictates the starting sequence number (inclusive).
 	// `limit` caps the number of events returned (0 can be used to mean no limit).
 	// It returns a StreamIterator for efficient traversal.
-	Read(ctx context.Context, stream Stream, fromRevision uint64, limit uint64) (StreamIterator, error)
+	Read(ctx Context, stream Stream, fromRevision uint64, limit uint64) (StreamIterator, error)
 
 	// Stream iterates over the global event stream across all aggregates.
 	// It starts from a specific global Position. This is primarily used by Projections and Sagas.
 	// It returns a StreamIterator for efficient, leak-free traversal.
-	Stream(ctx context.Context, from uint64) (StreamIterator, error)
+	Stream(ctx Context, from uint64) (StreamIterator, error)
 }
 ```
 
@@ -300,14 +300,14 @@ func NewAggregateRepository[A Aggregate[E], E Event](store EventStore) *Aggregat
 // It uses the "Pass-by-Pointer" pattern: the consumer instantiates the empty aggregate 
 // and passes it in. The repository uses `aggregate.Identifier()` to fetch the correct stream.
 // If the stream does not exist, it typically returns an error (e.g., ErrNotFound).
-func (r *AggregateRepository[A, E]) Load(ctx context.Context, aggregate A) error
+func (r *AggregateRepository[A, E]) Load(ctx Context, aggregate A) error
 
 // Save persists the uncommitted events from the aggregate's Changeset to the Event Store.
 // It is responsible for generating globally unique Identifiers for each new event occurrence,
-// wrapping the raw domain Event payloads into Envelopes (attaching the provided Actor),
+// wrapping the raw domain Event payloads into Envelopes (pulling Actor and CorrelationIdentifier from the Context),
 // and calling the EventStore.Append method with the aggregate's current revision for concurrency control.
 // After successful persistence, it calls Clear() on the Changeset.
-func (r *AggregateRepository[A, E]) Save(ctx context.Context, aggregate A, actor Actor) error
+func (r *AggregateRepository[A, E]) Save(ctx Context, aggregate A) error
 }
 ```
 
@@ -316,3 +316,129 @@ func (r *AggregateRepository[A, E]) Save(ctx context.Context, aggregate A, actor
 For long-lived aggregates that accumulate thousands of events over time, replaying the entire stream from `version 0` during a `Load` operation can become a performance bottleneck. 
 
 To mitigate this, a future phase of the framework will introduce **Snapshotting**. This will likely involve a `SnapshotStore` and an optional `Snapshotable` interface on the Aggregate that allows the Repository to load state from the most recent snapshot and only replay events that occurred *after* the snapshot's version.
+
+### Message Bus / Dispatcher
+
+The framework utilizes three distinct buses to implement CQRS (Command Query Responsibility Segregation) and Event-Driven architecture:
+1. **Command Bus**: Routes a Command to exactly *one* Command Handler.
+2. **Query Bus**: Routes a Query to exactly *one* Query Handler, returning a strongly-typed result.
+3. **Event Bus**: Routes an Event to *zero or more* Event Handlers (used for projections, side-effects, and sagas).
+
+By leveraging Go Generics and package-level execution functions, we achieve 100% type safety on inputs and outputs without forcing Commands or Queries to implement marker interfaces.
+
+### Contexts
+
+To bridge the gap between keeping domain payloads lean and providing explicit, type-safe metadata (avoiding "magic" context keys), the framework defines custom contexts. 
+
+Because they embed `context.Context`, they can be passed directly into standard library functions, database queries, and the Event Store.
+
+```go
+// Context is the base typed context for the framework, providing guaranteed
+// access to metadata for any operation.
+type Context interface {
+	context.Context
+	Actor() Actor
+	CorrelationIdentifier() Identifier
+	CausationIdentifier() Identifier
+}
+
+// CommandContext extends the base Context for command execution.
+type CommandContext interface {
+	Context
+	CommandIdentifier() Identifier
+}
+
+// QueryContext extends the base Context for read-only query operations.
+type QueryContext interface {
+	Context
+	QueryIdentifier() Identifier
+}
+
+// EventContext provides strongly-typed access to the Envelope metadata 
+// while keeping the event payload clean.
+type EventContext interface {
+	Context
+	EventIdentifier() Identifier
+	Stream() Stream
+	Revision() uint64
+	Position() uint64
+	Metadata() map[string]string
+}
+```
+
+### Handlers
+
+Handlers define the interface for processing Commands, Queries, and Events. They receive their respective strongly-typed contexts.
+
+```go
+// CommandHandler executes business logic for a specific command.
+type CommandHandler[C any] interface {
+	Handle(ctx CommandContext, cmd C) error
+}
+
+// QueryHandler executes read-only logic and returns a strongly-typed result.
+type QueryHandler[Q any, R any] interface {
+	Handle(ctx QueryContext, query Q) (R, error)
+}
+
+// EventHandler reacts to domain events that were successfully persisted to the Event Store.
+type EventHandler[E Event] interface {
+	Handle(ctx EventContext, event E) error
+}
+```
+
+### Command Bus
+
+```go
+// CommandBus manages command routing.
+type CommandBus struct {
+	// internal fields
+}
+
+// NewCommandBus creates a new CommandBus.
+func NewCommandBus() *CommandBus
+
+// RegisterCommandHandler wires a command to its handler. 
+// Panics if a handler is already registered for type C.
+func RegisterCommandHandler[C any](bus *CommandBus, handler CommandHandler[C])
+
+// ExecuteCommand routes the command to its registered handler.
+func ExecuteCommand[C any](ctx context.Context, bus *CommandBus, cmd C) error
+```
+
+### Query Bus
+
+```go
+// QueryBus manages query routing.
+type QueryBus struct {
+	// internal fields
+}
+
+// NewQueryBus creates a new QueryBus.
+func NewQueryBus() *QueryBus
+
+// RegisterQueryHandler wires a query to its handler and expected return type.
+// Panics if a handler is already registered for type Q.
+func RegisterQueryHandler[Q any, R any](bus *QueryBus, handler QueryHandler[Q, R])
+
+// ExecuteQuery routes the query to its registered handler, returning the strongly-typed result R.
+func ExecuteQuery[Q any, R any](ctx context.Context, bus *QueryBus, query Q) (R, error)
+```
+
+### Event Bus
+
+```go
+// EventBus manages routing domain events to multiple subscribers.
+type EventBus struct {
+	// internal fields
+}
+
+// NewEventBus creates a new EventBus.
+func NewEventBus() *EventBus
+
+// RegisterEventHandler adds a subscriber to a specific event type.
+func RegisterEventHandler[E Event](bus *EventBus, handler EventHandler[E])
+
+// PublishEvent distributes the event to all registered handlers concurrently.
+func PublishEvent[E Event](ctx context.Context, bus *EventBus, event E) error
+```
