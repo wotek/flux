@@ -16,6 +16,7 @@ import (
 	"github.com/wotek/flux/example/todo/commands"
 	"github.com/wotek/flux/example/todo/events"
 	"github.com/wotek/flux/example/todo/projections"
+	"github.com/wotek/flux/example/todo/queries"
 	projectionstore "github.com/wotek/flux/projection/store"
 	"github.com/wotek/flux/query"
 )
@@ -46,9 +47,9 @@ func run(ctx context.Context) error {
 	repo := flux.NewAggregateRepository[*todo.TodoListAggregate, events.TodoEvent](eventStore)
 	statsStore := projections.NewMemoryCounterStore()
 
-	// 3. Register Command and Query Handlers
-	todo.RegisterCommandHandlers(cmdBus, repo)
-	projections.RegisterQueryHandlers(queryBus, statsStore)
+	// 3. Register Command and Query Handlers from their respective packages
+	commands.RegisterHandlers(cmdBus, repo)
+	queries.RegisterHandlers(queryBus, statsStore)
 
 	// 4. Configure Read Model Projector
 	projIdentifier := flux.NewIdentifierFromString("urn:todo:prod:projections:1:counter:main")
@@ -130,7 +131,7 @@ func runClient(ctx context.Context, bus *command.Bus, queryBus *query.Bus) error
 	var err error
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		counter, err = query.Execute[projections.GetCounter, projections.Counter](queryCtx, queryBus, projections.GetCounter{})
+		counter, err = query.Execute[queries.GetCounter, projections.Counter](queryCtx, queryBus, queries.GetCounter{})
 		if err == nil && counter.Active == 3 && counter.Archived == 2 && counter.Removed == 5 {
 			break
 		}

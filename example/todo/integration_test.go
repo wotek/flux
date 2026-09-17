@@ -13,6 +13,7 @@ import (
 	"github.com/wotek/flux/example/todo/commands"
 	"github.com/wotek/flux/example/todo/events"
 	"github.com/wotek/flux/example/todo/projections"
+	"github.com/wotek/flux/example/todo/queries"
 	projectionstore "github.com/wotek/flux/projection/store"
 	"github.com/wotek/flux/query"
 )
@@ -31,8 +32,8 @@ func TestTodoApplication_EndToEnd(t *testing.T) {
 	repo := flux.NewAggregateRepository[*todo.TodoListAggregate, events.TodoEvent](eventStore)
 	statsStore := projections.NewMemoryCounterStore()
 
-	todo.RegisterCommandHandlers(cmdBus, repo)
-	projections.RegisterQueryHandlers(queryBus, statsStore)
+	commands.RegisterHandlers(cmdBus, repo)
+	queries.RegisterHandlers(queryBus, statsStore)
 
 	projID := flux.NewIdentifierFromString("urn:todo:prod:projections:1:counter:integration")
 	projector := projections.NewCounterProjector(projID, eventStore, projStore, statsStore)
@@ -103,7 +104,7 @@ func TestTodoApplication_EndToEnd(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	var counter projections.Counter
 	for time.Now().Before(deadline) {
-		counter, err = query.Execute[projections.GetCounter, projections.Counter](queryCtx, queryBus, projections.GetCounter{})
+		counter, err = query.Execute[queries.GetCounter, projections.Counter](queryCtx, queryBus, queries.GetCounter{})
 		if err == nil && counter.Active == 2 && counter.Archived == 2 && counter.Removed == 1 {
 			break
 		}
