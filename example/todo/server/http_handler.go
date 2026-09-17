@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/command"
 	"github.com/wotek/flux/example/todo/commands"
+	"github.com/wotek/flux/example/todo/events"
 	"github.com/wotek/flux/example/todo/projections/counter"
 	"github.com/wotek/flux/example/todo/projections/lists"
 	"github.com/wotek/flux/example/todo/queries"
@@ -18,10 +21,11 @@ import (
 
 // HTTPHandler routes HTTP gateway endpoints to CQRS command and query buses.
 type HTTPHandler struct {
-	cmdBus   *command.Bus
-	queryBus *query.Bus
-	logger   *slog.Logger
-	mux      *http.ServeMux
+	cmdBus     *command.Bus
+	queryBus   *query.Bus
+	eventStore flux.EventStore
+	logger     *slog.Logger
+	mux        *http.ServeMux
 }
 
 type createListRequest struct {
@@ -45,16 +49,17 @@ type doneTasksRequest struct {
 }
 
 // NewHTTPHandler creates and configures a new [HTTPHandler].
-func NewHTTPHandler(cmdBus *command.Bus, queryBus *query.Bus, logger *slog.Logger) *HTTPHandler {
+func NewHTTPHandler(cmdBus *command.Bus, queryBus *query.Bus, eventStore flux.EventStore, logger *slog.Logger) *HTTPHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	h := &HTTPHandler{
-		cmdBus:   cmdBus,
-		queryBus: queryBus,
-		logger:   logger,
-		mux:      http.NewServeMux(),
+		cmdBus:     cmdBus,
+		queryBus:   queryBus,
+		eventStore: eventStore,
+		logger:     logger,
+		mux:        http.NewServeMux(),
 	}
 
 	h.mux.HandleFunc("POST /lists", h.handleCreateList)
@@ -64,6 +69,7 @@ func NewHTTPHandler(cmdBus *command.Bus, queryBus *query.Bus, logger *slog.Logge
 	h.mux.HandleFunc("POST /tasks/done", h.handleDoneTasks)
 	h.mux.HandleFunc("GET /tasks", h.handleGetTasks)
 	h.mux.HandleFunc("GET /counter", h.handleGetCounter)
+	h.mux.HandleFunc("GET /events", h.handleEvents)
 
 	return h
 }
@@ -315,6 +321,92 @@ func (h *HTTPHandler) handleGetCounter(w http.ResponseWriter, r *http.Request) {
 		"removed", result.Removed,
 	)
 	respondJSON(w, http.StatusOK, result)
+}
+
+func (h *HTTPHandler) handleEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		respondJSON(w, http.StatusInternalServerError, map[string]string{"error": "streaming unsupported"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	var currentPos uint64
+	if posStr := r.URL.Query().Get("position"); posStr != "" {
+		if p, err := strconv.ParseUint(posStr, 10, 64); err == nil {
+			currentPos = p
+		}
+	} else if lastID := r.Header.Get("Last-Event-ID"); lastID != "" {
+		if p, err := strconv.ParseUint(lastID, 10, 64); err == nil {
+			currentPos = p
+		}
+	} else if h.eventStore != nil {
+		// Default to current latest position so connected client receives new events
+		iter, _ := h.eventStore.Stream(r.Context(), 0)
+		if iter != nil {
+			for env, _ := range iter {
+				if env.Position > currentPos {
+					currentPos = env.Position
+				}
+			}
+		}
+	}
+
+	h.logger.DebugContext(r.Context(), "server: sse client connected", "remote_addr", r.RemoteAddr, "start_position", currentPos)
+	defer h.logger.DebugContext(r.Context(), "server: sse client disconnected", "remote_addr", r.RemoteAddr)
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			if h.eventStore == nil {
+				continue
+			}
+			iter, err := h.eventStore.Stream(r.Context(), currentPos)
+			if err != nil {
+				return
+			}
+			for env, err := range iter {
+				if err != nil {
+					return
+				}
+				currentPos = env.Position
+
+				payload := sseEventPayload{
+					Type:           env.Event.Name(),
+					ListIdentifier: env.Stream.Identifier.String(),
+					Position:       env.Position,
+				}
+
+				switch e := env.Event.(type) {
+				case events.TaskAdded:
+					payload.Description = fmt.Sprintf("Task added: %q", e.Task)
+				case events.TaskRemoved:
+					payload.Description = fmt.Sprintf("Task removed: %q", e.Task)
+				case events.TasksDone:
+					payload.Description = fmt.Sprintf("Tasks completed: %s", strings.Join(e.Tasks, ", "))
+				case events.ListCreated:
+					payload.Description = fmt.Sprintf("List created: %q", e.Title)
+				default:
+					payload.Description = env.Event.Name()
+				}
+
+				data, _ := json.Marshal(payload)
+				_, _ = fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", env.Position, env.Event.Name(), string(data))
+				flusher.Flush()
+			}
+		}
+	}
 }
 
 func respondJSON(w http.ResponseWriter, status int, data any) {

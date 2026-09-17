@@ -3,7 +3,9 @@ package client_test
 import (
 	"context"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/example/todo/client"
@@ -85,5 +87,53 @@ func TestClientImplementations(t *testing.T) {
 				t.Fatalf("expected at least 1 list, got %d", len(allLists))
 			}
 		})
+	}
+}
+
+func TestHTTPClient_SubscribeEvents(t *testing.T) {
+	t.Parallel()
+
+	srv := server.New()
+	ts := httptest.NewServer(srv.HTTPHandler())
+	defer ts.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = srv.Start(ctx)
+	}()
+
+	client1 := client.NewHTTPClient(ts.URL)
+	client2 := client.NewHTTPClient(ts.URL)
+
+	eventsChan, err := client1.SubscribeEvents(ctx)
+	if err != nil {
+		t.Fatalf("subscribe events failed: %v", err)
+	}
+
+	// Client 2 creates a list and adds a task
+	listID := flux.NewIdentifierFromString("urn:todo:prod:lists:1:list:sse-sync")
+	if err := client2.CreateList(ctx, listID, "Team Sync"); err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	if err := client2.AddTask(ctx, listID, "Sync Note"); err != nil {
+		t.Fatalf("add task: %v", err)
+	}
+
+	// Client 1 should receive at least one notification
+	select {
+	case notif, ok := <-eventsChan:
+		if !ok {
+			t.Fatal("events channel closed unexpectedly")
+		}
+		if notif.Type == "" {
+			t.Fatal("expected non-empty notification type")
+		}
+		if !strings.Contains(notif.Description, "Sync") {
+			t.Errorf("expected notification description to contain 'Sync', got: %s", notif.Description)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for SSE event notification")
 	}
 }

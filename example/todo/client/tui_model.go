@@ -49,9 +49,14 @@ type actionCompletedMsg struct {
 	err     error
 }
 
+type eventNotificationMsg struct {
+	notification EventNotification
+}
+
 type tuiModel struct {
 	client           Client
 	ctx              context.Context
+	eventsChan       <-chan EventNotification
 	view             screenView
 	listsModel       list.Model
 	tasksModel       list.Model
@@ -99,9 +104,15 @@ func newTUIModel(ctx context.Context, c Client, initialListID flux.Identifier) *
 		return []key.Binding{tasksKeys.add, tasksKeys.complete, tasksKeys.delete, tasksKeys.back, tasksKeys.refresh}
 	}
 
+	var eventsChan <-chan EventNotification
+	if c != nil {
+		eventsChan, _ = c.SubscribeEvents(ctx)
+	}
+
 	return &tuiModel{
 		client:           c,
 		ctx:              ctx,
+		eventsChan:       eventsChan,
 		view:             viewLists,
 		listsModel:       listsList,
 		tasksModel:       tasksList,
@@ -117,12 +128,44 @@ func newTUIModel(ctx context.Context, c Client, initialListID flux.Identifier) *
 	}
 }
 
+func (m *tuiModel) waitForEventCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.eventsChan == nil {
+			return nil
+		}
+		notif, ok := <-m.eventsChan
+		if !ok {
+			return nil
+		}
+		return eventNotificationMsg{notification: notif}
+	}
+}
+
 func (m *tuiModel) Init() tea.Cmd {
-	return m.fetchListsCmd()
+	cmds := []tea.Cmd{m.fetchListsCmd()}
+	if m.eventsChan != nil {
+		cmds = append(cmds, m.waitForEventCmd())
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case eventNotificationMsg:
+		if msg.notification.Type == "" {
+			return m, nil
+		}
+		m.statusMessage = fmt.Sprintf("⚡ Live: %s", msg.notification.Description)
+		m.isError = false
+
+		cmds := []tea.Cmd{m.waitForEventCmd()}
+		if m.view == viewTasks {
+			cmds = append(cmds, m.fetchTasksCmd())
+		} else {
+			cmds = append(cmds, m.fetchListsCmd())
+		}
+		return m, tea.Batch(cmds...)
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height

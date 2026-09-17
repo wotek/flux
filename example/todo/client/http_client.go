@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -152,4 +153,71 @@ func (c *HTTPClient) sendJSON(ctx context.Context, method, path string, requestB
 	}
 
 	return nil
+}
+
+// SubscribeEvents opens an HTTP SSE stream against /events and emits incoming notifications.
+func (c *HTTPClient) SubscribeEvents(ctx context.Context) (<-chan EventNotification, error) {
+	ch := make(chan EventNotification, 32)
+
+	// Stream client without timeout to maintain persistent SSE connection
+	streamClient := &http.Client{
+		Timeout: 0,
+	}
+	if c.httpClient != nil && c.httpClient.Transport != nil {
+		streamClient.Transport = c.httpClient.Transport
+	}
+
+	go func() {
+		defer close(ch)
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/events", nil)
+			if err != nil {
+				return
+			}
+			req.Header.Set("Accept", "text/event-stream")
+
+			resp, err := streamClient.Do(req)
+			if err != nil {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(500 * time.Millisecond):
+					continue
+				}
+			}
+
+			scanner := bufio.NewScanner(resp.Body)
+			for scanner.Scan() {
+				line := scanner.Text()
+				if strings.HasPrefix(line, "data: ") {
+					data := strings.TrimPrefix(line, "data: ")
+					var notif EventNotification
+					if err := json.Unmarshal([]byte(data), &notif); err == nil {
+						select {
+						case ch <- notif:
+						case <-ctx.Done():
+							resp.Body.Close()
+							return
+						}
+					}
+				}
+			}
+			resp.Body.Close()
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
+	}()
+
+	return ch, nil
 }

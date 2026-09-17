@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -193,5 +194,64 @@ func TestServer_DebugLogging(t *testing.T) {
 	}
 	if !strings.Contains(logOutput, "server: executing GetCounter query") {
 		t.Errorf("expected query debug log, got: %s", logOutput)
+	}
+}
+
+func TestServer_SSEStreaming(t *testing.T) {
+	t.Parallel()
+
+	srv := server.New()
+	ts := httptest.NewServer(srv.HTTPHandler())
+	defer ts.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = srv.Start(ctx)
+	}()
+
+	// 1. Connect to SSE stream
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/events?position=0", nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+
+	client := &http.Client{Timeout: 0}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("failed to connect to sse: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// 2. Add a task to generate an event
+	listID := "urn:todo:prod:lists:1:list:sse-test"
+	taskBody, _ := json.Marshal(map[string]string{
+		"list_identifier": listID,
+		"task":           "SSE Broadcast Task",
+	})
+	addResp, err := http.Post(ts.URL+"/tasks", "application/json", bytes.NewReader(taskBody))
+	if err != nil {
+		t.Fatalf("failed to add task: %v", err)
+	}
+	_ = addResp.Body.Close()
+	if addResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 from add task, got %d", addResp.StatusCode)
+	}
+
+	// 3. Read SSE stream lines
+	scanner := bufio.NewScanner(resp.Body)
+	found := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "TaskAdded") && strings.Contains(line, "SSE Broadcast Task") {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected SSE stream to receive TaskAdded event")
 	}
 }

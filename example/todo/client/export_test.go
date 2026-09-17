@@ -11,3 +11,8 @@ import (
 func NewTestTUIModel(ctx context.Context, c Client, initialListID flux.Identifier) tea.Model {
 	return newTUIModel(ctx, c, initialListID)
 }
+
+// NewTestEventNotificationMsg wraps an EventNotification for testing.
+func NewTestEventNotificationMsg(notif EventNotification) tea.Msg {
+	return eventNotificationMsg{notification: notif}
+}

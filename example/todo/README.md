@@ -61,15 +61,17 @@ example/todo/
 │   ├── doc.go                           # Package documentation
 │   ├── server.go                        # Server struct (buses, stores, projector, HTTP lifecycle)
 │   ├── options.go                       # Functional options (WithHTTP, WithLogger, WithEventStore)
-│   ├── http_handler.go                  # HTTP gateway endpoints with structured logging
+│   ├── http_handler.go                  # HTTP gateway endpoints (REST + GET /events SSE)
 │   ├── response_recorder.go             # HTTP status recorder for logging middleware
+│   ├── sse_event_payload.go             # SSE JSON event payload definition
 │   └── server_test.go                   # Server & HTTP integration tests
 │
 ├── client/                              # Client abstractions & implementations
 │   ├── doc.go                           # Package documentation
 │   ├── client.go                        # Client interface definition
+│   ├── event_notification.go            # Live SSE event notification model
 │   ├── in_memory_client.go              # InMemoryClient direct bus implementation
-│   ├── http_client.go                   # HTTPClient JSON REST implementation
+│   ├── http_client.go                   # HTTPClient JSON REST & SSE stream implementation
 │   ├── interactive.go                   # Interactive terminal TUI runner (Bubble Tea)
 │   ├── tui_model.go                     # Bubble Tea Elm-architecture model (Init, Update, View)
 │   ├── tui_items.go                     # List & Task items adapting to bubbles/list.Item
@@ -274,6 +276,15 @@ Opening a list navigates into its tasks screen, displaying active and archived i
 * `/`: Activate fuzzy filter to search tasks
 * `r`: Refresh task list and stats from the server
 * `q` or `ctrl+c`: Quit application
+
+---
+
+##### Real-Time Synchronization (SSE Push Notifications)
+
+When multiple clients are connected simultaneously:
+* Any domain mutation made by one client (e.g. creating a list, adding a task, completing a task, or deleting a task) writes an event to the Event Store.
+* The server broadcasts the event to all connected clients via HTTP Server-Sent Events (`GET /events`).
+* Competing clients immediately display a status toast (e.g. `⚡ Live: Tasks completed: "Prepare release notes"`) and automatically re-sync their active screen in real time without pressing `r`.
 
 #### 3. Run Automated Workflow Demo
 

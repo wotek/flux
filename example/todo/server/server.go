@@ -118,7 +118,7 @@ func (s *Server) Logger() *slog.Logger {
 
 // HTTPHandler returns an [http.Handler] exposing the HTTP gateway endpoints.
 func (s *Server) HTTPHandler() http.Handler {
-	return NewHTTPHandler(s.cmdBus, s.queryBus, s.logger)
+	return NewHTTPHandler(s.cmdBus, s.queryBus, s.eventStore, s.logger)
 }
 
 // Start boots the background projectors and the optional HTTP server until the context is canceled.

@@ -13,12 +13,15 @@ import (
 // It displays the available todo lists catalog, allowing keyboard cycling (arrow keys / j / k),
 // creating new lists, and navigating into lists to view, add, delete, and complete tasks.
 func RunInteractive(ctx context.Context, c Client, initialListID flux.Identifier, in io.Reader, out io.Writer) error {
-	m := newTUIModel(ctx, c, initialListID)
+	runCtx, runCancel := context.WithCancel(ctx)
+	defer runCancel()
+
+	m := newTUIModel(runCtx, c, initialListID)
 
 	opts := []tea.ProgramOption{
 		tea.WithInput(in),
 		tea.WithOutput(out),
-		tea.WithContext(ctx),
+		tea.WithContext(runCtx),
 	}
 
 	// Use alternate screen when output is standard output

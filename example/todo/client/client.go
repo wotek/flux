@@ -32,4 +32,7 @@ type Client interface {
 
 	// GetLists queries all known todo lists from the lists read-model projection.
 	GetLists(ctx context.Context) ([]lists.ListSummary, error)
+
+	// SubscribeEvents returns a live channel of domain event notifications (via SSE or event stream).
+	SubscribeEvents(ctx context.Context) (<-chan EventNotification, error)
 }

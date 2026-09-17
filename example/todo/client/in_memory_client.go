@@ -3,11 +3,13 @@ package client
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/command"
 	"github.com/wotek/flux/example/todo/commands"
+	"github.com/wotek/flux/example/todo/events"
 	"github.com/wotek/flux/example/todo/projections/counter"
 	"github.com/wotek/flux/example/todo/projections/lists"
 	"github.com/wotek/flux/example/todo/queries"
@@ -16,22 +18,37 @@ import (
 
 var _ Client = (*InMemoryClient)(nil)
 
+// InMemoryClientOption configures an [InMemoryClient].
+type InMemoryClientOption func(*InMemoryClient)
+
+// WithInMemoryEventStore configures the event store to enable live event subscription.
+func WithInMemoryEventStore(store flux.EventStore) InMemoryClientOption {
+	return func(c *InMemoryClient) {
+		c.eventStore = store
+	}
+}
+
 // InMemoryClient executes Todo commands and queries directly against in-memory buses.
 type InMemoryClient struct {
-	cmdBus   *command.Bus
-	queryBus *query.Bus
-	actor    flux.Actor
+	cmdBus     *command.Bus
+	queryBus   *query.Bus
+	eventStore flux.EventStore
+	actor      flux.Actor
 }
 
 // NewInMemoryClient constructs a new [InMemoryClient] using the provided buses.
-func NewInMemoryClient(cmdBus *command.Bus, queryBus *query.Bus) *InMemoryClient {
-	return &InMemoryClient{
+func NewInMemoryClient(cmdBus *command.Bus, queryBus *query.Bus, opts ...InMemoryClientOption) *InMemoryClient {
+	c := &InMemoryClient{
 		cmdBus:   cmdBus,
 		queryBus: queryBus,
 		actor: flux.Actor{
 			Identifier: flux.NewIdentifierFromString("urn:todo:prod:users:1:user:in-memory-client"),
 		},
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // CreateList dispatches a [commands.CreateList] command directly to the command bus.
@@ -121,4 +138,74 @@ func (c *InMemoryClient) GetLists(ctx context.Context) ([]lists.ListSummary, err
 		return nil, fmt.Errorf("in-memory get lists: %w", err)
 	}
 	return res, nil
+}
+
+// SubscribeEvents streams live event notifications using the underlying [flux.EventStore] if available.
+func (c *InMemoryClient) SubscribeEvents(ctx context.Context) (<-chan EventNotification, error) {
+	ch := make(chan EventNotification, 32)
+	if c.eventStore == nil {
+		go func() {
+			<-ctx.Done()
+			close(ch)
+		}()
+		return ch, nil
+	}
+
+	go func() {
+		defer close(ch)
+		var currentPos uint64
+		iter, _ := c.eventStore.Stream(ctx, 0)
+		if iter != nil {
+			for env, _ := range iter {
+				if env.Position > currentPos {
+					currentPos = env.Position
+				}
+			}
+		}
+
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				iter, err := c.eventStore.Stream(ctx, currentPos)
+				if err != nil {
+					return
+				}
+				for env, err := range iter {
+					if err != nil {
+						return
+					}
+					currentPos = env.Position
+					notif := EventNotification{
+						Type:           env.Event.Name(),
+						ListIdentifier: env.Stream.Identifier.String(),
+						Position:       env.Position,
+					}
+					switch e := env.Event.(type) {
+					case events.TaskAdded:
+						notif.Description = fmt.Sprintf("Task added: %q", e.Task)
+					case events.TaskRemoved:
+						notif.Description = fmt.Sprintf("Task removed: %q", e.Task)
+					case events.TasksDone:
+						notif.Description = fmt.Sprintf("Tasks completed: %s", strings.Join(e.Tasks, ", "))
+					case events.ListCreated:
+						notif.Description = fmt.Sprintf("List created: %q", e.Title)
+					default:
+						notif.Description = env.Event.Name()
+					}
+					select {
+					case ch <- notif:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+		}
+	}()
+
+	return ch, nil
 }
