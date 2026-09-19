@@ -124,7 +124,7 @@ example/todo/
 
 ## Prerequisites
 
-* **Go**: Modern Go (Go 1.26 or later recommended)
+- **Go**: Modern Go (Go 1.26 or later recommended)
 
 ---
 
@@ -164,6 +164,7 @@ go run ./cmd/server -addr :8080
 ```
 
 Output:
+
 ```text
 level=INFO msg="starting todo cqrs server" addr=:8080
 level=INFO msg="server: starting background counter projector..."
@@ -178,6 +179,7 @@ go run ./cmd/server -addr :8080 -debug
 ```
 
 Example debug output:
+
 ```text
 level=DEBUG msg="server: http request received" method=POST path=/tasks query="" remote_addr=127.0.0.1:54321
 level=DEBUG msg="server: executing AddTask command" cmd_id=urn:todo:... list_id=urn:todo:... task="Buy groceries"
@@ -236,12 +238,13 @@ When launched, the client displays the catalog of all known Todo List aggregates
 ```
 
 **Lists Screen Controls:**
-* `↑` / `↓` or `k` / `j`: Cycle selection cursor through available todo lists
-* `enter` or `o`: Open the selected list into Screen 2 (Tasks Screen)
-* `a` or `n`: Open inline dialog to create a new Todo List (type title, `enter` to confirm, `esc` to cancel)
-* `/`: Activate fuzzy filter to quickly search through lists
-* `r`: Refresh lists and global stats from the server read models
-* `q` or `ctrl+c`: Quit application
+
+- `↑` / `↓` or `k` / `j`: Cycle selection cursor through available todo lists
+- `enter` or `o`: Open the selected list into Screen 2 (Tasks Screen)
+- `a` or `n`: Open inline dialog to create a new Todo List (type title, `enter` to confirm, `esc` to cancel)
+- `/`: Activate fuzzy filter to quickly search through lists
+- `r`: Refresh lists and global stats from the server read models
+- `q` or `ctrl+c`: Quit application
 
 ---
 
@@ -268,23 +271,25 @@ Opening a list navigates into its tasks screen, displaying active and archived i
 ```
 
 **Tasks Screen Controls:**
-* `↑` / `↓` or `k` / `j`: Cycle selection cursor up and down through tasks
-* `a`: Open inline dialog to add a new task (type task name, `enter` to confirm, `esc` to cancel)
-* `c` or `space`: Mark the selected task as completed / archived
-* `d`: Delete / remove the selected task
-* `esc` or `b`: Return back to Screen 1 (Todo Lists Catalog)
-* `/`: Activate fuzzy filter to search tasks
-* `r`: Refresh task list and stats from the server
-* `q` or `ctrl+c`: Quit application
+
+- `↑` / `↓` or `k` / `j`: Cycle selection cursor up and down through tasks
+- `a`: Open inline dialog to add a new task (type task name, `enter` to confirm, `esc` to cancel)
+- `c` or `space`: Mark the selected task as completed / archived
+- `d`: Delete / remove the selected task
+- `esc` or `b`: Return back to Screen 1 (Todo Lists Catalog)
+- `/`: Activate fuzzy filter to search tasks
+- `r`: Refresh task list and stats from the server
+- `q` or `ctrl+c`: Quit application
 
 ---
 
 ##### Real-Time Synchronization (SSE Push Notifications)
 
 When multiple clients are connected simultaneously:
-* Any domain mutation made by one client (e.g. creating a list, adding a task, completing a task, or deleting a task) writes an event to the Event Store.
-* The server broadcasts the event to all connected clients via HTTP Server-Sent Events (`GET /events`).
-* Competing clients immediately display a status toast (e.g. `⚡ Live: Tasks completed: "Prepare release notes"`) and automatically re-sync their active screen in real time without pressing `r`.
+
+- Any domain mutation made by one client (e.g. creating a list, adding a task, completing a task, or deleting a task) writes an event to the Event Store.
+- The server broadcasts the event to all connected clients via HTTP Server-Sent Events (`GET /events`).
+- Competing clients immediately display a status toast (e.g. `⚡ Live: Tasks completed: "Prepare release notes"`) and automatically re-sync their active screen in real time without pressing `r`.
 
 #### 3. Run Automated Workflow Demo
 
