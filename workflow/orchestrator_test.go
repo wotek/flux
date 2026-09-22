@@ -1,4 +1,4 @@
-package saga_test
+package workflow_test
 
 import (
 	"context"
@@ -8,8 +8,8 @@ import (
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/command"
 	eventstore "github.com/wotek/flux/event/store"
-	"github.com/wotek/flux/saga"
-	sagastore "github.com/wotek/flux/saga/store"
+	"github.com/wotek/flux/workflow"
+	workflowstore "github.com/wotek/flux/workflow/store"
 )
 
 type UserRegistered struct {
@@ -22,14 +22,14 @@ type SendWelcomeEmail struct {
 	Email string
 }
 
-type OnboardingSaga struct {
+type OnboardingWorkflow struct {
 	ID     flux.Identifier
 	Status string
 }
 
-func (s *OnboardingSaga) Identifier() flux.Identifier { return s.ID }
-func (s *OnboardingSaga) New() *OnboardingSaga {
-	return &OnboardingSaga{}
+func (w *OnboardingWorkflow) Identifier() flux.Identifier { return w.ID }
+func (w *OnboardingWorkflow) New() *OnboardingWorkflow {
+	return &OnboardingWorkflow{}
 }
 
 type TestWelcomeHandler struct {
@@ -41,26 +41,26 @@ func (h TestWelcomeHandler) Handle(ctx command.Context, cmd SendWelcomeEmail) er
 	return nil
 }
 
-func TestSagaOrchestrator(t *testing.T) {
+func TestWorkflowOrchestrator(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	cmdBus := command.New()
 	eventStore := eventstore.New()
-	sagaStore := sagastore.New[*OnboardingSaga](cmdBus)
+	workflowStore := workflowstore.New[*OnboardingWorkflow](cmdBus)
 
 	// Start the background relay
-	sagaStore.StartRelay(ctx)
+	workflowStore.StartRelay(ctx)
 
-	orchestrator := saga.NewOrchestrator(eventStore)
+	orchestrator := workflow.NewOrchestrator(eventStore)
 
-	// Register Saga
-	saga.RegisterHandler(orchestrator, sagaStore, func(ctx saga.Context, s *OnboardingSaga, e UserRegistered) error {
-		s.ID = ctx.CorrelationIdentifier()
-		s.Status = "AWAITING_WELCOME_EMAIL"
+	// Register Workflow
+	workflow.RegisterHandler(orchestrator, workflowStore, func(ctx workflow.Context, w *OnboardingWorkflow, e UserRegistered) error {
+		w.ID = ctx.CorrelationIdentifier()
+		w.Status = "AWAITING_WELCOME_EMAIL"
 
 		// Safely queue the command
-		saga.EnqueueCommand(ctx, SendWelcomeEmail(e))
+		workflow.EnqueueCommand(ctx, SendWelcomeEmail(e))
 		return nil
 	})
 
@@ -71,7 +71,7 @@ func TestSagaOrchestrator(t *testing.T) {
 	// Start orchestrator
 	go func() { _ = orchestrator.Start(ctx) }()
 
-	// Append an event that will trigger the saga
+	// Append an event that will trigger the workflow
 	correlationID := flux.MustParseIdentifier("urn:user::auth:1:user:abc")
 	logID := flux.MustParseIdentifier("urn:users:::::log")
 	stream := flux.Stream{Identifier: logID}
@@ -87,19 +87,19 @@ func TestSagaOrchestrator(t *testing.T) {
 		t.Fatalf("failed to append event: %v", err)
 	}
 
-	// Wait for the orchestrator -> saga -> outbox -> relay -> command_bus pipeline
+	// Wait for the orchestrator -> workflow -> outbox -> relay -> command_bus pipeline
 	select {
 	case email := <-cmdReceived:
 		if email != "test@example.com" {
 			t.Errorf("expected test@example.com, got %s", email)
 		}
 	case <-time.After(1 * time.Second):
-		t.Errorf("timed out waiting for command execution from saga outbox")
+		t.Errorf("timed out waiting for command execution from workflow outbox")
 	}
 
 	// Verify state was saved
-	savedSaga, _ := sagaStore.Load(ctx, correlationID)
-	if savedSaga.Status != "AWAITING_WELCOME_EMAIL" {
-		t.Errorf("expected saga status to be AWAITING_WELCOME_EMAIL, got %s", savedSaga.Status)
+	savedWorkflow, _ := workflowStore.Load(ctx, correlationID)
+	if savedWorkflow.Status != "AWAITING_WELCOME_EMAIL" {
+		t.Errorf("expected workflow status to be AWAITING_WELCOME_EMAIL, got %s", savedWorkflow.Status)
 	}
 }

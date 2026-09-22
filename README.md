@@ -9,7 +9,7 @@
   <img src="./docs/assets/logo.png" alt="flux gopher logo" width="400">
 </p>
 
-`flux` is a lightweight, high-performance Event Sourcing and CQRS framework for Go. Leveraging Go 1.26 generics, it delivers fast and completely type-safe message routing. The built-in ecosystem features self-referencing aggregates, read-model projections, distributed sagas, snapshotting, and optimistic concurrency control.
+`flux` is a lightweight, high-performance Event Sourcing and CQRS framework for Go. Leveraging Go 1.26 generics, it delivers fast and completely type-safe message routing. The built-in ecosystem features self-referencing aggregates, read-model projections, distributed workflows, snapshotting, and optimistic concurrency control.
 
 ## Why flux?
 
@@ -23,9 +23,9 @@
   - **Query Bus (`query`):** In-memory strongly typed queries returning typed results.
   - **Event Bus (`event`):** Multi-subscriber event routing with `event.Context`.
   - **Projector (`projection`):** Read-model state lifecycle and checkpoint management.
-  - **Saga & Orchestrator (`saga`):** Multi-step process coordinators with durable Outbox command dispatching.
+  - **Workflow & Orchestrator (`workflow`):** Multi-step process coordinators with durable Outbox command dispatching.
 - **Context & Metadata Propagation:** First-class auditability preserving `Actor`, `CorrelationIdentifier`, and `CausationIdentifier` across all operations.
-- **Pluggable Storage:** Built-in in-memory stores (`event/store`, `projection/store`, `saga/store`) with clean interfaces for implementing durable event and projection databases.
+- **Pluggable Storage:** Built-in in-memory stores (`event/store`, `projection/store`, `workflow/store`) with clean interfaces for implementing durable event and projection databases.
 
 ## Install
 
@@ -176,7 +176,7 @@ type Stream struct {
 
 ### Identifier
 
-The identifier provides a unified and globally unique way to address any resource (streams, events, actors, projections, sagas) within the system.
+The identifier provides a unified and globally unique way to address any resource (streams, events, actors, projections, workflows) within the system.
 
 Format: `urn:<organization>:<environment>:<service>:<account_id>:<resource_type>[:/]<resource_id>[@<version>]`
 
@@ -336,7 +336,7 @@ type EventStore interface {
 	Read(ctx Context, stream Stream, fromRevision uint64) (StreamIterator, error)
 
 	// Stream iterates over the global event stream across all aggregates.
-	// It starts from a specific global Position. This is primarily used by Projections and Sagas.
+	// This is primarily used by Projections and Workflows.
 	// It returns a StreamIterator for efficient, leak-free traversal.
 	Stream(ctx Context, from uint64) (StreamIterator, error)
 }
@@ -597,7 +597,7 @@ The framework utilizes three distinct buses to implement CQRS (Command Query Res
 
 1. **Command Bus**: Routes a Command to exactly _one_ Command Handler.
 2. **Query Bus**: Routes a Query to exactly _one_ Query Handler, returning a strongly-typed result.
-3. **Event Bus**: Routes an Event to _zero or more_ Event Handlers (used for projections, side-effects, and sagas).
+3. **Event Bus**: Routes an Event to _zero or more_ Event Handlers (used for projections, side-effects, and workflows).
 
 By leveraging Go Generics and package-level execution functions, we achieve 100% type safety on inputs and outputs without forcing Commands or Queries to implement marker interfaces.
 
@@ -671,8 +671,8 @@ type Context interface {
 	event.Context
 }
 
-// package saga
-// Context extends event.Context, giving saga handlers the ability to dispatch commands.
+// package workflow
+// Context extends event.Context, giving workflow handlers the ability to dispatch commands.
 type Context interface {
 	event.Context
 
@@ -684,11 +684,11 @@ type Context interface {
 	QueuedCommands() []any
 }
 
-// package saga
+// package workflow
 // EnqueueCommand safely queues a strongly-typed command to be dispatched.
-// To prevent "dual-write" anomalies (where a command fires but the saga state fails to save),
+// To prevent "dual-write" anomalies (where a command fires but the workflow state fails to save),
 // the framework guarantees that enqueued commands are ONLY sent to the CommandBus
-// after the Orchestrator successfully persists the Saga's updated state.
+// after the Orchestrator successfully persists the Workflow's updated state.
 func EnqueueCommand[C any](ctx Context, cmd C)
 ```
 
@@ -710,7 +710,7 @@ func NewContext(parent context.Context, env flux.Envelope) Context
 // package projection
 func NewContext(parent event.Context) Context
 
-// package saga
+// package workflow
 func NewContext(parent event.Context) Context
 ```
 
@@ -720,7 +720,7 @@ The base `flux.Context` inherently integrates with the standard Go `log/slog` pa
 
 - `actor`: The URN of the user or system executing the operation.
 - `correlation_id`: The transaction boundary identifier.
-- `causation_id`: The ID of the preceding message (useful for async event handlers and sagas).
+- `causation_id`: The ID of the preceding message (useful for async event handlers and workflows).
 
 By leveraging `ctx.Logger().Info(...)`, developers achieve zero-effort distributed tracing across the entire command-event-query lifecycle.
 
@@ -782,7 +782,7 @@ func ExecuteAsync[C any](ctx Context, bus *Bus, cmd C) error
 ```
 
 > [!TIP]
-> The framework intentionally avoids "batch" or "multi-command" dispatch methods. Because `command.Execute` is completely thread-safe, developers can use native Go primitives (like `sync.WaitGroup` or `golang.org/x/sync/errgroup`) to execute commands sequentially or in parallel. Long-running orchestrations should use Sagas instead of sequential scripts.
+> The framework intentionally avoids "batch" or "multi-command" dispatch methods. Because `command.Execute` is completely thread-safe, developers can use native Go primitives (like `sync.WaitGroup` or `golang.org/x/sync/errgroup`) to execute commands sequentially or in parallel. Long-running orchestrations should use Workflows instead of sequential scripts.
 
 ### Query Bus
 
@@ -958,38 +958,38 @@ event.Register(bus, func(ctx event.Context, e OrderCreated) error {
 
 Because Temporal workflows durably persist their own local state and handle retries natively, this approach eliminates the need to manually track `Position` cursors or manage database transactions.
 
-### Sagas / Process Managers
+### Workflows
 
-A **Saga** (or Process Manager) coordinates long-running business processes that span multiple aggregates. It listens to domain events, maintains internal state to track the progress of the workflow, and dispatches commands to other aggregates.
+A **Workflow** coordinates long-running business processes that span multiple aggregates. It listens to domain events, maintains internal state to track the progress of the workflow, and dispatches commands to other aggregates.
 
 ```go
-// package saga
+// package workflow
 
-// Saga defines the contract for a process manager.
+// Workflow defines the contract for a process manager.
 // It leverages Go 1.26 self-referencing constraints for reflection-free instantiation.
-type Saga[S Saga[S]] interface {
-	// Identifier returns the globally unique ID of this saga instance.
+type Workflow[W Workflow[W]] interface {
+	// Identifier returns the globally unique ID of this workflow instance.
 	// This is typically derived from the CorrelationIdentifier of the triggering event.
 	Identifier() flux.Identifier
 
-	// New creates a new, empty instance of the saga.
+	// New creates a new, empty instance of the workflow.
 	// This is called on a nil pointer by the Orchestrator during loading.
-	New() S
+	New() W
 }
 
-// Store defines how the internal state of a saga is persisted between events.
-type Store[S Saga[S]] interface {
-	// Load retrieves the saga state. The store is responsible for instantiating it.
-	Load(ctx context.Context, id flux.Identifier) (S, error)
+// Store defines how the internal state of a workflow is persisted between events.
+type Store[W Workflow[W]] interface {
+	// Load retrieves the workflow state. The store is responsible for instantiating it.
+	Load(ctx context.Context, id flux.Identifier) (W, error)
 
-	// Save persists the saga's state alongside any enqueued commands within the SAME
+	// Save persists the workflow's state alongside any enqueued commands within the SAME
 	// database transaction. A separate relay process is expected to poll these commands
 	// and forward them to the CommandBus to achieve At-Least-Once (Outbox) delivery.
-	Save(ctx context.Context, saga S, commands []any) error
+	Save(ctx context.Context, workflow W, commands []any) error
 }
 
 // Orchestrator is the background worker that listens to the global event stream
-// and routes events to the appropriate saga instances.
+// and routes events to the appropriate workflow instances.
 type Orchestrator struct {
 	// internal fields
 }
@@ -997,26 +997,26 @@ type Orchestrator struct {
 // NewOrchestrator creates a new orchestrator engine.
 func NewOrchestrator(eventStore flux.EventStore) *Orchestrator
 
-// RegisterHandler wires a specific event type to a saga's state transition.
-// The store is provided here so the orchestrator knows how to load/save this specific saga type.
-func RegisterHandler[S Saga[S], E flux.Event](o *Orchestrator, store Store[S], handler func(ctx Context, saga S, event E) error)
+// RegisterHandler wires a specific event type to a workflow's state transition.
+// The store is provided here so the orchestrator knows how to load/save this specific workflow type.
+func RegisterHandler[W Workflow[W], E flux.Event](o *Orchestrator, store Store[W], handler func(ctx Context, workflow W, event E) error)
 ```
 
 #### Usage Example: The Outbox Pattern
 
-To prevent "dual-write" anomalies (where a command executes successfully but the Saga fails to save its state, causing the command to be duplicated on retry), Sagas do **not** execute commands synchronously. Instead, they use `EnqueueCommand`. The framework handles the transactional safety automatically.
+To prevent "dual-write" anomalies (where a command executes successfully but the Workflow fails to save its state, causing the command to be duplicated on retry), Workflows do **not** execute commands synchronously. Instead, they use `EnqueueCommand`. The framework handles the transactional safety automatically.
 
 ```go
-// Example: A Saga handling user onboarding
-saga.RegisterHandler(orchestrator, mySagaStore, func(ctx saga.Context, s *OnboardingSaga, e UserRegistered) error {
-	// 1. Update internal saga state based on the event
-	s.ID = ctx.CorrelationIdentifier()
-	s.Status = "AWAITING_WELCOME_EMAIL"
+// Example: A Workflow handling user onboarding
+workflow.RegisterHandler(orchestrator, myWorkflowStore, func(ctx workflow.Context, w *OnboardingWorkflow, e UserRegistered) error {
+	// 1. Update internal workflow state based on the event
+	w.ID = ctx.CorrelationIdentifier()
+	w.Status = "AWAITING_WELCOME_EMAIL"
 
 	// 2. Safely queue a strongly-typed command
-	// The Orchestrator will automatically persist the saga state and this command
+	// The Orchestrator will automatically persist the workflow state and this command
 	// together into the database (via Store.Save) to guarantee At-Least-Once delivery.
-	saga.EnqueueCommand(ctx, SendWelcomeEmail{Email: e.Email})
+	workflow.EnqueueCommand(ctx, SendWelcomeEmail{Email: e.Email})
 
 	return nil // Returning nil triggers the transactional save of state + commands
 })
@@ -1024,13 +1024,13 @@ saga.RegisterHandler(orchestrator, mySagaStore, func(ctx saga.Context, s *Onboar
 
 #### Temporal Integration (Optional Path)
 
-Because Sagas are inherently stateful and frequently require timers (e.g., "if payment isn't confirmed in 10 minutes, issue a refund command"), they are notoriously complex to build in vanilla databases. This makes them the absolute **perfect candidate** for Temporal workflows.
+Because Workflows are inherently stateful and frequently require timers (e.g., "if payment isn't confirmed in 10 minutes, issue a refund command"), they are notoriously complex to build in vanilla databases. This makes them the absolute **perfect candidate** for Temporal workflows.
 
-If you choose to run your Sagas in Temporal, you do not need the `SagaStore` or `Orchestrator`.
+If you choose to run your Workflows in Temporal, you do not need the `WorkflowStore` or `Orchestrator`.
 Instead:
 
 1. You use the `EventBus` to push events into a Temporal Workflow (just like Projections).
-2. The Temporal Workflow _is_ your Saga. It natively maintains its own local state variables.
+2. The Temporal Workflow _is_ your Workflow. It natively maintains its own local state variables.
 3. When the Workflow wants to dispatch a command, it executes a Temporal `Activity` that calls `command.ExecuteAsync(ctx, bus, myCmd)`.
 
 ## License

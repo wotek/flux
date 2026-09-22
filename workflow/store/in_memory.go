@@ -8,7 +8,7 @@ import (
 
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/command"
-	"github.com/wotek/flux/saga"
+	"github.com/wotek/flux/workflow"
 )
 
 // OutboxMessage simulates a durable outbox table record.
@@ -16,51 +16,50 @@ type OutboxMessage struct {
 	Command any
 }
 
-// SagaStore simulates a database table for sagas and an outbox table for commands.
-type SagaStore[S saga.Saga[S]] struct {
+// WorkflowStore simulates a database table for workflows and an outbox table for commands.
+type WorkflowStore[W workflow.Workflow[W]] struct {
 	mu      sync.RWMutex
-	state   map[string]S
+	state   map[string]W
 	outbox  []OutboxMessage
 	cmdBus  *command.Bus // The background relay pushes here
 	running bool
 }
 
-// New creates a memory-backed Saga store.
+// New creates a memory-backed Workflow store.
 // It accepts a CommandBus to simulate the background Outbox Relay.
-func New[S saga.Saga[S]](cmdBus *command.Bus) *SagaStore[S] {
-	return &SagaStore[S]{
-		state:  make(map[string]S),
+func New[W workflow.Workflow[W]](cmdBus *command.Bus) *WorkflowStore[W] {
+	return &WorkflowStore[W]{
+		state:  make(map[string]W),
 		outbox: make([]OutboxMessage, 0),
 		cmdBus: cmdBus,
 	}
 }
 
-// NewSagaStore is an alias for New to maintain backwards compatibility.
-func (s *SagaStore[S]) Load(ctx context.Context, id flux.Identifier) (S, error) {
+func (s *WorkflowStore[W]) Load(ctx context.Context, id flux.Identifier) (W, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var zero S
+	var zero W
 	if state, exists := s.state[id.String()]; exists {
-		if c, ok := any(state).(interface{ Clone() S }); ok {
+		if c, ok := any(state).(interface{ Clone() W }); ok {
 			return c.Clone(), nil
 		}
 		return state, nil
 	}
 
-	// Instantiate new empty saga
+	// Instantiate new empty workflow
 	return zero.New(), nil
 }
 
-func (s *SagaStore[S]) Save(ctx context.Context, sagaInstance S, commands []any) error {
+func (s *WorkflowStore[W]) Save(ctx context.Context, workflowInstance W, commands []any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Atomically save state and outbox commands
-	if c, ok := any(sagaInstance).(interface{ Clone() S }); ok {
-		s.state[sagaInstance.Identifier().String()] = c.Clone()
+	if c, ok := any(workflowInstance).(interface{ Clone() W }); ok {
+		s.state[workflowInstance.Identifier().String()] = c.Clone()
 	} else {
-		s.state[sagaInstance.Identifier().String()] = sagaInstance
+		s.state[workflowInstance.Identifier().String()] = workflowInstance
 	}
 
 	for _, cmd := range commands {
@@ -71,7 +70,7 @@ func (s *SagaStore[S]) Save(ctx context.Context, sagaInstance S, commands []any)
 }
 
 // StartRelay starts a background goroutine simulating the Outbox Poller.
-func (s *SagaStore[S]) StartRelay(ctx context.Context) {
+func (s *WorkflowStore[W]) StartRelay(ctx context.Context) {
 	s.mu.Lock()
 	if s.running {
 		s.mu.Unlock()

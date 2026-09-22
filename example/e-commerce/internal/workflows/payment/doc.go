@@ -1,2 +1,2 @@
-// Package payment implements the payment deadline and compensation saga workflow.
+// Package payment implements the payment deadline and compensation workflow.
 package payment

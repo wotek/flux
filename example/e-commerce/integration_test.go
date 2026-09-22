@@ -22,8 +22,8 @@ import (
 	"github.com/wotek/flux/example/e-commerce/internal/types"
 	paymentwf "github.com/wotek/flux/example/e-commerce/internal/workflows/payment"
 	projectionstore "github.com/wotek/flux/projection/store"
-	"github.com/wotek/flux/saga"
-	sagastore "github.com/wotek/flux/saga/store"
+	"github.com/wotek/flux/workflow"
+	workflowstore "github.com/wotek/flux/workflow/store"
 )
 
 func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
@@ -54,11 +54,11 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 		_ = catalogProjector.Start(ctx)
 	}()
 
-	// 4. Sagas / Workflows
-	paymentSagaStore := sagastore.New[*paymentwf.PaymentSaga](cmdBus)
-	paymentSagaStore.StartRelay(ctx)
-	orchestrator := saga.NewOrchestrator(es)
-	paymentwf.RegisterPaymentSaga(orchestrator, paymentSagaStore)
+	// 4. Workflows
+	paymentWorkflowStore := workflowstore.New[*paymentwf.PaymentWorkflow](cmdBus)
+	paymentWorkflowStore.StartRelay(ctx)
+	orchestrator := workflow.NewOrchestrator(es)
+	paymentwf.RegisterPaymentWorkflow(orchestrator, paymentWorkflowStore)
 	go func() {
 		_ = orchestrator.Start(ctx)
 	}()
@@ -155,7 +155,7 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 	}
 
 	// -------------------------------------------------------------
-	// Scenario D: Payment Timeout triggers Workflow / Saga Compensation
+	// Scenario D: Payment Timeout triggers Workflow Compensation
 	// -------------------------------------------------------------
 	// Append PaymentTimeout event on a timer stream correlated with the order URN
 	timerStream := flux.Stream{Identifier: flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:timer:timeout-" + orderID)}

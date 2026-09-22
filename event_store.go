@@ -14,6 +14,6 @@ type EventStore interface {
 	Read(ctx context.Context, stream Stream, fromRevision uint64) (StreamIterator, error)
 
 	// Stream retrieves events from the global event log starting from the given position.
-	// This is used by Projectors and Sagas to tail the entire system's events.
+	// This is used by Projectors and Workflows to tail the entire system's events.
 	Stream(ctx context.Context, position uint64) (StreamIterator, error)
 }

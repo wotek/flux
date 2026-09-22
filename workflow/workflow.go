@@ -1,17 +1,17 @@
-package saga
+package workflow
 
 import (
 	"github.com/wotek/flux"
 )
 
-// Saga defines the contract for a process manager.
+// Workflow defines the contract for a process manager.
 // It leverages Go 1.26 self-referencing constraints for reflection-free instantiation.
-type Saga[S Saga[S]] interface {
-	// Identifier returns the globally unique ID of this saga instance.
+type Workflow[W Workflow[W]] interface {
+	// Identifier returns the globally unique ID of this workflow instance.
 	// This is typically derived from the CorrelationIdentifier of the triggering event.
 	Identifier() flux.Identifier
 
-	// New creates a new, empty instance of the saga.
+	// New creates a new, empty instance of the workflow.
 	// This is called on a nil pointer by the Orchestrator during loading.
-	New() S
+	New() W
 }

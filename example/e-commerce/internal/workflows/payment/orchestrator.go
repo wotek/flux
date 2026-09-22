@@ -6,37 +6,37 @@ import (
 	catalogcommands "github.com/wotek/flux/example/e-commerce/internal/catalog/commands"
 	salescommands "github.com/wotek/flux/example/e-commerce/internal/sales/commands"
 	salesevents "github.com/wotek/flux/example/e-commerce/internal/sales/events"
-	"github.com/wotek/flux/saga"
+	"github.com/wotek/flux/workflow"
 )
 
-// RegisterPaymentSaga configures orchestrator routing and handlers for the payment workflow.
-func RegisterPaymentSaga(
-	o *saga.Orchestrator,
-	store saga.Store[*PaymentSaga],
+// RegisterPaymentWorkflow configures orchestrator routing and handlers for the payment workflow.
+func RegisterPaymentWorkflow(
+	o *workflow.Orchestrator,
+	store workflow.Store[*PaymentWorkflow],
 ) {
 	// 1. OrderPlaced: Captures LineItems to state
-	saga.RegisterHandler(o, store, func(ctx saga.Context, s *PaymentSaga, e salesevents.OrderPlaced) error {
-		s.ID = ctx.CorrelationIdentifier()
-		s.Items = slices.Clone(e.Items)
+	workflow.RegisterHandler(o, store, func(ctx workflow.Context, w *PaymentWorkflow, e salesevents.OrderPlaced) error {
+		w.ID = ctx.CorrelationIdentifier()
+		w.Items = slices.Clone(e.Items)
 		return nil
 	})
 
-	// 2. OrderPaid: Marks saga as successfully completed
-	saga.RegisterHandler(o, store, func(ctx saga.Context, s *PaymentSaga, e salesevents.OrderPaid) error {
-		s.IsPaid = true
+	// 2. OrderPaid: Marks workflow as successfully completed
+	workflow.RegisterHandler(o, store, func(ctx workflow.Context, w *PaymentWorkflow, e salesevents.OrderPaid) error {
+		w.IsPaid = true
 		return nil
 	})
 
 	// 3. OrderCancelled: Intercepts cancellation and triggers stock compensation
-	saga.RegisterHandler(o, store, func(ctx saga.Context, s *PaymentSaga, e salesevents.OrderCancelled) error {
-		if s.IsPaid || s.IsCancelled {
+	workflow.RegisterHandler(o, store, func(ctx workflow.Context, w *PaymentWorkflow, e salesevents.OrderCancelled) error {
+		if w.IsPaid || w.IsCancelled {
 			return nil
 		}
-		s.IsCancelled = true
+		w.IsCancelled = true
 
 		// Return reserved stock for each item in the order
-		for _, item := range s.Items {
-			saga.EnqueueCommand(ctx, catalogcommands.AdjustStock{
+		for _, item := range w.Items {
+			workflow.EnqueueCommand(ctx, catalogcommands.AdjustStock{
 				ProductID: item.ProductID,
 				Quantity:  item.Quantity, // Positive quantity adds stock back
 			})
@@ -45,27 +45,27 @@ func RegisterPaymentSaga(
 	})
 
 	// 4. PaymentTimeout: If not yet paid or cancelled, issues CancelOrder command and stock compensation
-	saga.RegisterHandler(o, store, func(ctx saga.Context, s *PaymentSaga, e PaymentTimeout) error {
-		if s.IsPaid || s.IsCancelled {
+	workflow.RegisterHandler(o, store, func(ctx workflow.Context, w *PaymentWorkflow, e PaymentTimeout) error {
+		if w.IsPaid || w.IsCancelled {
 			return nil
 		}
-		s.IsCancelled = true
+		w.IsCancelled = true
 
 		orderID := e.OrderID
-		if orderID == "" && !s.ID.IsEmpty() {
-			orderID = s.ID.ResourceID()
+		if orderID == "" && !w.ID.IsEmpty() {
+			orderID = w.ID.ResourceID()
 		}
 		if orderID == "" && !ctx.CorrelationIdentifier().IsEmpty() {
 			orderID = ctx.CorrelationIdentifier().ResourceID()
 		}
 
-		saga.EnqueueCommand(ctx, salescommands.CancelOrder{
+		workflow.EnqueueCommand(ctx, salescommands.CancelOrder{
 			OrderID: orderID,
 			Reason:  "payment window expired",
 		})
 
-		for _, item := range s.Items {
-			saga.EnqueueCommand(ctx, catalogcommands.AdjustStock{
+		for _, item := range w.Items {
+			workflow.EnqueueCommand(ctx, catalogcommands.AdjustStock{
 				ProductID: item.ProductID,
 				Quantity:  item.Quantity, // Positive quantity adds stock back
 			})

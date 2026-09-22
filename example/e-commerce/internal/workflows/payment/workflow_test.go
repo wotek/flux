@@ -13,11 +13,11 @@ import (
 	salesevents "github.com/wotek/flux/example/e-commerce/internal/sales/events"
 	salestypes "github.com/wotek/flux/example/e-commerce/internal/sales/types"
 	"github.com/wotek/flux/example/e-commerce/internal/workflows/payment"
-	"github.com/wotek/flux/saga"
-	sagastore "github.com/wotek/flux/saga/store"
+	"github.com/wotek/flux/workflow"
+	workflowstore "github.com/wotek/flux/workflow/store"
 )
 
-func TestPaymentSaga_SuccessfulPayment(t *testing.T) {
+func TestPaymentWorkflow_SuccessfulPayment(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -25,11 +25,11 @@ func TestPaymentSaga_SuccessfulPayment(t *testing.T) {
 
 	cmdBus := command.New()
 	es := eventstore.New()
-	store := sagastore.New[*payment.PaymentSaga](cmdBus)
+	store := workflowstore.New[*payment.PaymentWorkflow](cmdBus)
 	store.StartRelay(ctx)
 
-	orchestrator := saga.NewOrchestrator(es)
-	payment.RegisterPaymentSaga(orchestrator, store)
+	orchestrator := workflow.NewOrchestrator(es)
+	payment.RegisterPaymentWorkflow(orchestrator, store)
 
 	go func() {
 		_ = orchestrator.Start(ctx)
@@ -72,29 +72,29 @@ func TestPaymentSaga_SuccessfulPayment(t *testing.T) {
 	})
 
 	deadline := time.Now().Add(2 * time.Second)
-	var sagaState *payment.PaymentSaga
+	var workflowState *payment.PaymentWorkflow
 	for time.Now().Before(deadline) {
 		s, err := store.Load(ctx, orderURN)
 		if err == nil && s.IsPaid {
-			sagaState = s
+			workflowState = s
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if sagaState == nil {
-		t.Fatalf("timed out waiting for saga to reflect paid status")
+	if workflowState == nil {
+		t.Fatalf("timed out waiting for workflow to reflect paid status")
 	}
 
-	if !sagaState.IsPaid {
-		t.Errorf("expected saga to be marked as paid")
+	if !workflowState.IsPaid {
+		t.Errorf("expected workflow to be marked as paid")
 	}
-	if sagaState.IsCancelled {
-		t.Errorf("expected saga not to be cancelled")
+	if workflowState.IsCancelled {
+		t.Errorf("expected workflow not to be cancelled")
 	}
 }
 
-func TestPaymentSaga_CancellationCompensation(t *testing.T) {
+func TestPaymentWorkflow_CancellationCompensation(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -102,11 +102,11 @@ func TestPaymentSaga_CancellationCompensation(t *testing.T) {
 
 	cmdBus := command.New()
 	es := eventstore.New()
-	store := sagastore.New[*payment.PaymentSaga](cmdBus)
+	store := workflowstore.New[*payment.PaymentWorkflow](cmdBus)
 	store.StartRelay(ctx)
 
-	orchestrator := saga.NewOrchestrator(es)
-	payment.RegisterPaymentSaga(orchestrator, store)
+	orchestrator := workflow.NewOrchestrator(es)
+	payment.RegisterPaymentWorkflow(orchestrator, store)
 
 	adjustStockReceived := make(chan catalogcommands.AdjustStock, 1)
 	command.RegisterHandler(cmdBus, mockStockAdjustHandler{received: adjustStockReceived})

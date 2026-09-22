@@ -1,4 +1,4 @@
-package saga
+package workflow
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 )
 
 // Orchestrator is the background worker that listens to the global event stream
-// and routes events to the appropriate saga instances.
+// and routes events to the appropriate workflow instances.
 type Orchestrator struct {
 	eventStore flux.EventStore
 	handlers   map[string]orchestratorHandler
@@ -29,48 +29,48 @@ func NewOrchestrator(eventStore flux.EventStore) *Orchestrator {
 	}
 }
 
-// RegisterHandler wires a specific event type to a saga's state transition.
-func RegisterHandler[S Saga[S], E flux.Event](o *Orchestrator, store Store[S], handler func(ctx Context, saga S, event E) error) {
+// RegisterHandler wires a specific event type to a workflow's state transition.
+func RegisterHandler[W Workflow[W], E flux.Event](o *Orchestrator, store Store[W], handler func(ctx Context, workflow W, event E) error) {
 	var evt E
 	name := evt.Name()
 
 	if _, exists := o.handlers[name]; exists {
-		panic(fmt.Sprintf("handler already registered for saga event %s", name))
+		panic(fmt.Sprintf("handler already registered for workflow event %s", name))
 	}
 
 	o.handlers[name] = orchestratorHandler{
 		invoke: func(ctx context.Context, env flux.Envelope) error {
 			id := env.CorrelationIdentifier
 			if id.IsEmpty() {
-				// Sagas require correlation IDs to know which instance to load
+				// Workflows require correlation IDs to know which instance to load
 				return nil
 			}
 
-			// 1. Load Saga
-			sagaInstance, err := store.Load(ctx, id)
+			// 1. Load Workflow
+			workflowInstance, err := store.Load(ctx, id)
 			if err != nil {
-				return fmt.Errorf("failed to load saga: %w", err)
+				return fmt.Errorf("failed to load workflow: %w", err)
 			}
 
 			// 2. Create Context
-			sagaCtx := NewContext(event.NewContext(ctx, env))
+			workflowCtx := NewContext(event.NewContext(ctx, env))
 
 			// 3. Execute Handler
 			domainEvent, ok := env.Event.(E)
 			if !ok {
-				return fmt.Errorf("%w: for saga handler", flux.ErrInvalidEvent)
+				return fmt.Errorf("%w: for workflow handler", flux.ErrInvalidEvent)
 			}
 
-			if err := handler(sagaCtx, sagaInstance, domainEvent); err != nil {
+			if err := handler(workflowCtx, workflowInstance, domainEvent); err != nil {
 				return err
 			}
 
 			// 4. Extract queued commands
-			cmds := sagaCtx.QueuedCommands()
+			cmds := workflowCtx.QueuedCommands()
 
-			// 5. Transactionally save saga state and outbox commands
-			if err := store.Save(ctx, sagaInstance, cmds); err != nil {
-				return fmt.Errorf("failed to save saga state and outbox: %w", err)
+			// 5. Transactionally save workflow state and outbox commands
+			if err := store.Save(ctx, workflowInstance, cmds); err != nil {
+				return fmt.Errorf("failed to save workflow state and outbox: %w", err)
 			}
 
 			return nil

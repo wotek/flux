@@ -102,7 +102,7 @@ You are an expert Go engineer writing clean, idiomatic, and high-performance Go 
 - Core design patterns & concepts:
   - Event Sourcing (ES) & Command Query Responsibility Segregation (CQRS)
   - Message Bus & Projections
-  - Sagas / Process Managers
+  - Workflows
   - Stream, Event, and Event Envelope
   - Event Store
   - Actor (identity of user/system initiating state changes)

@@ -1,10 +1,10 @@
-package saga
+package workflow
 
 import (
 	"github.com/wotek/flux/event"
 )
 
-// Context extends event.Context, giving saga handlers the ability to dispatch commands.
+// Context extends event.Context, giving workflow handlers the ability to dispatch commands.
 type Context interface {
 	event.Context
 
@@ -15,28 +15,28 @@ type Context interface {
 	QueuedCommands() []any
 }
 
-type sagaContext struct {
+type workflowContext struct {
 	event.Context
 	queuedCommands []any
 }
 
-func (s *sagaContext) dispatch(cmd any) {
-	s.queuedCommands = append(s.queuedCommands, cmd)
+func (w *workflowContext) dispatch(cmd any) {
+	w.queuedCommands = append(w.queuedCommands, cmd)
 }
 
-func (s *sagaContext) QueuedCommands() []any {
-	return s.queuedCommands
+func (w *workflowContext) QueuedCommands() []any {
+	return w.queuedCommands
 }
 
-// NewContext creates a new Saga Context from an event.Context.
+// NewContext creates a new Workflow Context from an event.Context.
 func NewContext(parent event.Context) Context {
-	return &sagaContext{
+	return &workflowContext{
 		Context:        parent,
 		queuedCommands: make([]any, 0),
 	}
 }
 
-// EnqueueCommand safely queues a strongly-typed command to be dispatched by the saga outbox.
+// EnqueueCommand safely queues a strongly-typed command to be dispatched by the workflow outbox.
 func EnqueueCommand[C any](ctx Context, cmd C) {
 	ctx.dispatch(cmd)
 }

@@ -8,57 +8,57 @@ import (
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/command"
 
-	"github.com/wotek/flux/saga/store"
+	"github.com/wotek/flux/workflow/store"
 )
 
-type dummySaga struct {
+type dummyWorkflow struct {
 	id    flux.Identifier
 	Count int
 }
 
-func (s *dummySaga) Identifier() flux.Identifier { return s.id }
-func (s *dummySaga) New() *dummySaga {
-	return &dummySaga{}
+func (w *dummyWorkflow) Identifier() flux.Identifier { return w.id }
+func (w *dummyWorkflow) New() *dummyWorkflow {
+	return &dummyWorkflow{}
 }
-func (s *dummySaga) Clone() *dummySaga {
-	c := *s
+func (w *dummyWorkflow) Clone() *dummyWorkflow {
+	c := *w
 	return &c
 }
 
 type dummyCmd struct{ Val string }
 
-func TestInMemorySagaStore(t *testing.T) {
+func TestInMemoryWorkflowStore(t *testing.T) {
 	cmdBus := command.New()
-	s := store.New[*dummySaga](cmdBus)
+	s := store.New[*dummyWorkflow](cmdBus)
 	ctx := context.Background()
-	id := flux.MustParseIdentifier("urn:test:prod:saga:1:test:test")
+	id := flux.MustParseIdentifier("urn:test:prod:workflow:1:test:test")
 
 	// Load should return new if not found
-	sg, err := s.Load(ctx, id)
+	wf, err := s.Load(ctx, id)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if sg.Count != 0 {
+	if wf.Count != 0 {
 		t.Fatalf("expected count 0")
 	}
 
 	// Make changes
-	sg.id = id
-	sg.Count = 10
+	wf.id = id
+	wf.Count = 10
 
 	// Save
 	cmds := []any{dummyCmd{Val: "cmd1"}}
-	err = s.Save(ctx, sg, cmds)
+	err = s.Save(ctx, wf, cmds)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
 	// Load again
-	sg2, err := s.Load(ctx, id)
+	wf2, err := s.Load(ctx, id)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if sg2.Count != 10 {
+	if wf2.Count != 10 {
 		t.Fatalf("expected state restored")
 	}
 

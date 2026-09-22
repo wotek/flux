@@ -6,7 +6,7 @@ This document provides a comprehensive overview of the `flux` framework architec
 
 ## 1. Dependency Graph & Cycle Analysis
 
-The framework follows a strict **layered directed acyclic graph (DAG)** architecture. Core domain models and primitives remain self-contained at the root, while messaging buses, projections, and sagas reside in dedicated subpackages that depend unidirectionally on the core.
+The framework follows a strict **layered directed acyclic graph (DAG)** architecture. Core domain models and primitives remain self-contained at the root, while messaging buses, projections, and workflows reside in dedicated subpackages that depend unidirectionally on the core.
 
 ### Package Hierarchy Overview
 
@@ -33,7 +33,7 @@ The framework follows a strict **layered directed acyclic graph (DAG)** architec
           │             │                               │ (consumes global events)      │ (consumes global events)
           │             ▼                               ▼                               ▼
           │     ┌───────────────┐               ┌───────────────┐               ┌───────────────┐
-          │     │   snapshot    │               │  projection   │               │     saga      │
+          │     │   snapshot    │               │  projection   │               │   workflow    │
           │     │  - Repository │
                                     │  - Snapshot   │               │  - Projector  │               │  - Orchestr.  │
           │     │  - Store      │               │  - Context    │               │  - Context    │
@@ -49,7 +49,7 @@ The framework follows a strict **layered directed acyclic graph (DAG)** architec
           │                                                                             │
           │ (dispatches outbox commands)                                                ▼
           └─────────────────────────────────────────────────────────────────────┌───────────────┐
-                                                                                │  saga/store   │
+                                                                                │workflow/store │
                                                                                 │  - Store      │
                                                                                 └───────────────┘
 ```
@@ -83,9 +83,9 @@ flowchart TD
         ProjStore["projection/store<br/>(ProjectionStore)"]
     end
 
-    subgraph SagaDomain ["Sagas / Process Managers"]
-        Saga["saga<br/>(Orchestrator, Context, Store)"]
-        SagaStore["saga/store<br/>(SagaStore)"]
+    subgraph WorkflowDomain ["Workflows"]
+        Workflow["workflow<br/>(Orchestrator, Context, Store)"]
+        WorkflowStore["workflow/store<br/>(WorkflowStore)"]
     end
 
     %% Dependencies
@@ -99,24 +99,24 @@ flowchart TD
     ProjStore --> Projection
     ProjStore --> Flux
 
-    Saga --> Flux
-    Saga --> Event
-    SagaStore --> Saga
-    SagaStore --> Command
-    SagaStore --> Flux
+    Workflow --> Flux
+    Workflow --> Event
+    WorkflowStore --> Workflow
+    WorkflowStore --> Command
+    WorkflowStore --> Flux
 ```
 
 ### Dependency Rules & Cycle Prevention
 
-1. **Zero Downward Imports:** The root `flux` package imports **none** of the subpackages (`command`, `query`, `event`, `projection`, `saga`, or any `store`). It can never participate in an import cycle.
+1. **Zero Downward Imports:** The root `flux` package imports **none** of the subpackages (`command`, `query`, `event`, `projection`, `workflow`, or any `store`). It can never participate in an import cycle.
 2. **Context Extension Hierarchy:**
    - `flux.Context` provides base execution metadata (`Actor`, `CorrelationIdentifier`, `CausationIdentifier`).
    - `command.Context` embeds `flux.Context` and adds `CommandIdentifier()`.
    - `query.Context` embeds `flux.Context` and adds `QueryIdentifier()`.
    - `event.Context` embeds `flux.Context` and adds `EventIdentifier()`, `Stream()`, `Revision()`, `Position()`, `Metadata()`.
    - `projection.Context` embeds `event.Context`.
-   - `saga.Context` embeds `event.Context` and adds `QueuedCommands()`.
-3. **Saga Outbox Integration:** The `saga/store` driver imports `command.Bus` to dispatch asynchronous outbox commands. Because `command` has no knowledge of `saga`, the dependency remains strictly unidirectional (`saga/store` $\rightarrow$ `command` $\rightarrow$ `flux`).
+   - `workflow.Context` embeds `event.Context` and adds `QueuedCommands()`.
+3. **Workflow Outbox Integration:** The `workflow/store` driver imports `command.Bus` to dispatch asynchronous outbox commands. Because `command` has no knowledge of `workflow`, the dependency remains strictly unidirectional (`workflow/store` $\rightarrow$ `command` $\rightarrow$ `flux`).
 
 ---
 
@@ -259,26 +259,26 @@ Engine for maintaining asynchronous read models and tracking global event stream
 
 ---
 
-### Package: `github.com/wotek/flux/saga`
+### Package: `github.com/wotek/flux/workflow`
 
 Orchestration engine coordinating long-running business processes and durable Outbox command dispatching.
 
 #### Structs & Types
 
-- `Orchestrator`: Worker routing global events to specific saga instances by correlation ID.
+- `Orchestrator`: Worker routing global events to specific workflow instances by correlation ID.
 
 #### Interfaces
 
-- `Saga[S Saga[S]]`: Go 1.26 self-referencing generic constraint requiring `Identifier() flux.Identifier` and `New() S`.
-- `Store[S Saga[S]]`: Persistence contract for loading saga state and atomically saving state alongside outbox commands.
+- `Workflow[W Workflow[W]]`: Go 1.26 self-referencing generic constraint requiring `Identifier() flux.Identifier` and `New() W`.
+- `Store[W Workflow[W]]`: Persistence contract for loading workflow state and atomically saving state alongside outbox commands.
 - `Context`: Extends `event.Context` with `QueuedCommands() []any`.
 
 #### Functions
 
-- `NewOrchestrator(eventStore flux.EventStore) *Orchestrator`: Creates a Saga Orchestrator.
-- `NewContext(parent event.Context) Context`: Creates a saga context.
-- `EnqueueCommand[C any](ctx Context, cmd C)`: Safely enqueues a strongly-typed command into the saga outbox.
-- `RegisterHandler[S Saga[S], E flux.Event](o *Orchestrator, store Store[S], handler func(ctx Context, saga S, event E) error)`: Links an event to a saga step.
+- `NewOrchestrator(eventStore flux.EventStore) *Orchestrator`: Creates a Workflow Orchestrator.
+- `NewContext(parent event.Context) Context`: Creates a workflow context.
+- `EnqueueCommand[C any](ctx Context, cmd C)`: Safely enqueues a strongly-typed command into the workflow outbox.
+- `RegisterHandler[W Workflow[W], E flux.Event](o *Orchestrator, store Store[W], handler func(ctx Context, workflow W, event E) error)`: Links an event to a workflow step.
 - `(o *Orchestrator) Start(ctx context.Context) error`: Runs the orchestrator polling loop.
 
 ---
@@ -293,6 +293,6 @@ Subpackages providing concrete storage implementations:
 - **`github.com/wotek/flux/projection/store`**:
   - `ProjectionStore`: Implementation of `projection.Store`.
   - `New()`: Constructor.
-- **`github.com/wotek/flux/saga/store`**:
-  - `SagaStore[S saga.Saga[S]]`: Implementation of `saga.Store` with an Outbox Relay worker (`StartRelay(ctx)`).
-  - `New[S](cmdBus *command.Bus)`: Constructor.
+- **`github.com/wotek/flux/workflow/store`**:
+  - `WorkflowStore[W workflow.Workflow[W]]`: Implementation of `workflow.Store` with an Outbox Relay worker (`StartRelay(ctx)`).
+  - `New[W](cmdBus *command.Bus)`: Constructor.
