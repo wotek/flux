@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/wotek/flux/compare/v1.0.0...v2.0.0) (2026-09-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* The 'saga' package and all associated types (Saga, SagaStore, etc.) have been fully renamed to 'workflow'. Consumers must update their imports to 'github.com/wotek/flux/workflow' and rename their structs.
+
+### Code Refactoring
+
+* rename Saga to Workflow (breaking API change) ([cfe9525](https://github.com/wotek/flux/commit/cfe95254768984bc49e828ad1d5f54ef650ab918))
+
 ## 1.0.0 (2026-09-17)
 
 
