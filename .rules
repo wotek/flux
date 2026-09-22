@@ -131,3 +131,7 @@ You are an expert Go engineer writing clean, idiomatic, and high-performance Go 
 * **Interim Files:** Do NOT commit interim documentation files, implementation instructions, or agent prompts. These files should remain untracked or be explicitly ignored.
 
 * **Conventional Commits & Release Please:** This repository uses Release Please, which strictly follows Conventional Commits. Commits prefixed with `docs:`, `refactor:`, `test:`, or `chore:` will NOT trigger a release by default. If a refactor breaks the public API (e.g., renaming exported packages or interfaces), you MUST use an exclamation mark (e.g., `refactor!:`) or include a `BREAKING CHANGE:` footer in the commit message to ensure a major version bump is triggered.
+
+* **Commit Policy:** Do NOT commit automatically. When you are done with a task, present the changes and explicitly ask the user for permission to commit.
+
+* **Artifact & Script Cleanup:** Do NOT leave temporary generation scripts (e.g., Python or Bash scripts used to modify files) in the workspace. Always clean up after yourself.
