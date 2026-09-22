@@ -941,44 +941,63 @@ query.RegisterHandler(queryBus, &UserStatsQueryHandler{db: myDatabase})
 
 Because the framework strictly decouples **Routing** from **Execution**, you are not forced to use the default `Projector` or `ProjectionStore`. If you prefer to run Projections as durable [Temporal Workflows](https://temporal.io/), the framework provides the perfect hooks to bridge the gap.
 
-While you *can* use the `EventBus` to push events into Temporal as signals, the most robust and operational-friendly architecture is to run a **Temporal Workflow that directly tails the EventStore**. 
+The most robust and operational-friendly architecture combines **EventStore Tailing** with **EventBus Signals**.
 
 ```go
 func DashboardProjectionWorkflow(ctx workflow.Context, lastRevision int) error {
+	wakeupChan := workflow.GetSignalChannel(ctx, "WakeUpSignal")
+
 	// 1. Loop and tail the EventStore via a Temporal Activity
 	for {
 		var batch []flux.Envelope
 		var nextRevision int
-		
+
 		err := workflow.ExecuteActivity(ctx, FetchEventsActivity, lastRevision).Get(ctx, &batch)
 		if err != nil {
 			return err
 		}
-		
+
+		// 2. Execute projection logic (e.g., SQL INSERT) transactionally in an Activity
 		for _, env := range batch {
-			// 2. Execute projection logic (e.g., SQL INSERT) transactionally in an Activity
 			err := workflow.ExecuteActivity(ctx, UpdateDashboardActivity, env).Get(ctx, nil)
 			if err != nil {
 				return err // Temporal will automatically retry the activity!
 			}
 			lastRevision = env.GlobalPosition
 		}
-		
+
 		// 3. Prevent workflow history limits by continuing as new
 		if workflow.GetInfo(ctx).GetCurrentHistoryLength() > 10000 {
 			return workflow.NewContinueAsNewError(ctx, DashboardProjectionWorkflow, lastRevision)
 		}
-		
-		workflow.Sleep(ctx, 1 * time.Second) // Small backoff before tailing again
+
+		// 4. If we caught up, block until the EventBus signals us there is new data.
+		// This prevents hammering the database with continuous polling.
+		if len(batch) == 0 {
+			selector := workflow.NewSelector(ctx)
+
+			// Wait for live event signal
+			selector.AddReceive(wakeupChan, func(c workflow.ReceiveChannel, more bool) {
+				c.Receive(ctx, nil) // Consume signal
+			})
+
+			// Fallback polling to ensure nothing is missed
+			timerCtx, cancelTimer := workflow.WithCancel(ctx)
+			selector.AddFuture(workflow.NewTimer(timerCtx, 1 * time.Minute), func(f workflow.Future) {})
+
+			selector.Select(ctx)
+			cancelTimer()
+		}
 	}
 }
 ```
 
-By owning the read-loop inside a Temporal Workflow, you unlock massive operational superpowers:
+By owning the read-loop inside a Temporal Workflow using this hybrid approach, you unlock massive operational superpowers:
 
-* **Pausing & Resuming:** You can expose a Temporal Signal (e.g., `PauseSignal`). When received, the workflow `Select` blocks and halts polling the EventStore until a `ResumeSignal` is received. This is absolutely invaluable during read-model database migrations or schema updates.
-* **Replaying:** To completely rebuild a projection from scratch, you simply `Terminate` the current Temporal Workflow execution, truncate your read-model SQL table, and start a new workflow execution with `lastRevision = 0`. Temporal will automatically catch up through the entire event store history.
-* **Adding Projections to a Live System:** When you build a new feature that requires a brand new read model, you simply deploy the new Temporal Workflow code and start it at `revision = 0`. It will catch up to the live system seamlessly without requiring any downtime, deployments, or modifications to the core event stream.
+- **Efficient Catch-up & Replay:** To completely rebuild a projection, you simply `Terminate` the current Temporal Workflow execution, truncate your read-model SQL table, and start a new execution with `lastRevision = 0`. It will bypass the signal blocks (because `len(batch) > 0`) and rapidly loop through the entire event store history.
+- **Efficient Live Operation:** Once the workflow catches up to the live stream (`len(batch) == 0`), it stops polling. The framework's standard `EventBus` is then configured to fire a `WakeUpSignal` to the Temporal workflow whenever a new event occurs, instantly unblocking it to read the new data.
+- **Pausing & Resuming:** You can easily add a `PauseSignal` branch to the selector. When received, the workflow blocks and halts polling until a `ResumeSignal` is received. This is absolutely invaluable during read-model database migrations or schema updates.
+- **Adding Projections to a Live System:** When you build a new feature that requires a brand new read model, you simply deploy the new Temporal Workflow code and start it at `revision = 0`. It will catch up to the live system seamlessly without requiring any downtime, deployments, or modifications to the core event stream.
 
 ### Workflows
 
