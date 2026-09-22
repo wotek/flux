@@ -566,6 +566,7 @@ go test -v -race ./...
 
 The `example/` directory contains complete, runnable reference applications demonstrating how to use `flux` in production-like environments.
 
+- **[Bank Account Quick Start](example/bank/README.md):** Minimal standalone reference implementation demonstrating aggregates, repositories, and command routing from the Quick Start guide.
 - **[Todo Reference Application](example/todo/README.md):** A complete CQRS and Event Sourced reference implementation with domain events, co-located handlers, TUI client, and read-model projections.
 - **[E-Commerce](example/e-commerce/README.md):** (Coming soon)
 
