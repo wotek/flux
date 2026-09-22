@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
-  base: '/flux/',
+  
   title: "flux",
   description: "Event-Sourcing Framework for Go",
   themeConfig: {
