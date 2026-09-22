@@ -2,41 +2,46 @@
 
 With our project structure in place, we are ready to build the core of our Catalog domain: the **Product** aggregate.
 
-In an event-sourced system, an Aggregate is responsible for validating incoming commands, enforcing business rules (invariants), and emitting **Events** when state changes.
+We will strictly follow the layout rule: the aggregate embeds `flux.AggregateRoot`, but its purely data-driven state is isolated in a nested `types` subpackage.
 
 ## 1. Defining the Events
-
-Before we write the logic, we must define the facts that can occur in a Product's lifecycle. We will start with two events: creating a product and updating its price.
 
 Create a new file at `internal/catalog/events/product.go`:
 
 ```go
 package events
 
-// ProductCreated is emitted when a new product is added to the catalog.
 type ProductCreated struct {
 	Name  string
-	Price int // We use integers for cents to avoid floating point errors
+	Price int // Cents
 }
-
 func (e ProductCreated) Name() string { return "ProductCreated" }
 
-// PriceUpdated is emitted when a product's price changes.
 type PriceUpdated struct {
 	OldPrice int
 	NewPrice int
 }
-
 func (e PriceUpdated) Name() string { return "PriceUpdated" }
 ```
 
-Notice that these are simple Go structs that implement the `flux.Event` interface by providing a static `Name()` method.
+## 2. Isolating the Aggregate State
 
-## 2. Structuring the Aggregate
+Create `internal/catalog/aggregates/product/types/product.go`. This is the pure data struct representing the product state. By isolating this, we can easily serialize it for Snapshots later.
 
-Next, we define the `Product` aggregate itself. 
+```go
+package types
 
-Create `internal/catalog/aggregates/product/product.go`:
+// Product represents the internal write-model state of a Catalog Product.
+type Product struct {
+	Name    string
+	Price   int
+	Created bool
+}
+```
+
+## 3. Structuring the Aggregate
+
+Create `internal/catalog/aggregates/product/aggregate.go`. This struct will manage the `types.Product` state and enforce rules.
 
 ```go
 package product
@@ -44,6 +49,7 @@ package product
 import (
 	"errors"
 	"github.com/wotek/flux"
+	"e-commerce/internal/catalog/aggregates/product/types"
 	"e-commerce/internal/catalog/events"
 )
 
@@ -52,103 +58,73 @@ var (
 	ErrInvalidPrice          = errors.New("price must be greater than zero")
 )
 
-// Product represents a single item in our e-commerce catalog.
-type Product struct {
-	// 1. Embed the generic AggregateRoot
+type Aggregate struct {
 	flux.AggregateRoot[flux.Event]
-
-	// 2. Define the read-only derived state
-	name    string
-	price   int
-	created bool
+	State types.Product // The isolated data struct
 }
-```
 
-By embedding `flux.AggregateRoot[flux.Event]`, our struct automatically inherits everything it needs to track uncommitted events and manage versioning.
-
-## 3. The Factory and Mutator
-
-Whenever `flux` loads an aggregate from the database, it needs a way to instantiate an empty version of it (`New()`) and a way to rebuild its state from historical events (`apply()`).
-
-Add the following to `product.go`:
-
-```go
-// New is required by the framework to instantiate empty instances during rehydration.
-func (p *Product) New(stream flux.Stream) *Product {
+// New initializes the aggregate.
+func (a *Aggregate) New(stream flux.Stream) *Aggregate {
 	return New(stream)
 }
 
-// New is our domain-level constructor.
-func New(stream flux.Stream) *Product {
-	p := &Product{}
-	p.AggregateRoot = flux.NewAggregateRoot[flux.Event](stream, flux.NewChangeset[flux.Event](), p.apply)
-	return p
-}
-
-// apply is the ONLY place in the entire application where the Product's state is mutated.
-func (p *Product) apply(event flux.Event) error {
-	switch e := event.(type) {
-	case events.ProductCreated:
-		p.name = e.Name
-		p.price = e.Price
-		p.created = true
-	case events.PriceUpdated:
-		p.price = e.NewPrice
-	}
-	return nil
+func New(stream flux.Stream) *Aggregate {
+	a := &Aggregate{}
+	a.AggregateRoot = flux.NewAggregateRoot[flux.Event](stream, flux.NewChangeset[flux.Event](), a.apply)
+	return a
 }
 ```
 
-::: warning Critical Rule
-The `apply()` method should **never** contain business logic, validation, or conditional statements. By the time an event reaches `apply()`, it is a historical fact that has already happened. It must be unconditionally applied.
-:::
+## 4. The Mutator and Business Logic
 
-## 4. Business Logic and Invariants
-
-Finally, we expose public methods to interact with the aggregate. This is where we validate inputs and enforce business rules (invariants).
-
-If an action is invalid, we return a domain error. If it is valid, we **Record** the event.
+The `apply()` method is the only place we mutate `a.State`.
 
 ```go
-// Create initializes a new product.
-func (p *Product) Create(name string, price int) error {
-	if p.created {
+func (a *Aggregate) apply(event flux.Event) error {
+	switch e := event.(type) {
+	case events.ProductCreated:
+		a.State.Name = e.Name
+		a.State.Price = e.Price
+		a.State.Created = true
+	case events.PriceUpdated:
+		a.State.Price = e.NewPrice
+	}
+	return nil
+}
+
+// Create enforces invariants and emits the event.
+func (a *Aggregate) Create(name string, price int) error {
+	if a.State.Created {
 		return ErrProductAlreadyCreated
 	}
 	if price <= 0 {
 		return ErrInvalidPrice
 	}
 
-	// Record the event. The framework automatically routes this to apply().
-	p.Changeset().Record(events.ProductCreated{
-		Name:  name,
-		Price: price,
-	})
-	
+	a.Changeset().Record(events.ProductCreated{Name: name, Price: price})
 	return nil
 }
 
 // UpdatePrice changes the product's price.
-func (p *Product) UpdatePrice(newPrice int) error {
-	if !p.created {
-		return errors.New("cannot update price of a non-existent product")
+func (a *Aggregate) UpdatePrice(newPrice int) error {
+	if !a.State.Created {
+		return errors.New("product does not exist")
 	}
 	if newPrice <= 0 {
 		return ErrInvalidPrice
 	}
-	if p.price == newPrice {
-		return nil // No state change required
+	if a.State.Price == newPrice {
+		return nil // Idempotent skip
 	}
 
-	p.Changeset().Record(events.PriceUpdated{
-		OldPrice: p.price,
+	a.Changeset().Record(events.PriceUpdated{
+		OldPrice: a.State.Price,
 		NewPrice: newPrice,
 	})
-
 	return nil
 }
 ```
 
-Notice how clean this is? The public methods do not mutate `p.name` or `p.price`. They evaluate the rules, and if the rules pass, they emit a fact. The `apply()` method handles the actual state mutation.
+By decoupling `types.Product` from `product.Aggregate`, we guarantee our CQRS boundary: the Write Model's state is completely hidden from the outside world.
 
 In the next chapter, we will learn how to test this aggregate and save it to a database using an `AggregateRepository`.

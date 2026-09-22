@@ -56,6 +56,7 @@ export default defineConfig({
         text: 'Reference',
         items: [
           { text: 'Architecture & Boundaries', link: '/reference/architecture' },
+          { text: 'Project Layout', link: '/reference/project-layout' },
           { text: 'Core API Reference', link: '/reference/api' },
           { text: 'Testing Best Practices', link: '/reference/testing' },
         ]

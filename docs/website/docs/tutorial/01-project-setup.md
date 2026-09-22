@@ -2,15 +2,7 @@
 
 Welcome to the comprehensive E-Commerce Tutorial! Over the next few chapters, we will build a production-ready, event-sourced E-Commerce backend.
 
-Unlike the simple Todo app, a real system requires strict boundaries. We will build this application using **Domain-Driven Design (DDD)** principles, isolating our business logic into multiple Bounded Contexts.
-
-## Our Domains
-
-Our e-commerce system will be split into the following domains:
-
-1. **Catalog Domain:** Responsible for managing Products, Inventory, and Pricing.
-2. **Sales Domain:** Responsible for managing Customers, Carts, and Orders.
-3. **Workflows:** Responsible for long-running, cross-domain process managers (like waiting for a Payment to clear before shipping an Order).
+Unlike a simple Todo app, a real system requires strict boundaries. We will build this application using **Domain-Driven Design (DDD)** principles and strict CQRS data isolation.
 
 ## Initializing the Workspace
 
@@ -18,28 +10,41 @@ Let's create our workspace and initialize the Go module.
 
 ```bash
 mkdir e-commerce && cd e-commerce
-go mod init github.com/yourusername/e-commerce
+go mod init e-commerce
 go get github.com/wotek/flux
 ```
 
-## Directory Structure
+## The Domain Layout
 
-We will adopt a standard Go project layout:
+We will use a highly decoupled directory structure based on the official `flux` Project Layout recommendations. Our application is split into Bounded Contexts.
+
+Create the following skeleton:
 
 ```text
 e-commerce/
 ├── cmd/
-│   └── server/          # Application entrypoint (main.go)
+│   └── server/          # Application entrypoint
 ├── internal/
 │   ├── catalog/         # Catalog bounded context
-│   │   ├── aggregates/  # Product, Pricing
-│   │   ├── commands/    
-│   │   └── events/      
+│   │   ├── aggregates/  # Write models (Product)
+│   │   ├── commands/    # Intents & command handlers
+│   │   ├── events/      # Domain events (ProductCreated)
+│   │   ├── projections/ # Read models (Product View)
+│   │   └── queries/     # Read handlers
 │   ├── sales/           # Sales bounded context
-│   │   ├── aggregates/  # Order, Customer
+│   │   ├── aggregates/  # Write models (Order)
 │   │   ├── commands/    
 │   │   └── events/      
-│   └── workflows/       # Payment process manager
+│   └── workflows/       # Cross-domain process managers
 ```
 
-Go ahead and scaffold these directories. In the next chapter, we will build our first complex aggregate: **The Product**.
+### CQRS State Isolation
+
+To prevent accidental data leakage, we will strictly enforce CQRS by ensuring our Write models and Read models use completely separate Go structs, even if they share the same name (like `Product`). 
+
+We achieve this by nesting a `types` package inside the aggregate and the projection:
+
+* `internal/catalog/aggregates/product/types/product.go` (The pure state for business logic)
+* `internal/catalog/projections/catalog_list/types/product.go` (The view state for the UI)
+
+In the next chapter, we will build the Product aggregate using this strict structural pattern.
