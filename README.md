@@ -9,9 +9,7 @@
   <img src="./docs/assets/logo.png" alt="flux gopher logo">
 </p>
 
-> Flux is a lightweight, high-performance Event Sourcing and CQRS framework for Go. Leveraging Go 1.26 generics, it delivers fast and completely type-safe message routing. The built-in ecosystem features self-referencing aggregates, read-model projections, distributed sagas, snapshotting, and optimistic concurrency control.
-
----
+`flux` is a lightweight, high-performance Event Sourcing and CQRS framework for Go. Leveraging Go 1.26 generics, it delivers fast and completely type-safe message routing. The built-in ecosystem features self-referencing aggregates, read-model projections, distributed sagas, snapshotting, and optimistic concurrency control.
 
 ## Why flux?
 
@@ -29,8 +27,6 @@
 - **Context & Metadata Propagation:** First-class auditability preserving `Actor`, `CorrelationIdentifier`, and `CausationIdentifier` across all operations.
 - **Pluggable Storage:** Built-in in-memory stores (`event/store`, `projection/store`, `saga/store`) with clean interfaces for implementing durable event and projection databases.
 
----
-
 ## Install
 
 Requires Go 1.26 or later:
@@ -38,8 +34,6 @@ Requires Go 1.26 or later:
 ```bash
 go get github.com/wotek/flux
 ```
-
----
 
 ## Quick Start
 
@@ -163,8 +157,6 @@ if err := command.Execute(cmdCtx, cmdBus, CreateAccountCommand{Owner: "Alice"});
     log.Fatal(err)
 }
 ```
-
----
 
 ## Core Concepts
 
@@ -562,8 +554,6 @@ func (r *SnapshotRepository[A, E, S]) Save(ctx Context, aggregate A) error
 func Every[A Aggregate[A, E], E Event](n uint64) SnapshotSchedule[A]
 ```
 
----
-
 ## Testing
 
 Run unit tests and race detection:
@@ -572,16 +562,12 @@ Run unit tests and race detection:
 go test -v -race ./...
 ```
 
----
-
 ## Reference Applications from examples/
 
 The `example/` directory contains complete, runnable reference applications demonstrating how to use `flux` in production-like environments.
 
 - **[Todo Reference Application](example/todo/README.md):** A complete CQRS and Event Sourced reference implementation with domain events, co-located handlers, TUI client, and read-model projections.
 - **[E-Commerce](example/e-commerce/README.md):** (Coming soon)
-
----
 
 ## API
 
@@ -1046,8 +1032,6 @@ Instead:
 1. You use the `EventBus` to push events into a Temporal Workflow (just like Projections).
 2. The Temporal Workflow _is_ your Saga. It natively maintains its own local state variables.
 3. When the Workflow wants to dispatch a command, it executes a Temporal `Activity` that calls `command.ExecuteAsync(ctx, bus, myCmd)`.
-
----
 
 ## License
 
