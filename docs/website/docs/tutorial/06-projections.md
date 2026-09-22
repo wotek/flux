@@ -1,16 +1,16 @@
-# 6. Building Projections (Read Models)
+# 6. Projections & Queries
 
 Our Write Model (Aggregates) is structurally perfect for enforcing business rules. However, the `EventStore` is practically useless for querying. You cannot run a query like `SELECT * FROM Orders WHERE CustomerID = '123'` against an append-only event log.
 
-To solve this, we use the "Query" side of CQRS: **Projections**.
+To solve this, we complete the "Query" side of CQRS using **Projections** and the **Query Bus**.
 
-## What is a Projection?
+## Part 1: Building the Projection
 
 A Projection listens to the continuous stream of Domain Events and "projects" those facts into a secondary database optimized for reading. This could be a relational SQL table, a MongoDB document collection, or even a Redis cache.
 
 When the UI requests data, it queries this read model directly, completely bypassing the EventStore and the Aggregates.
 
-## 1. Defining the Projector
+### 1. Defining the Projector
 
 Let's build a projection that maintains a searchable SQL table of Products for our Catalog domain.
 
@@ -37,48 +37,113 @@ func (p *ProductViewProjector) HandleProductCreated(ctx event.Context, e events.
 	_, err := p.DB.ExecContext(ctx, query, productID, e.Name, e.Price)
 	return err
 }
-
-// HandlePriceUpdated updates an existing row.
-func (p *ProductViewProjector) HandlePriceUpdated(ctx event.Context, e events.PriceUpdated) error {
-	productID := ctx.Stream().Identifier.String()
-
-	query := `UPDATE product_view SET price = ? WHERE id = ?`
-	_, err := p.DB.ExecContext(ctx, query, e.NewPrice, productID)
-	return err
-}
 ```
 
-## 2. Idempotency & The Event Context
+### 2. Idempotency & The Event Context
 
 One of the most critical aspects of Projections is that they must be **idempotent**. If the system crashes and replays historical events to catch up, your projector might receive the same `ProductCreated` event twice.
 
-Notice how our handlers take an `event.Context` instead of a standard `context.Context`? The `event.Context` provides essential metadata about the Envelope:
+You can use the `GlobalPosition` from the `event.Context` to track exactly which events your projector has already processed by saving it alongside your read model data in the same SQL transaction. If you receive an event with a global position less than or equal to what you've saved, you safely skip it.
 
 ```go
 revision := ctx.Revision() // e.g., 1
 globalPos := ctx.Position() // e.g., 4205
 ```
 
-You can use the `GlobalPosition` to track exactly which events your projector has already processed by saving it alongside your read model data in the same SQL transaction. If you receive an event with a global position less than or equal to what you've saved, you can safely skip it!
+## Part 2: Fetching Data with the Query Bus
 
-## 3. Wiring the Event Bus
+Now that our `product_view` table is being populated continuously in the background, we need a way for our API to fetch this data. We do this using the `Query Bus`.
 
-Finally, we register our projector methods to the global **Event Bus**. Unlike the Command Bus (which is 1:1), the Event Bus is **1:N** (Pub/Sub). Multiple projectors can listen to the exact same event.
+### 1. Defining the Query
+
+Just like Commands, Queries are plain Go structs that declare the data we want. We also define the expected result struct.
 
 ```go
-import "github.com/wotek/flux/event"
+package queries
 
-func main() {
-	eventBus := event.New()
-	
-	projector := &projections.ProductViewProjector{DB: sqlDB}
+// GetProduct is an intent to fetch a single product's view model.
+type GetProduct struct {
+	ProductID string
+}
 
-	// Registering the handlers
-	event.Register(eventBus, projector.HandleProductCreated)
-	event.Register(eventBus, projector.HandlePriceUpdated)
+// ProductView is the read-model shape we will return to the frontend.
+type ProductView struct {
+	ID    string
+	Name  string
+	Price int
 }
 ```
 
-Now, whenever an Aggregate successfully saves to the `EventStore`, the framework will publish the resulting events to the `EventBus`, and our `product_view` SQL table will instantly update!
+### 2. Writing the Query Handler
+
+The Query Handler takes the Query struct, executes the highly optimized `SELECT` statement against our projection table, and returns the result.
+
+```go
+package handlers
+
+import (
+	"database/sql"
+	"github.com/wotek/flux/query"
+	"e-commerce/internal/catalog/queries"
+)
+
+// HandleGetProduct acts as the bridge between the Query Bus and our SQL projection.
+func HandleGetProduct(db *sql.DB) func(ctx query.Context, q queries.GetProduct) (queries.ProductView, error) {
+	return func(ctx query.Context, q queries.GetProduct) (queries.ProductView, error) {
+		var view queries.ProductView
+		
+		stmt := `SELECT id, name, price FROM product_view WHERE id = ?`
+		err := db.QueryRowContext(ctx, stmt, q.ProductID).Scan(&view.ID, &view.Name, &view.Price)
+		
+		if err != nil {
+			return queries.ProductView{}, err
+		}
+		return view, nil
+	}
+}
+```
+
+### 3. Routing via the Query Bus
+
+Just like the Command Bus, the Query Bus maps exactly **one** handler to a Query type. We register it in `main.go` using `flux`'s generic type inference.
+
+```go
+import "github.com/wotek/flux/query"
+
+func main() {
+	queryBus := query.New()
+
+	// The generic RegisterHandler strictly ensures the inputs and outputs match!
+	query.RegisterHandler(queryBus, handlers.HandleGetProduct(db))
+}
+```
+
+### 4. Executing the Query in your API
+
+When an HTTP GET request arrives, you ask the Query Bus for the data. You do not touch the `AggregateRepository` or the `EventStore`.
+
+```go
+func (api *Server) GetProductEndpoint(w http.ResponseWriter, r *http.Request) {
+    productID := r.URL.Query().Get("id")
+
+    // Construct the typed context
+    ctx := query.NewContext(r.Context(), flux.MustParseIdentifier("urn:query:1"), flux.Actor{}, flux.Identifier{})
+
+    // Execute the query. Notice how the return type is strongly typed to `queries.ProductView`!
+    result, err := query.Ask(ctx, api.QueryBus, queries.GetProduct{ProductID: productID})
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusNotFound)
+        return
+    }
+
+    json.NewEncoder(w).Encode(result)
+}
+```
+
+### Why use a Query Bus?
+
+Why not just write `db.QueryRow` directly inside the HTTP handler? 
+
+By using the `query.Bus`, you cleanly decouple your delivery mechanism (HTTP/gRPC) from your domain queries. More importantly, it allows you to use **Middlewares**. You can easily attach a Redis caching middleware to the Query Bus that intercepts `queries.GetProduct`, serves it from Redis instantly if available, and only executes the underlying SQL handler if there is a cache miss!
 
 In our final chapter, we will tackle the hardest problem in distributed systems: long-running cross-domain workflows.
