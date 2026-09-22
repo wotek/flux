@@ -5,6 +5,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/wotek/flux/actions/workflows/build.yml/badge.svg)](https://github.com/wotek/flux/actions/workflows/build.yml)
 
+<p align="center">
+  <img src="./docs/assets/logo.png" alt="flux gopher logo">
+</p>
+
 > Flux is a lightweight, high-performance Event Sourcing and CQRS framework for Go. Leveraging Go 1.26 generics, it delivers fast and completely type-safe message routing. The built-in ecosystem features self-referencing aggregates, read-model projections, distributed sagas, snapshotting, and optimistic concurrency control.
 
 ---
