@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/wotek/flux/compare/v2.0.0...v2.0.1) (2026-09-22)
+
+
+### Bug Fixes
+
+* **docs:** remove base path for custom domain deployment ([02cd97a](https://github.com/wotek/flux/commit/02cd97a0ef68d453f11304681a1e895a0f202266))
+
 ## [2.0.0](https://github.com/wotek/flux/compare/v1.0.0...v2.0.0) (2026-09-22)
 
 
