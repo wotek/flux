@@ -941,23 +941,44 @@ query.RegisterHandler(queryBus, &UserStatsQueryHandler{db: myDatabase})
 
 Because the framework strictly decouples **Routing** from **Execution**, you are not forced to use the default `Projector` or `ProjectionStore`. If you prefer to run Projections as durable [Temporal Workflows](https://temporal.io/), the framework provides the perfect hooks to bridge the gap.
 
-Instead of a traditional pull-based projector, you can use the `EventBus` to push events directly into Temporal as Signals:
+While you *can* use the `EventBus` to push events into Temporal as signals, the most robust and operational-friendly architecture is to run a **Temporal Workflow that directly tails the EventStore**. 
 
 ```go
-// Example: Using the EventBus to bridge events into Temporal
-event.Register(bus, func(ctx event.Context, e OrderCreated) error {
-	// The event.Context provides the metadata, and 'e' is the clean payload
-	return temporalClient.SignalWorkflow(
-		ctx,
-		"Projection-Dashboard", // Target Temporal Workflow ID
-		"",
-		"OrderCreatedSignal",
-		e,
-	)
-})
+func DashboardProjectionWorkflow(ctx workflow.Context, lastRevision int) error {
+	// 1. Loop and tail the EventStore via a Temporal Activity
+	for {
+		var batch []flux.Envelope
+		var nextRevision int
+		
+		err := workflow.ExecuteActivity(ctx, FetchEventsActivity, lastRevision).Get(ctx, &batch)
+		if err != nil {
+			return err
+		}
+		
+		for _, env := range batch {
+			// 2. Execute projection logic (e.g., SQL INSERT) transactionally in an Activity
+			err := workflow.ExecuteActivity(ctx, UpdateDashboardActivity, env).Get(ctx, nil)
+			if err != nil {
+				return err // Temporal will automatically retry the activity!
+			}
+			lastRevision = env.GlobalPosition
+		}
+		
+		// 3. Prevent workflow history limits by continuing as new
+		if workflow.GetInfo(ctx).GetCurrentHistoryLength() > 10000 {
+			return workflow.NewContinueAsNewError(ctx, DashboardProjectionWorkflow, lastRevision)
+		}
+		
+		workflow.Sleep(ctx, 1 * time.Second) // Small backoff before tailing again
+	}
+}
 ```
 
-Because Temporal workflows durably persist their own local state and handle retries natively, this approach eliminates the need to manually track `Position` cursors or manage database transactions.
+By owning the read-loop inside a Temporal Workflow, you unlock massive operational superpowers:
+
+* **Pausing & Resuming:** You can expose a Temporal Signal (e.g., `PauseSignal`). When received, the workflow `Select` blocks and halts polling the EventStore until a `ResumeSignal` is received. This is absolutely invaluable during read-model database migrations or schema updates.
+* **Replaying:** To completely rebuild a projection from scratch, you simply `Terminate` the current Temporal Workflow execution, truncate your read-model SQL table, and start a new workflow execution with `lastRevision = 0`. Temporal will automatically catch up through the entire event store history.
+* **Adding Projections to a Live System:** When you build a new feature that requires a brand new read model, you simply deploy the new Temporal Workflow code and start it at `revision = 0`. It will catch up to the live system seamlessly without requiring any downtime, deployments, or modifications to the core event stream.
 
 ### Workflows
 
