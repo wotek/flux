@@ -187,6 +187,45 @@ func (s *Serializer) Unmarshal(data []byte) (flux.Envelope, error)
 
 ## Storage Backends
 
+### In-Memory Event Store
+
+```go
+// package store ("github.com/wotek/flux/event/store")
+
+type EventStore struct {
+	mu           sync.RWMutex
+	streams      map[string][]flux.Envelope
+	globalStream []flux.Envelope
+}
+
+func New() *EventStore
+
+func (s *EventStore) Append(ctx context.Context, stream flux.Stream, expectedRevision uint64, events []flux.Envelope) error
+
+func (s *EventStore) Read(ctx context.Context, stream flux.Stream, fromRevision uint64) (flux.StreamIterator, error)
+
+func (s *EventStore) Stream(ctx context.Context, position uint64) (flux.StreamIterator, error)
+```
+
+### In-Memory Snapshot Store
+
+```go
+// package store ("github.com/wotek/flux/snapshot/store")
+
+type SnapshotStore[S any] struct {
+	mu        sync.RWMutex
+	snapshots map[string]flux.Snapshot[S]
+}
+
+func New[S any]() *SnapshotStore[S]
+
+func NewSnapshotStore[S any]() *SnapshotStore[S]
+
+func (s *SnapshotStore[S]) Load(ctx context.Context, stream flux.Stream) (flux.Snapshot[S], error)
+
+func (s *SnapshotStore[S]) Save(ctx context.Context, stream flux.Stream, snap flux.Snapshot[S]) error
+```
+
 ### Redis Event Store
 
 ```go
