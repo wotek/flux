@@ -1,6 +1,7 @@
 package flux
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -92,5 +93,90 @@ func TestNewIdentifier(t *testing.T) {
 	expected := "urn:org:env:svc:acc:type:id/path@v1"
 	if id.String() != expected {
 		t.Errorf("NewIdentifier() = %v, want %v", id.String(), expected)
+	}
+}
+
+func TestIdentifier_TextSerialization(t *testing.T) {
+	id := MustParseIdentifier("urn:acme:prod:payments:tenant-1:order:12345@v2")
+
+	// MarshalText
+	text, err := id.MarshalText()
+	if err != nil {
+		t.Fatalf("unexpected error during MarshalText: %v", err)
+	}
+	if string(text) != id.String() {
+		t.Errorf("MarshalText() = %q, want %q", string(text), id.String())
+	}
+
+	// UnmarshalText valid
+	var unmarshaled Identifier
+	if err := unmarshaled.UnmarshalText(text); err != nil {
+		t.Fatalf("unexpected error during UnmarshalText: %v", err)
+	}
+	if unmarshaled != id {
+		t.Errorf("UnmarshalText() = %v, want %v", unmarshaled, id)
+	}
+
+	// UnmarshalText empty string
+	var empty Identifier
+	if err := empty.UnmarshalText([]byte("")); err != nil {
+		t.Fatalf("unexpected error unmarshaling empty text: %v", err)
+	}
+	if !empty.IsEmpty() {
+		t.Errorf("expected empty identifier to be empty, got: %v", empty)
+	}
+
+	// UnmarshalText invalid format
+	var invalid Identifier
+	if err := invalid.UnmarshalText([]byte("not-a-urn")); err == nil {
+		t.Fatal("expected error unmarshaling invalid text, got nil")
+	}
+}
+
+func TestIdentifier_JSONSerialization(t *testing.T) {
+	type wrapper struct {
+		ID   Identifier `json:"id"`
+		Name string     `json:"name"`
+	}
+
+	orig := wrapper{
+		ID:   MustParseIdentifier("urn:acme:prod:payments:tenant-1:order:12345@v2"),
+		Name: "Test Order",
+	}
+
+	data, err := json.Marshal(orig)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+
+	expectedJSON := `{"id":"urn:acme:prod:payments:tenant-1:order:12345@v2","name":"Test Order"}`
+	if string(data) != expectedJSON {
+		t.Errorf("json.Marshal() = %s, want %s", string(data), expectedJSON)
+	}
+
+	var decoded wrapper
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+
+	if decoded != orig {
+		t.Errorf("decoded = %+v, want %+v", decoded, orig)
+	}
+
+	// Deserializing empty string
+	emptyJSON := `{"id":"","name":"Empty Order"}`
+	var emptyDecoded wrapper
+	if err := json.Unmarshal([]byte(emptyJSON), &emptyDecoded); err != nil {
+		t.Fatalf("json.Unmarshal empty ID failed: %v", err)
+	}
+	if !emptyDecoded.ID.IsEmpty() {
+		t.Errorf("expected empty ID, got %v", emptyDecoded.ID)
+	}
+
+	// Deserializing invalid identifier
+	invalidJSON := `{"id":"invalid-urn","name":"Invalid"}`
+	var invalidDecoded wrapper
+	if err := json.Unmarshal([]byte(invalidJSON), &invalidDecoded); err == nil {
+		t.Fatal("expected json.Unmarshal to fail for invalid URN, got nil")
 	}
 }

@@ -63,3 +63,22 @@ If you run `SELECT * FROM events ORDER BY id ASC`, your database doesn't even ne
 ## Is it mandatory?
 
 **No.** The `flux.MustParseIdentifier` function simply validates the URN structure (`urn:x:y:z`). The framework does not care what you place in the `z` portion. If you are migrating a legacy system that relies on UUIDs, `flux` will accept them without complaint!
+
+## Serialization & JSON Compatibility
+
+Because `Identifier` is a fundamental Value Object, it implements the Go standard library's `encoding.TextMarshaler` and `encoding.TextUnmarshaler` interfaces. 
+
+This means that `flux.Identifier` works completely natively with `encoding/json`, XML, YAML, and most database ORMs right out of the box, cleanly serializing to and from its string URN representation without any custom logic on your end.
+
+```go
+type APIResponse struct {
+    UserID flux.Identifier `json:"user_id"`
+    Name   string          `json:"name"`
+}
+
+// When marshaled, it automatically flattens to a string!
+// {"user_id": "urn:auth:user:01HN7...", "name": "John"}
+json.Marshal(response)
+```
+
+Furthermore, because `UnmarshalText` internally relies on `flux.ParseIdentifier()`, if a frontend client sends malformed JSON (e.g., `{"user_id": "invalid-uuid"}`), the standard `json.Unmarshal` process will automatically fail and reject the payload, protecting your domain!

@@ -1,6 +1,7 @@
 package flux
 
 import (
+	"encoding"
 	"fmt"
 	"strings"
 )
@@ -24,6 +25,11 @@ const (
 type Identifier struct {
 	urn string
 }
+
+var (
+	_ encoding.TextMarshaler   = Identifier{}
+	_ encoding.TextUnmarshaler = (*Identifier)(nil)
+)
 
 // NewIdentifier constructs an Identifier from its constituent parts.
 func NewIdentifier(org, env, svc, account, resType, resID, version string) Identifier {
@@ -69,6 +75,32 @@ func (i Identifier) IsEmpty() bool {
 // String returns the canonical string representation of the Identifier.
 func (i Identifier) String() string {
 	return i.urn
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (i Identifier) MarshalText() ([]byte, error) {
+	// The existing String() method perfectly outputs the formatted URN.
+	return []byte(i.String()), nil
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (i *Identifier) UnmarshalText(text []byte) error {
+	s := string(text)
+
+	// Handle empty/null values gracefully
+	if s == "" {
+		*i = Identifier{}
+		return nil
+	}
+
+	// Leverage the existing, robust validation logic
+	parsed, err := ParseIdentifier(s)
+	if err != nil {
+		return err
+	}
+
+	*i = parsed
+	return nil
 }
 
 // extractComponent extracts the value of a specific component based on colons.
