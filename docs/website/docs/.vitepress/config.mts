@@ -42,6 +42,7 @@ export default defineConfig({
           { text: 'Projections', link: '/guide/projections' },
           { text: 'Workflows & Temporal Integration', link: '/guide/workflows' },
           { text: 'Structured Identifiers (URNs)', link: '/guide/identifiers' },
+          { text: 'Serialization & Codecs', link: '/guide/serialization' },
         ]
       },
       {

@@ -68,3 +68,86 @@ type Context interface {
 	Metadata() map[string]string
 }
 ```
+
+## Event Type Registry
+
+The `event` package provides a reflection-free type registry to instantiate concrete event pointers by name during deserialization.
+
+```go
+// package event
+
+var ErrTypeNotRegistered = errors.New("event type not registered")
+
+type Types struct {
+	mu        sync.RWMutex
+	factories map[string]func() flux.Event
+}
+
+func NewTypes() *Types
+
+func (t *Types) Register(name string, factory func() flux.Event)
+
+func RegisterType[T flux.Event](t *Types)
+
+func (t *Types) Instantiate(name string) (flux.Event, error)
+```
+
+## Serialization Codecs
+
+The `codec` package and subpackages provide pluggable serializers for encoding and decoding `flux.Envelope` instances while preserving domain model purity.
+
+### Codec Interface
+
+```go
+// package codec
+
+var (
+	ErrNilEvent = errors.New("envelope event cannot be nil")
+	ErrEmptyEventName = errors.New("event name cannot be empty")
+)
+
+type Serializer interface {
+	Marshal(env flux.Envelope) ([]byte, error)
+	Unmarshal(data []byte) (flux.Envelope, error)
+}
+```
+
+### JSON Codec
+
+```go
+// package json ("github.com/wotek/flux/codec/json")
+
+type TypeRegistry interface {
+	Instantiate(name string) (flux.Event, error)
+}
+
+type Serializer struct {
+	types TypeRegistry
+}
+
+func New(types TypeRegistry) *Serializer
+
+func (s *Serializer) Marshal(env flux.Envelope) ([]byte, error)
+
+func (s *Serializer) Unmarshal(data []byte) (flux.Envelope, error)
+```
+
+### XML Codec
+
+```go
+// package xml ("github.com/wotek/flux/codec/xml")
+
+type TypeRegistry interface {
+	Instantiate(name string) (flux.Event, error)
+}
+
+type Serializer struct {
+	types TypeRegistry
+}
+
+func New(types TypeRegistry) *Serializer
+
+func (s *Serializer) Marshal(env flux.Envelope) ([]byte, error)
+
+func (s *Serializer) Unmarshal(data []byte) (flux.Envelope, error)
+```
