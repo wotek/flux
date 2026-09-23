@@ -16,7 +16,8 @@ By utilizing strict generic constraints on Aggregates and explicitly typed decod
 
 1. **Reflection-Free:** Generics are used everywhere. Your command handlers, queries, and aggregates are statically typed.
 2. **Framework Decoupling:** Business logic is entirely isolated. Aggregates have zero knowledge of databases, Event Stores, or network boundaries.
-3. **Bring Your Own Backend:** `flux` ships with a blazing-fast In-Memory testing backend, but allows you to seamlessly swap to MySQL, Redis, or PostgreSQL via a clean `EventStore` interface.
+3. **Domain Purity (Serialization Agnostic):** The core domain is entirely free of infrastructure pollution. You will never write a single `json:` or `xml:` tag on your core Domain Events. Serialization is handled exclusively at the edges via DTOs, generic Type Registries, and "Batteries-Included" Codecs.
+4. **Bring Your Own Backend:** `flux` ships with a blazing-fast In-Memory testing backend, but allows you to seamlessly swap to MySQL, Redis, or PostgreSQL via a clean `EventStore` interface.
 
 ## Next Steps
 
