@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.2.0](https://github.com/wotek/flux/compare/v2.1.0...v2.2.0) (2026-09-23)
+
+
+### Features
+
+* **codec:** implement Protocol Buffers serializer and pointer type registry ([75ca751](https://github.com/wotek/flux/commit/75ca75189fa9b8f8012d23578a8728ea1b64439d))
+* **repo:** use ULID instead of UUID for auto-generated Event Resource IDs ([7df9ba6](https://github.com/wotek/flux/commit/7df9ba6bd3b5890a888bef34a455f62515dbfe64))
+* **store:** add mysql event and snapshot store implementations ([8d44542](https://github.com/wotek/flux/commit/8d44542516814c60c2800d763a018f2a9e9009f2))
+* **store:** implement Redis EventStore and SnapshotStore with optimistic concurrency and global tailing ([4cf4141](https://github.com/wotek/flux/commit/4cf4141e2ad9ac37a5e95479aa54b52c4166bedc))
+
+
+### Bug Fixes
+
+* **event:** use sentinel error for RegisterType panic ([f0a51a9](https://github.com/wotek/flux/commit/f0a51a907467d262b10447521bb6eb11cf64799e))
+
 ## [2.1.0](https://github.com/wotek/flux/compare/v2.0.1...v2.1.0) (2026-09-23)
 
 
