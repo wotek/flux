@@ -178,3 +178,59 @@ func (s *Serializer) Marshal(env flux.Envelope) ([]byte, error)
 
 func (s *Serializer) Unmarshal(data []byte) (flux.Envelope, error)
 ```
+
+## Storage Backends
+
+### Redis Event Store
+
+```go
+// package redis ("github.com/wotek/flux/event/store/redis")
+
+type Option func(*config)
+
+func WithKeyPrefix(prefix string) Option
+
+func WithBatchSize(size int64) Option
+
+type EventStore struct {
+	client       redis.UniversalClient
+	serializer   codec.Serializer
+	config       config
+	appendScript *redis.Script
+}
+
+func New(client redis.UniversalClient, serializer codec.Serializer, opts ...Option) *EventStore
+
+func NewEventStore(client redis.UniversalClient, serializer codec.Serializer, opts ...Option) *EventStore
+
+func (s *EventStore) Append(ctx context.Context, stream flux.Stream, expectedRevision uint64, events []flux.Envelope) error
+
+func (s *EventStore) Read(ctx context.Context, stream flux.Stream, fromRevision uint64) (flux.StreamIterator, error)
+
+func (s *EventStore) Stream(ctx context.Context, position uint64) (flux.StreamIterator, error)
+```
+
+### Redis Snapshot Store
+
+```go
+// package redis ("github.com/wotek/flux/snapshot/store/redis")
+
+var ErrSnapshotNotFound = errors.New("snapshot not found")
+
+type Option func(*config)
+
+func WithKeyPrefix(prefix string) Option
+
+type SnapshotStore[S any] struct {
+	client redis.UniversalClient
+	config config
+}
+
+func New[S any](client redis.UniversalClient, opts ...Option) *SnapshotStore[S]
+
+func NewSnapshotStore[S any](client redis.UniversalClient, opts ...Option) *SnapshotStore[S]
+
+func (s *SnapshotStore[S]) Load(ctx context.Context, stream flux.Stream) (flux.Snapshot[S], error)
+
+func (s *SnapshotStore[S]) Save(ctx context.Context, stream flux.Stream, snap flux.Snapshot[S]) error
+```

@@ -41,7 +41,7 @@ func (t *Types) Register(name string, factory func() flux.Event) {
 // that returns a new pointer to T.
 func RegisterType[T flux.Event](t *Types) {
 	var zero T
-	if reflect.TypeOf(zero).Kind() == reflect.Ptr {
+	if typ := reflect.TypeOf(zero); typ != nil && typ.Kind() == reflect.Pointer {
 		panic(fmt.Errorf("%w (got %T)", ErrPointerRegistration, zero))
 	}
 	name := zero.Name()
