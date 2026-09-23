@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package flux.codec.protobuf;
+
+option go_package = "github.com/wotek/flux/codec/protobuf";
+
+import "google/protobuf/timestamp.proto";
+
+message EnvelopeDTO {
+    string id = 1;
+    string event_name = 2;
+    bytes event_payload = 3; 
+    uint64 revision = 4;
+    uint64 global_position = 5;
+    string actor = 6;
+    string stream_id = 7;
+    string correlation_id = 8;
+    google.protobuf.Timestamp created_at = 9;
+    map<string, string> metadata = 10;
+    string causation_id = 11;
+}

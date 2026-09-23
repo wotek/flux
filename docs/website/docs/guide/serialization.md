@@ -113,8 +113,47 @@ xmlCodec := xml.New(registry)
 bytes, _ := xmlCodec.Marshal(myEnvelope)
 ```
 
-### Writing Your Own Codec (e.g., Protobuf)
 
-If your enterprise requires extreme performance or cross-language compatibility, you can easily write your own `ProtobufSerializer` or `MessagePackSerializer`. 
+#### Using the Protocol Buffers Codec
+For enterprise environments requiring massive scale, cross-language support, and strict schema versioning, `flux` provides a native Protocol Buffers (Protobuf) codec.
+
+**The Protobuf Contract:** Unlike JSON or XML which use reflection to serialize arbitrary Go structs, the Protobuf Go library requires structs to explicitly implement the `proto.Message` interface. Therefore, if you choose the Protobuf codec, **all of your Domain Events must be defined as `.proto` messages and compiled via `protoc`.**
+
+```protobuf
+// events.proto
+syntax = "proto3";
+package ecommerce.events;
+option go_package = "e-commerce/internal/catalog/events";
+
+message ProductCreated {
+    string name = 1;
+    int64 price = 2;
+}
+```
+
+Because `protoc` generates Go structs where the methods are attached to the **pointer** receiver (e.g., `func (*ProductCreated) Name() string`), the base value type does not implement `flux.Event`. To register Protobuf events into the `flux` registry, you must use the specialized `RegisterPointerType` function:
+
+```go
+import (
+    "github.com/wotek/flux/codec/protobuf"
+    "github.com/wotek/flux/event"
+)
+
+registry := event.NewTypes()
+
+// Use RegisterPointerType for compiled Protobuf messages!
+event.RegisterPointerType[events.ProductCreated](registry)
+
+// Initialize the codec
+protoCodec := protobuf.New(registry)
+
+// Marshal an envelope to highly compressed binary bytes
+bytes, _ := protoCodec.Marshal(myEnvelope)
+```
+
+
+### Writing Your Own Codec
+
+If your enterprise requires extreme performance with exotic formats, you can easily write your own `MessagePackSerializer` or `AvroSerializer`. 
 
 Simply define a struct that implements `codec.Serializer`, pass the `event.Types` registry into its constructor, and provide it to your backend driver!

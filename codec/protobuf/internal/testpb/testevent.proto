@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package flux.codec.protobuf.testpb;
+
+option go_package = "github.com/wotek/flux/codec/protobuf/internal/testpb";
+
+message TestProductCreated {
+    string product_name = 1;
+    int64 price = 2;
+}

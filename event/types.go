@@ -48,6 +48,20 @@ func RegisterType[T flux.Event](t *Types) {
 	})
 }
 
+// RegisterPointerType uses generics to register an event type whose pointer receiver *T implements [flux.Event].
+// This is particularly useful for Protocol Buffers and types with internal mutexes.
+func RegisterPointerType[T any, PT interface {
+	*T
+	flux.Event
+}](t *Types) {
+	var zero PT = new(T)
+	name := zero.Name()
+
+	t.Register(name, func() flux.Event {
+		return any(new(T)).(flux.Event)
+	})
+}
+
 // Instantiate returns an empty pointer to the concrete event struct based on its name.
 // Returns [ErrTypeNotRegistered] if the event type was not registered.
 func (t *Types) Instantiate(name string) (flux.Event, error) {

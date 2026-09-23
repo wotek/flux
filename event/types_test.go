@@ -30,6 +30,14 @@ func (e userRenamed) Name() string {
 	return "UserRenamed"
 }
 
+type pointerReceiverEvent struct {
+	Note string
+}
+
+func (*pointerReceiverEvent) Name() string {
+	return "PointerReceiverEvent"
+}
+
 func TestTypes_Instantiate(t *testing.T) {
 	t.Parallel()
 
@@ -68,6 +76,15 @@ func TestTypes_Instantiate(t *testing.T) {
 			},
 			lookup:    "UserCreated",
 			wantType:  "*event_test.userCreated",
+			wantError: nil,
+		},
+		{
+			name: "pointer receiver registered via RegisterPointerType",
+			register: func(types *event.Types) {
+				event.RegisterPointerType[pointerReceiverEvent](types)
+			},
+			lookup:    "PointerReceiverEvent",
+			wantType:  "*event_test.pointerReceiverEvent",
 			wantError: nil,
 		},
 		{

@@ -89,6 +89,11 @@ func (t *Types) Register(name string, factory func() flux.Event)
 
 func RegisterType[T flux.Event](t *Types)
 
+func RegisterPointerType[T any, PT interface {
+	*T
+	flux.Event
+}](t *Types)
+
 func (t *Types) Instantiate(name string) (flux.Event, error)
 ```
 
@@ -136,6 +141,28 @@ func (s *Serializer) Unmarshal(data []byte) (flux.Envelope, error)
 
 ```go
 // package xml ("github.com/wotek/flux/codec/xml")
+
+type TypeRegistry interface {
+	Instantiate(name string) (flux.Event, error)
+}
+
+type Serializer struct {
+	types TypeRegistry
+}
+
+func New(types TypeRegistry) *Serializer
+
+func (s *Serializer) Marshal(env flux.Envelope) ([]byte, error)
+
+func (s *Serializer) Unmarshal(data []byte) (flux.Envelope, error)
+```
+
+### Protocol Buffers Codec
+
+```go
+// package protobuf ("github.com/wotek/flux/codec/protobuf")
+
+var ErrNotProtoMessage = errors.New("event does not implement proto.Message")
 
 type TypeRegistry interface {
 	Instantiate(name string) (flux.Event, error)
