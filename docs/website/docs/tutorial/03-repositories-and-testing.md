@@ -12,21 +12,39 @@ Unlike an ORM which saves the *current state* of a struct to a row, the Aggregat
 1. **Saving:** It extracts the uncommitted events from your aggregate's `Changeset` and appends them to the event stream.
 2. **Loading:** It fetches all historical events for a given stream, instantiates an empty aggregate (using `New()`), and replays every event through your `apply()` method to rebuild the state.
 
-### Initializing the Repository
+### Initializing the Type Registry & Repository
 
-In your application's entrypoint (e.g., `cmd/server/main.go`), you will initialize an `EventStore` and bind it to a generic repository typed specifically for your `Product`.
+Before you initialize your database driver, you need to register your events. Because `flux` uses generic interfaces, backend drivers need a **Type Registry** to dynamically rebuild your concrete Go structs when reading raw bytes from the database.
+
+In your application's entrypoint (e.g., `cmd/server/main.go`), you will setup the registry, initialize an `EventStore`, and bind it to a generic repository typed specifically for your `Product`.
 
 ```go
 import (
 	"github.com/wotek/flux"
-	eventstore "github.com/wotek/flux/event/store"
+	"github.com/wotek/flux/event"
+	"github.com/wotek/flux/codec/json"
+	
 	"e-commerce/internal/catalog/aggregates/product"
+	catalogEvents "e-commerce/internal/catalog/events"
+	
+	// e.g., if using a persistent driver:
+	// redisStore "github.com/wotek/flux/event/store/redis"
+	memoryStore "github.com/wotek/flux/event/store"
 )
 
-// 1. Initialize the storage backend (In-Memory for now)
-store := eventstore.New()
+// 1. Initialize the Event Type Registry
+registry := event.NewTypes()
+event.RegisterType[catalogEvents.ProductCreated](registry)
+event.RegisterType[catalogEvents.PriceUpdated](registry)
 
-// 2. Initialize a repository exclusively for Products
+// 2. Setup your Codec (If using a persistent database)
+jsonCodec := json.New(registry)
+
+// 3. Initialize the storage backend
+// For in-memory, we don't strictly need the codec, but a real DB does!
+store := memoryStore.New()
+
+// 4. Initialize a repository exclusively for Products
 repo := flux.NewAggregateRepository[*product.Product, flux.Event](store)
 ```
 

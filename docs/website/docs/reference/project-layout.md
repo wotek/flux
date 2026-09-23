@@ -88,6 +88,15 @@ Read models that aggregate data from multiple domains (e.g., joining `ProductCre
 - **Consumer Domains:** If the projection serves a specific business capability (like analytics or reporting), it should live in its own consumer domain (e.g., `internal/reporting/projections/`).
 - **Ambiguous Projections:** For read models that don't neatly fit a specific consumer domain but are universally used, place them in the global `internal/projections/` directory.
 
+
+### Platform / Infrastructure (`internal/platform/`)
+
+It is highly recommended to isolate the initialization of external dependencies and framework registries from your core domain logic.
+
+Create an `internal/platform/events/` package to handle the registration of all domain events across the entire application into the `flux/event.Types` registry. This provides a clean, single location for `cmd/server/main.go` to invoke during application startup, keeping the `main` package from becoming a massive list of registered events.
+
+Similarly, database client initializations (Redis, MySQL) and Codec setups (`flux/codec/json`) belong here or directly in the application entrypoint.
+
 ### Global Types (`internal/types/`)
 
 Value objects that are ubiquitous across the entire organization.
