@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/wotek/flux/compare/v1.0.1...v1.1.0) (2026-09-23)
+
+
+### Features
+
+* **store:** add in-memory snapshot store implementation ([5ec6baa](https://github.com/wotek/flux/commit/5ec6baa3be5b7279fdc4072cdc2a5f4eaff774a5))
+
 ## [1.0.1](https://github.com/wotek/flux/compare/v1.0.0...v1.0.1) (2026-09-23)
 
 
