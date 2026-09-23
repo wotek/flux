@@ -160,3 +160,23 @@ func TestTypes_Concurrent(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestTypes_RegisterType_PanicsOnPointer(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Errorf("expected RegisterType to panic when passed a pointer")
+		}
+		if err, ok := r.(error); ok {
+			if !errors.Is(err, event.ErrPointerRegistration) {
+				t.Errorf("expected panic to be ErrPointerRegistration, got: %v", err)
+			}
+		}
+	}()
+
+	registry := event.NewTypes()
+	// Attempting to register a pointer type should trigger the gatekeeper panic
+	event.RegisterType[*userCreated](registry)
+}

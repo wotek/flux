@@ -2,6 +2,7 @@ package event
 
 import (
 	"errors"
+	"reflect"
 	"fmt"
 	"sync"
 
@@ -11,6 +12,8 @@ import (
 var (
 	// ErrTypeNotRegistered is returned when an event type has not been registered with the type registry.
 	ErrTypeNotRegistered = errors.New("event type not registered")
+	// ErrPointerRegistration is thrown as a panic when a pointer type is passed to RegisterType.
+	ErrPointerRegistration = errors.New("RegisterType must be called with a value type, not a pointer. Use RegisterPointerType instead")
 )
 
 // Types is a reflection-free registry of domain events used to instantiate concrete event pointers during deserialization.
@@ -38,6 +41,9 @@ func (t *Types) Register(name string, factory func() flux.Event) {
 // that returns a new pointer to T.
 func RegisterType[T flux.Event](t *Types) {
 	var zero T
+	if reflect.TypeOf(zero).Kind() == reflect.Ptr {
+		panic(fmt.Errorf("%w (got %T)", ErrPointerRegistration, zero))
+	}
 	name := zero.Name()
 
 	t.Register(name, func() flux.Event {
