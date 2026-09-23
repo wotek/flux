@@ -1,4 +1,12 @@
 import { defineConfig } from 'vitepress'
+import { execSync } from 'child_process'
+
+let version = 'main'
+try {
+  version = execSync('git describe --tags --abbrev=0 2>/dev/null').toString().trim()
+} catch (e) {
+  console.log('Failed to read git tag, falling back to main')
+}
 
 export default defineConfig({
   
@@ -7,6 +15,7 @@ export default defineConfig({
   themeConfig: {
     logo: '/logo.png',
     nav: [
+      { text: version, link: 'https://github.com/wotek/flux/releases' },
       { text: 'Getting Started', link: '/getting-started/introduction' },
       { text: 'Tutorial', link: '/tutorial/01-project-setup' },
       { text: 'GitHub', link: 'https://github.com/wotek/flux' }
