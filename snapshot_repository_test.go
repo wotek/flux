@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 	"time"
-	"uuid"
+	"github.com/oklog/ulid/v2"
 
 	"github.com/wotek/flux"
 	eventstore "github.com/wotek/flux/event/store"
@@ -263,14 +263,14 @@ func TestSnapshotRepository_CatchUp(t *testing.T) {
 	// Now simulate trailing events appended directly to EventStore after snapshot was taken
 	trailingEnvelopes := []flux.Envelope{
 		{
-			Identifier: flux.NewIdentifier("", "", "stream", "", "event", uuid.New().String(), ""),
+			Identifier: flux.NewIdentifier("", "", "stream", "", "event", ulid.Make().String(), ""),
 			Stream:     stream,
 			Revision:   4,
 			Event:      itemAddedEvent{Item: "item-4"},
 			CreatedAt:  time.Now(),
 		},
 		{
-			Identifier: flux.NewIdentifier("", "", "stream", "", "event", uuid.New().String(), ""),
+			Identifier: flux.NewIdentifier("", "", "stream", "", "event", ulid.Make().String(), ""),
 			Stream:     stream,
 			Revision:   5,
 			Event:      itemAddedEvent{Item: "item-5"},

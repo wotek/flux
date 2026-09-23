@@ -3,7 +3,7 @@ package flux
 import (
 	"fmt"
 	"time"
-	"uuid"
+	"github.com/oklog/ulid/v2"
 )
 
 // AggregateRepository provides the standard unit-of-work interface for Event Sourced aggregates.
@@ -57,7 +57,7 @@ func (r *AggregateRepository[A, E]) Save(ctx Context, aggregate A) error {
 	for i, event := range uncommitted {
 		// Provide basic metadata. The EventStore sets the actual global Position and finalized Revision.
 		env := Envelope{
-			Identifier:            NewIdentifier("", "", "stream", "", "event", uuid.New().String(), ""),
+			Identifier:            NewIdentifier("", "", "stream", "", "event", ulid.Make().String(), ""),
 			Stream:                Stream{Identifier: aggregate.Identifier()},
 			Revision:              baseRevision + uint64(i) + 1,
 			Event:                 event,

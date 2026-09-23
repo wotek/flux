@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 	"time"
-	"uuid"
+	"github.com/oklog/ulid/v2"
 
 	"github.com/wotek/flux"
 	eventstore "github.com/wotek/flux/event/store"
@@ -19,7 +19,7 @@ func (d dummyEvent) Name() string { return "DummyEvent" }
 
 func makeEnvelope(stream flux.Stream, rev uint64, val string) flux.Envelope {
 	return flux.Envelope{
-		Identifier: flux.NewIdentifier("", "", "stream", "", "event", uuid.New().String(), ""),
+		Identifier: flux.NewIdentifier("", "", "stream", "", "event", ulid.Make().String(), ""),
 		Stream:     stream,
 		Revision:   rev,
 		Event:      dummyEvent{Value: val},
