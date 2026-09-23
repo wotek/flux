@@ -46,30 +46,43 @@ func execCmd(m tea.Model, cmd tea.Cmd) tea.Model {
 	if cmd == nil {
 		return m
 	}
-	done := make(chan tea.Msg, 1)
-	go func() {
-		done <- cmd()
-	}()
 
-	select {
-	case msg := <-done:
-		if batch, ok := msg.(tea.BatchMsg); ok {
-			for _, c := range batch {
-				m = execCmd(m, c)
-			}
+	deadline := time.Now().Add(2 * time.Second)
+	for cmd != nil {
+		timeout := time.Until(deadline)
+		if timeout <= 0 {
 			return m
 		}
-		var nextCmd tea.Cmd
-		m, nextCmd = m.Update(msg)
-		return execCmd(m, nextCmd)
-	case <-time.After(30 * time.Millisecond):
-		return m
+
+		done := make(chan tea.Msg, 1)
+		go func(c tea.Cmd) {
+			done <- c()
+		}(cmd)
+
+		timer := time.NewTimer(timeout)
+		select {
+		case msg := <-done:
+			timer.Stop()
+			if msg == nil {
+				return m
+			}
+			if batch, ok := msg.(tea.BatchMsg); ok {
+				for _, c := range batch {
+					m = execCmd(m, c)
+				}
+				return m
+			}
+			var nextCmd tea.Cmd
+			m, nextCmd = m.Update(msg)
+			cmd = nextCmd
+		case <-timer.C:
+			return m
+		}
 	}
+	return m
 }
 
 func TestTUIModel_StateTransitions(t *testing.T) {
-	t.Parallel()
-
 	srv := server.New()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -87,6 +100,15 @@ func TestTUIModel_StateTransitions(t *testing.T) {
 	}
 	if err := c.AddTask(ctx, listID, "Task 1"); err != nil {
 		t.Fatalf("failed to add task: %v", err)
+	}
+
+	// Wait for read model projection to index initial list
+	for range 50 {
+		listSummaries, err := c.GetLists(ctx)
+		if err == nil && len(listSummaries) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	m := client.NewTestTUIModel(ctx, c, listID)
