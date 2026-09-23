@@ -41,6 +41,15 @@ export default defineConfig({
           { text: '7. Payment Workflow', link: '/tutorial/07-payment-workflow' },
         ]
       },
+
+      {
+        text: 'Examples',
+        items: [
+          { text: 'Bank Account (Minimal)', link: '/examples/bank' },
+          { text: 'Todo CLI (Full Stack CQRS)', link: '/examples/todo' },
+          { text: 'E-Commerce (Advanced DDD)', link: '/examples/e-commerce' },
+        ]
+      },
       {
         text: 'Guide',
         items: [
