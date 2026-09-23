@@ -234,3 +234,54 @@ func (s *SnapshotStore[S]) Load(ctx context.Context, stream flux.Stream) (flux.S
 
 func (s *SnapshotStore[S]) Save(ctx context.Context, stream flux.Stream, snap flux.Snapshot[S]) error
 ```
+
+### MySQL Event Store
+
+```go
+// package mysql ("github.com/wotek/flux/event/store/mysql")
+
+type Option func(*config)
+
+func WithTableName(name string) Option
+
+type EventStore struct {
+	db         *sql.DB
+	serializer codec.Serializer
+	config     config
+}
+
+func New(db *sql.DB, serializer codec.Serializer, opts ...Option) *EventStore
+
+func NewEventStore(db *sql.DB, serializer codec.Serializer, opts ...Option) *EventStore
+
+func (s *EventStore) Append(ctx context.Context, stream flux.Stream, expectedRevision uint64, events []flux.Envelope) error
+
+func (s *EventStore) Read(ctx context.Context, stream flux.Stream, fromRevision uint64) (flux.StreamIterator, error)
+
+func (s *EventStore) Stream(ctx context.Context, position uint64) (flux.StreamIterator, error)
+```
+
+### MySQL Snapshot Store
+
+```go
+// package mysql ("github.com/wotek/flux/snapshot/store/mysql")
+
+var ErrSnapshotNotFound = errors.New("snapshot not found")
+
+type Option func(*config)
+
+func WithTableName(name string) Option
+
+type SnapshotStore[S any] struct {
+	db     *sql.DB
+	config config
+}
+
+func New[S any](db *sql.DB, opts ...Option) *SnapshotStore[S]
+
+func NewSnapshotStore[S any](db *sql.DB, opts ...Option) *SnapshotStore[S]
+
+func (s *SnapshotStore[S]) Load(ctx context.Context, stream flux.Stream) (flux.Snapshot[S], error)
+
+func (s *SnapshotStore[S]) Save(ctx context.Context, stream flux.Stream, snap flux.Snapshot[S]) error
+```
