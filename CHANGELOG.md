@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/wotek/flux/compare/v1.0.0...v1.0.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* trigger patch release ([e1b7427](https://github.com/wotek/flux/commit/e1b74276b61ebcb44b741cdf578430343d295c70))
+
 ## [2.2.0](https://github.com/wotek/flux/compare/v2.1.0...v2.2.0) (2026-09-23)
 
 
