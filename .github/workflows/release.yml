@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          release-type: go
+
+      - name: Set up Go
+        if: ${{ steps.release.outputs.release_created }}
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.x'
+
+      - name: Warm up Go Module Proxy & pkg.go.dev
+        if: ${{ steps.release.outputs.release_created }}
+        run: |
+          echo "Warming up proxy.golang.org for tag: ${{ steps.release.outputs.tag_name }}..."
+          GOPROXY=proxy.golang.org go list -m github.com/wotek/flux@${{ steps.release.outputs.tag_name }} || true
+          
+          echo "Warming up pkg.go.dev frontend..."
+          curl -s "https://pkg.go.dev/github.com/wotek/flux@${{ steps.release.outputs.tag_name }}" > /dev/null || true

@@ -1,0 +1,73 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.x'
+          cache: true
+
+      - name: Verify module dependencies
+        run: |
+          go mod verify
+          git diff --exit-code go.mod go.sum
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.13.2
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: [ '1.27.x' ]
+        module: [ '.', 'example/bank', 'example/todo', 'example/e-commerce' ]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Go ${{ matrix.go-version }}
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: Dynamically link local module for testing
+        working-directory: ${{ matrix.module }}
+        run: |
+          if [ "${{ matrix.module }}" != "." ]; then
+            go mod edit -replace github.com/wotek/flux=../../
+            go mod tidy
+          fi
+
+      - name: Run go vet
+        working-directory: ${{ matrix.module }}
+        run: go vet ./...
+
+      - name: Run tests with race detection & coverage
+        working-directory: ${{ matrix.module }}
+        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - name: Build all packages & test binaries
+        working-directory: ${{ matrix.module }}
+        run: go build ./... && go test -run=^$ ./...

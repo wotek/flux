@@ -1,0 +1,10 @@
+{
+  "languages": {
+    "go": {
+      "command": "gopls",
+      "args": ["serve"],
+      "fileExtensions": [".go"],
+      "rootPatterns": ["go.work", "go.mod"]
+    }
+  }
+}
