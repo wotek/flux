@@ -58,6 +58,12 @@ What happens if two users try to update the exact same product at the exact same
 
 Because Event Sourcing requires strict ordering, the repository enforces **Optimistic Concurrency**. When `repo.Save()` is called, it attempts to append the new events at the *exact version* the aggregate was at when it was loaded in memory. If another process modified the stream in the meantime, the database will reject the save and return `flux.ErrConcurrency`.
 
+
+::: info The Serialization Boundary
+Notice that we didn't define any `json` tags on our `ProductCreated` event struct? 
+The `flux` framework treats events and envelopes as pure in-memory concepts. When the Repository passes the uncommitted events to the underlying `EventStore` backend (like Redis or MySQL), the backend driver itself is responsible for mapping it into a Data Transfer Object (DTO) and flattening it into JSON bytes. This keeps our domain 100% free of infrastructure concerns!
+:::
+
 ## Fetching an Aggregate
 
 Fetching an aggregate is just as simple. You provide the stream identifier, and the repository handles the rehydration process.
