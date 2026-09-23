@@ -137,3 +137,6 @@ You are an expert Go engineer writing clean, idiomatic, and high-performance Go 
 * **Artifact & Script Cleanup:** Do NOT leave temporary generation scripts (e.g., Python or Bash scripts used to modify files) in the workspace. Always clean up after yourself.
 
 * **Error Handling Policy:** Always use sentinel errors (e.g., `var ErrTypeNotRegistered = errors.New(...)`) when returning domain errors. Do not use bare strings like `fmt.Errorf("something failed")`. Instead, wrap the sentinel error with context: `fmt.Errorf("%w: %s", ErrSentinel, detail)`.
+
+* **Interface Assertions:** Always use compile-time interface assertions when a struct is intended to implement an interface (e.g., `var _ codec.Serializer = (*Serializer)(nil)`). This prevents silent breakages.
+* **Dependency Inversion:** Follow the "Accept Interfaces, Return Structs" proverb. Instead of hard-coupling packages by importing concrete pointers (like `*event.Types`), define small, localized interfaces that describe only the behavior you need. This keeps packages decoupled and testable.
