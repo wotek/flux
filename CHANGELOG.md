@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.0](https://github.com/wotek/flux/compare/v2.0.1...v2.1.0) (2026-09-23)
+
+
+### Features
+
+* **codec:** implement JSON and XML serialization codecs and event registry ([3bb3c85](https://github.com/wotek/flux/commit/3bb3c85bc92d052732477a797b7e2e629d9b2a10))
+* **core:** implement TextMarshaler for Identifier and document JSON compatibility ([1bf935f](https://github.com/wotek/flux/commit/1bf935feb70170f788f534445c85dab34ad49855))
+
 ## [2.0.1](https://github.com/wotek/flux/compare/v2.0.0...v2.0.1) (2026-09-22)
 
 
