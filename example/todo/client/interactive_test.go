@@ -148,10 +148,16 @@ func TestTUIModel_RefreshAndFilter(t *testing.T) {
 	// Initialize
 	m = execCmd(m, m.Init())
 
-	// 1. Test Refresh
+	// 1. Test Refresh (Wait for eventual consistency)
 	var cmd tea.Cmd
-	m, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
-	m = execCmd(m, cmd)
+	for i := 0; i < 50; i++ {
+		m, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+		m = execCmd(m, cmd)
+		if strings.Contains(m.View(), "Alpha Project") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	view := m.View()
 	if !strings.Contains(view, "Lists refreshed.") {
