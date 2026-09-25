@@ -1,6 +1,9 @@
 package flux
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // SnapshotAggregate ensures the aggregate type implements both [Aggregate] and [Snapshotable].
 type SnapshotAggregate[A Aggregate[A, E], E Event, S any] interface {
@@ -39,7 +42,8 @@ func (r *SnapshotRepository[A, E, S]) Load(ctx Context, stream Stream) (A, error
 	var agg A
 	var startRevision uint64
 
-	if snap, err := r.store.Load(ctx, stream); err == nil {
+	snap, err := r.store.Load(ctx, stream)
+	if err == nil {
 		// Rehydrate from snapshot
 		agg = zero.New(stream)
 		agg.With(snap.State)
@@ -49,9 +53,11 @@ func (r *SnapshotRepository[A, E, S]) Load(ctx Context, stream Stream) (A, error
 			setter.setRevision(snap.Revision)
 		}
 		startRevision = snap.Revision
-	} else {
+	} else if errors.Is(err, ErrSnapshotNotFound) {
 		// Fallback to purely event-sourced
 		agg = zero.New(stream)
+	} else {
+		return zero, fmt.Errorf("loading snapshot: %w", err)
 	}
 
 	// Catch up with trailing events

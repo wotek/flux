@@ -39,7 +39,7 @@ func (s *inMemorySnapshotStore[S]) Load(_ context.Context, stream flux.Stream) (
 
 	snap, ok := s.snapshots[stream.Identifier.String()]
 	if !ok {
-		return flux.Snapshot[S]{}, errors.New("snapshot not found")
+		return flux.Snapshot[S]{}, flux.ErrSnapshotNotFound
 	}
 	return snap, nil
 }
@@ -497,5 +497,94 @@ func TestSnapshotRepository_StoreErrorHandling(t *testing.T) {
 	err := snapRepo.Save(ctx, agg)
 	if err == nil {
 		t.Fatalf("expected error from Save when store fails, got nil")
+	}
+}
+
+// TestSnapshotRepository_Load_ErrorHandling verifies that only ErrSnapshotNotFound triggers
+// event-sourced fallback, while other errors (e.g. context cancellation, store failure) are returned.
+func TestSnapshotRepository_Load_ErrorHandling(t *testing.T) {
+	t.Parallel()
+
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	canceledTestCtx := flux.NewContext(canceledCtx, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
+
+	arbitraryErr := errors.New("database outage")
+
+	tests := []struct {
+		name         string
+		ctx          flux.Context
+		loadErr      error
+		setupEvents  bool
+		wantErr      bool
+		expectedErr  error
+		wantRevision uint64
+	}{
+		{
+			name:         "ErrSnapshotNotFound falls back to event replay",
+			ctx:          newTestContext(),
+			loadErr:      flux.ErrSnapshotNotFound,
+			setupEvents:  true,
+			wantErr:      false,
+			wantRevision: 2,
+		},
+		{
+			name:        "context.Canceled returned directly without fallback",
+			ctx:         canceledTestCtx,
+			loadErr:     context.Canceled,
+			setupEvents: true,
+			wantErr:     true,
+			expectedErr: context.Canceled,
+		},
+		{
+			name:        "arbitrary store error returned without fallback",
+			ctx:         newTestContext(),
+			loadErr:     arbitraryErr,
+			setupEvents: true,
+			wantErr:     true,
+			expectedErr: arbitraryErr,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			es := eventstore.New()
+			snapStore := newInMemorySnapshotStore[itemState]()
+			snapStore.loadErr = tt.loadErr
+
+			baseRepo := flux.NewAggregateRepository[*itemAggregate, itemEvent](es)
+			schedule := flux.Every[*itemAggregate, itemEvent](10)
+			snapRepo := flux.NewSnapshotRepository(baseRepo, snapStore, schedule, es)
+
+			stream := newStream(tt.name)
+
+			if tt.setupEvents {
+				agg := newItemAggregate(stream)
+				agg.AddItem("event-1")
+				agg.AddItem("event-2")
+				if err := baseRepo.Save(newTestContext(), agg); err != nil {
+					t.Fatalf("failed to setup events: %v", err)
+				}
+			}
+
+			loaded, err := snapRepo.Load(tt.ctx, stream)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error from Load, got nil")
+				}
+				if tt.expectedErr != nil && !errors.Is(err, tt.expectedErr) {
+					t.Fatalf("expected error wrapping %v, got %v", tt.expectedErr, err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error from Load: %v", err)
+				}
+				if loaded.Revision() != tt.wantRevision {
+					t.Errorf("expected loaded revision %d, got %d", tt.wantRevision, loaded.Revision())
+				}
+			}
+		})
 	}
 }
