@@ -1,8 +1,8 @@
 package redis
 
 import (
-	_ "embed"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,6 +72,7 @@ func (s *SnapshotStore[S]) Load(ctx context.Context, stream flux.Stream) (flux.S
 
 //go:embed save.lua
 var saveSnapshotScriptSource string
+
 var saveSnapshotScript = redis.NewScript(saveSnapshotScriptSource)
 
 // Save persists a snapshot for the specified stream in Redis.
