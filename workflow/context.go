@@ -1,6 +1,8 @@
 package workflow
 
 import (
+	"slices"
+
 	"github.com/wotek/flux/event"
 )
 
@@ -25,7 +27,7 @@ func (w *workflowContext) dispatch(cmd any) {
 }
 
 func (w *workflowContext) QueuedCommands() []any {
-	return w.queuedCommands
+	return slices.Clone(w.queuedCommands)
 }
 
 // NewContext creates a new Workflow Context from an event.Context.

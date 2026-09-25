@@ -30,9 +30,14 @@ func NewTypes() *Types {
 }
 
 // Register adds an event factory function for the given event name to the registry.
+// It panics if an event factory is already registered for the given name.
 func (t *Types) Register(name string, factory func() flux.Event) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	if _, exists := t.factories[name]; exists {
+		panic(fmt.Sprintf("event type already registered: %s", name))
+	}
 
 	t.factories[name] = factory
 }

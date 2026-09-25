@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sync"
 	"time"
@@ -89,7 +90,11 @@ func RegisterHandler[W Workflow[W], E flux.Event](o *Orchestrator, store Store[W
 		invoke: func(ctx context.Context, env flux.Envelope) error {
 			id := env.CorrelationIdentifier
 			if id.IsEmpty() {
-				// Workflows require correlation IDs to know which instance to load
+				slog.WarnContext(ctx, "workflow skipped event missing correlation identifier",
+					slog.String("event_name", env.Event.Name()),
+					slog.String("event_id", env.Identifier.String()),
+					slog.String("orchestrator_id", o.id.String()),
+				)
 				return nil
 			}
 

@@ -24,11 +24,13 @@ type Option func(*config)
 
 type config struct {
 	tableName string
+	batchSize int
 }
 
 func defaultConfig() config {
 	return config{
 		tableName: "events",
+		batchSize: 100,
 	}
 }
 
@@ -41,5 +43,13 @@ func WithTableName(name string) Option {
 	}
 	return func(c *config) {
 		c.tableName = name
+	}
+}
+
+// WithBatchSize sets the pagination batch size for Read and Stream queries.
+// Defaults to 100 if unset or <= 0.
+func WithBatchSize(size int) Option {
+	return func(c *config) {
+		c.batchSize = size
 	}
 }

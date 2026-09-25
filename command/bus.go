@@ -60,7 +60,11 @@ func RegisterHandler[C any](bus *Bus, handler Handler[C]) {
 	}
 
 	wrapper := func(ctx Context, rawCmd any) error {
-		return handler.Handle(ctx, rawCmd.(C))
+		typedCmd, ok := rawCmd.(C)
+		if !ok {
+			return fmt.Errorf("%w: expected command of type %T, got %T", flux.ErrInvalidHandlerType, cmd, rawCmd)
+		}
+		return handler.Handle(ctx, typedCmd)
 	}
 
 	bus.handlers[cmdType] = wrapper
@@ -82,7 +86,11 @@ func Register[C any](bus *Bus, handler func(ctx Context, cmd C) error) {
 	}
 
 	wrapper := func(ctx Context, rawCmd any) error {
-		return handler(ctx, rawCmd.(C))
+		typedCmd, ok := rawCmd.(C)
+		if !ok {
+			return fmt.Errorf("%w: expected command of type %T, got %T", flux.ErrInvalidHandlerType, cmd, rawCmd)
+		}
+		return handler(ctx, typedCmd)
 	}
 
 	bus.handlers[cmdType] = wrapper
@@ -108,7 +116,10 @@ func Execute[C any](ctx Context, bus *Bus, cmd C) error {
 	}
 
 	// 100% reflection-free O(1) execution via closure assertion
-	exec := h.(func(Context, any) error)
+	exec, ok := h.(func(Context, any) error)
+	if !ok {
+		return fmt.Errorf("%w: command handler has invalid wrapper type", flux.ErrInvalidHandlerType)
+	}
 
 	for _, mw := range slices.Backward(middlewares) {
 		next := exec
