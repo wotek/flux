@@ -69,7 +69,26 @@ func (s *SnapshotStore[S]) Load(ctx context.Context, stream flux.Stream) (flux.S
 	}, nil
 }
 
+var saveSnapshotScript = redis.NewScript(`
+local key = KEYS[1]
+local new_rev = tonumber(ARGV[1])
+local payload = ARGV[2]
+
+local existing = redis.call('GET', key)
+if existing then
+    local ok, decoded = pcall(cjson.decode, existing)
+    if ok and decoded and decoded.revision and tonumber(decoded.revision) > new_rev then
+        return 'OK'
+    end
+end
+
+redis.call('SET', key, payload)
+return 'OK'
+`)
+
 // Save persists a snapshot for the specified stream in Redis.
+// If an existing snapshot exists with a higher revision, the older snapshot is ignored
+// to prevent out-of-order writes from regressing state.
 func (s *SnapshotStore[S]) Save(ctx context.Context, stream flux.Stream, snap flux.Snapshot[S]) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -86,7 +105,7 @@ func (s *SnapshotStore[S]) Save(ctx context.Context, stream flux.Stream, snap fl
 	}
 
 	key := s.snapshotKey(stream.Identifier.String())
-	if err := s.client.Set(ctx, key, data, 0).Err(); err != nil {
+	if err := saveSnapshotScript.Run(ctx, s.client, []string{key}, snap.Revision, data).Err(); err != nil {
 		return fmt.Errorf("saving snapshot to redis for %q: %w", stream.Identifier, err)
 	}
 

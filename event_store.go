@@ -6,6 +6,8 @@ import "context"
 type EventStore interface {
 	// Append adds new events to a specific stream, enforcing optimistic concurrency
 	// via the expected stream revision.
+	// If events is empty (nil or empty slice), Append is an immediate no-op and returns nil
+	// across all implementations without checking expectedRevision.
 	Append(ctx context.Context, stream Stream, expectedRevision uint64, events []Envelope) error
 
 	// Read retrieves events for a specific stream starting from the given position (revision).

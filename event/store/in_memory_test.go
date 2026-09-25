@@ -198,3 +198,35 @@ func TestEventStore_ContextCancellation(t *testing.T) {
 		t.Errorf("expected context.Canceled, got %v", err)
 	}
 }
+
+func TestEventStore_EmptyAppendNoOp(t *testing.T) {
+	t.Parallel()
+
+	store := eventstore.New()
+	ctx := context.Background()
+	stream := flux.Stream{
+		Identifier: flux.MustParseIdentifier("urn:test:prod:items:123:item:empty-test"),
+	}
+
+	// 1. Empty append on brand-new stream with expectedRevision 0 should succeed
+	if err := store.Append(ctx, stream, 0, nil); err != nil {
+		t.Fatalf("expected nil on empty append (nil), got %v", err)
+	}
+	if err := store.Append(ctx, stream, 0, []flux.Envelope{}); err != nil {
+		t.Fatalf("expected nil on empty append (empty slice), got %v", err)
+	}
+
+	// 2. Append an event to advance revision to 1
+	err := store.Append(ctx, stream, 0, []flux.Envelope{{Event: dummyEvent{Value: "v1"}}})
+	if err != nil {
+		t.Fatalf("failed to append event: %v", err)
+	}
+
+	// 3. Empty append on stream even with mismatching expectedRevision should be a no-op
+	if err := store.Append(ctx, stream, 999, nil); err != nil {
+		t.Errorf("expected nil on empty append even with mismatching expectedRevision, got %v", err)
+	}
+	if err := store.Append(ctx, stream, 999, []flux.Envelope{}); err != nil {
+		t.Errorf("expected nil on empty append with empty slice even with mismatching expectedRevision, got %v", err)
+	}
+}

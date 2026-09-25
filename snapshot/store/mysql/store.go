@@ -86,9 +86,9 @@ func (s *SnapshotStore[S]) Save(ctx context.Context, stream flux.Stream, snap fl
 	query := fmt.Sprintf(`INSERT INTO %s (stream_id, revision, snapshot, timestamp)
 VALUES (?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE
-    revision = VALUES(revision),
-    snapshot = VALUES(snapshot),
-    timestamp = VALUES(timestamp)`, s.config.tableName)
+    revision = IF(VALUES(revision) >= revision, VALUES(revision), revision),
+    snapshot = IF(VALUES(revision) >= revision, VALUES(snapshot), snapshot),
+    timestamp = IF(VALUES(revision) >= revision, VALUES(timestamp), timestamp)`, s.config.tableName)
 
 	now := time.Now().UTC()
 	_, err = s.db.ExecContext(ctx, query, streamID, snap.Revision, data, now)

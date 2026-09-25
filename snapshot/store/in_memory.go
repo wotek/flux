@@ -48,7 +48,9 @@ func (s *SnapshotStore[S]) Load(ctx context.Context, stream flux.Stream) (flux.S
 	return snap, nil
 }
 
-// Save persists a snapshot for the specified stream in memory, overwriting any previous snapshot.
+// Save persists a snapshot for the specified stream in memory.
+// If an existing snapshot exists with a higher revision, the older snapshot is ignored
+// to prevent out-of-order writes from regressing state.
 func (s *SnapshotStore[S]) Save(ctx context.Context, stream flux.Stream, snap flux.Snapshot[S]) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -58,6 +60,10 @@ func (s *SnapshotStore[S]) Save(ctx context.Context, stream flux.Stream, snap fl
 	defer s.mu.Unlock()
 
 	streamID := stream.Identifier.String()
+	if existing, exists := s.snapshots[streamID]; exists && snap.Revision < existing.Revision {
+		return nil
+	}
+
 	s.snapshots[streamID] = snap
 	return nil
 }

@@ -10,6 +10,10 @@ Redis provides high-performance, in-memory storage suitable for fast prototyping
 
 The Redis Event Store uses native Redis Streams (`XADD` / `XREAD`) with atomic Lua script execution for append operations. It guarantees optimistic concurrency control using contiguous sequence counters.
 
+> [!WARNING]
+> **Deployment Constraint: Standalone Redis Only**
+> The atomic append operation uses a Lua script that coordinates across multiple keys (`revision:{urn}`, `stream:{urn}`, `position:global`, and `stream:global`). Because these keys map to different Redis hash slots, Redis Cluster will reject multi-key EVAL operations with a `CROSSSLOT` error. The Redis Event Store requires a standalone Redis instance or single-node primary/replica deployment. It is not currently supported on Redis Cluster.
+
 ### Key Schema
 
 - `revision:{urn}` (String: tracks the aggregate's sequence revision)
