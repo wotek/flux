@@ -42,17 +42,18 @@ func (a *BankAccount) Deposit(amount int) error {
 	if amount <= 0 {
 		return errors.New("cannot deposit negative amount")
 	}
-	a.Changeset().Record(MoneyDeposited{Amount: amount})
+	evt := MoneyDeposited{Amount: amount}
+	a.apply(evt)
+	a.Changeset().Record(evt)
 	return nil
 }
 
-func (a *BankAccount) apply(event flux.Event) error {
+func (a *BankAccount) apply(event flux.Event) {
 	switch e := event.(type) {
 	case AccountCreated:
 		a.Owner = e.Owner
 	case MoneyDeposited:
 		a.Balance += e.Amount
 	}
-	return nil
 }
 ```

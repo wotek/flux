@@ -90,18 +90,17 @@ func (a *itemAggregate) New(stream flux.Stream) *itemAggregate {
 	return newItemAggregate(stream)
 }
 
-func (a *itemAggregate) apply(e itemEvent) error {
+func (a *itemAggregate) apply(e itemEvent) {
 	switch evt := e.(type) {
 	case itemAddedEvent:
 		a.items = append(a.items, evt.Item)
 	}
-	return nil
 }
 
 func (a *itemAggregate) AddItem(item string) {
 	evt := itemAddedEvent{Item: item}
+	a.apply(evt)
 	a.Changeset().Record(evt)
-	_ = a.apply(evt)
 }
 
 func (a *itemAggregate) Snapshot() itemState {

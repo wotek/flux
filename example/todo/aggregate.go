@@ -29,7 +29,7 @@ func (l *TodoListAggregate) New(stream flux.Stream) *TodoListAggregate {
 }
 
 // apply mutates the aggregate's internal state in response to historical or uncommitted events.
-func (l *TodoListAggregate) apply(event events.TodoEvent) error {
+func (l *TodoListAggregate) apply(event events.TodoEvent) {
 	switch e := event.(type) {
 	case events.ListCreated:
 		l.title = e.Title
@@ -51,7 +51,6 @@ func (l *TodoListAggregate) apply(event events.TodoEvent) error {
 			}
 		}
 	}
-	return nil
 }
 
 // Create initializes the todo list with a title (idempotent).
@@ -64,8 +63,8 @@ func (l *TodoListAggregate) Create(title string) {
 	}
 
 	event := events.ListCreated{Title: title}
+	l.apply(event)
 	l.Changeset().Record(event)
-	_ = l.apply(event)
 }
 
 // Title returns the human-readable title of this todo list.
@@ -83,8 +82,8 @@ func (l *TodoListAggregate) Add(task string) {
 	}
 
 	event := events.TaskAdded{Task: task}
+	l.apply(event)
 	l.Changeset().Record(event)
-	_ = l.apply(event)
 }
 
 // Remove deletes a task from the active list if present.
@@ -94,8 +93,8 @@ func (l *TodoListAggregate) Remove(task string) {
 	}
 
 	event := events.TaskRemoved{Task: task}
+	l.apply(event)
 	l.Changeset().Record(event)
-	_ = l.apply(event)
 }
 
 // Done marks one or more active tasks as completed and archives them.
@@ -112,8 +111,8 @@ func (l *TodoListAggregate) Done(tasks ...string) {
 	}
 
 	event := events.TasksDone{Tasks: validTasks}
+	l.apply(event)
 	l.Changeset().Record(event)
-	_ = l.apply(event)
 }
 
 // ActiveTasks returns a copy of the currently active tasks in this list.

@@ -39,13 +39,17 @@ type AggregateRoot[E Event] struct {
 	changeset Changeset[E]
 
 	// apply is a closure/method provided by the concrete aggregate to mutate its state.
-	apply func(E) error
+	apply func(E)
 }
 
 // NewAggregateRoot initializes the boilerplate. The concrete aggregate passes its Apply method.
+// The apply function is mandatory and must not be nil.
 // Note: Revisions are not incremented when recording new events to the changeset, only when
 // replaying from the EventStore or after successful persistence.
-func NewAggregateRoot[E Event](stream Stream, changeset Changeset[E], apply func(E) error) AggregateRoot[E] {
+func NewAggregateRoot[E Event](stream Stream, changeset Changeset[E], apply func(E)) AggregateRoot[E] {
+	if apply == nil {
+		panic("flux: apply function is mandatory for AggregateRoot")
+	}
 	return AggregateRoot[E]{
 		stream:    stream,
 		changeset: changeset,
@@ -61,18 +65,6 @@ func (a *AggregateRoot[E]) Identifier() Identifier {
 // Changeset returns the tracked uncommitted events.
 func (a *AggregateRoot[E]) Changeset() Changeset[E] {
 	return a.changeset
-}
-
-// Record mutates aggregate state by applying the event via the configured apply function,
-// and records the event into the uncommitted changeset upon success.
-func (a *AggregateRoot[E]) Record(event E) error {
-	if a.apply != nil {
-		if err := a.apply(event); err != nil {
-			return err
-		}
-	}
-	a.changeset.Record(event)
-	return nil
 }
 
 // Revision returns the aggregate's current sequence number.
@@ -99,9 +91,7 @@ func (a *AggregateRoot[E]) FromEvents(events StreamIterator) error {
 			return fmt.Errorf("%w: aggregate %s cannot apply %T", ErrInvalidEvent, a.stream.Identifier.String(), env.Event)
 		}
 
-		if err := a.apply(domainEvent); err != nil {
-			return err
-		}
+		a.apply(domainEvent)
 		// Synchronize aggregate revision with the envelope's revision
 		a.revision = env.Revision
 	}

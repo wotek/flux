@@ -2,7 +2,6 @@ package flux
 
 import (
 	"errors"
-	"fmt"
 	"testing"
 )
 
@@ -39,16 +38,25 @@ func NewCounterAggregate(stream Stream) *CounterAggregate {
 	return c
 }
 
-func (c *CounterAggregate) apply(e TestEvent) error {
+func (c *CounterAggregate) apply(e TestEvent) {
 	switch e.(type) {
 	case CounterIncremented:
 		c.Count++
 	case CounterDecremented:
 		c.Count--
-	default:
-		return fmt.Errorf("unknown event")
 	}
-	return nil
+}
+
+func (c *CounterAggregate) Increment() {
+	evt := CounterIncremented{}
+	c.apply(evt)
+	c.Changeset().Record(evt)
+}
+
+func (c *CounterAggregate) Decrement() {
+	evt := CounterDecremented{}
+	c.apply(evt)
+	c.Changeset().Record(evt)
 }
 
 // Helper to create a StreamIterator from a slice of envelopes
@@ -132,7 +140,7 @@ func TestAggregateRoot_Changeset(t *testing.T) {
 	}
 }
 
-func TestAggregateRoot_Record(t *testing.T) {
+func TestAggregate_ExplicitApplyAndRecord(t *testing.T) {
 	t.Parallel()
 
 	id := MustParseIdentifier("urn:test::svc:1:counter:rec")
@@ -143,10 +151,7 @@ func TestAggregateRoot_Record(t *testing.T) {
 		t.Fatalf("expected initial Count = 0, got %d", agg.Count)
 	}
 
-	// 1. Successful Record mutates state and updates changeset
-	if err := agg.Record(CounterIncremented{}); err != nil {
-		t.Fatalf("unexpected error recording event: %v", err)
-	}
+	agg.Increment()
 	if agg.Count != 1 {
 		t.Errorf("expected Count = 1, got %d", agg.Count)
 	}
@@ -154,17 +159,23 @@ func TestAggregateRoot_Record(t *testing.T) {
 		t.Fatalf("expected 1 uncommitted event in changeset")
 	}
 
-	// 2. Failed apply does not append to changeset and returns error
-	failingAgg := &CounterAggregate{}
-	errFailingApply := errors.New("apply invariant failed")
-	failingAgg.AggregateRoot = NewAggregateRoot[TestEvent](stream, NewChangeset[TestEvent](), func(e TestEvent) error {
-		return errFailingApply
-	})
+	agg.Decrement()
+	if agg.Count != 0 {
+		t.Errorf("expected Count = 0, got %d", agg.Count)
+	}
+	if len(agg.Changeset().Events()) != 2 {
+		t.Fatalf("expected 2 uncommitted events in changeset")
+	}
+}
 
-	if err := failingAgg.Record(CounterIncremented{}); !errors.Is(err, errFailingApply) {
-		t.Fatalf("expected %v, got %v", errFailingApply, err)
-	}
-	if failingAgg.Changeset().HasChanges() {
-		t.Errorf("expected changeset to remain empty when apply returns error")
-	}
+func TestNewAggregateRoot_NilApplyPanics(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when apply function is nil, got none")
+		}
+	}()
+
+	_ = NewAggregateRoot[TestEvent](Stream{}, NewChangeset[TestEvent](), nil)
 }

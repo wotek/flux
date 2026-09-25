@@ -2,7 +2,6 @@ package customer
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 
 	"github.com/wotek/flux"
@@ -69,10 +68,12 @@ func (c *CustomerAggregate) Register(name, email string) error {
 	if email == "" {
 		return ErrEmptyCustomerEmail
 	}
-	c.record(events.CustomerRegistered{
+	evt := events.CustomerRegistered{
 		CustomerName: name,
 		Email:        email,
-	})
+	}
+	c.apply(evt)
+	c.Changeset().Record(evt)
 	return nil
 }
 
@@ -81,9 +82,11 @@ func (c *CustomerAggregate) Rename(name string) error {
 	if name == "" {
 		return ErrEmptyCustomerName
 	}
-	c.record(events.CustomerRenamed{
+	evt := events.CustomerRenamed{
 		CustomerName: name,
-	})
+	}
+	c.apply(evt)
+	c.Changeset().Record(evt)
 	return nil
 }
 
@@ -95,9 +98,11 @@ func (c *CustomerAggregate) AddAddress(addr types.Address) error {
 	if slices.ContainsFunc(c.addresses, func(a types.Address) bool { return a.ID == addr.ID }) {
 		return ErrDuplicateAddress
 	}
-	c.record(events.AddressAdded{
+	evt := events.AddressAdded{
 		Address: addr,
-	})
+	}
+	c.apply(evt)
+	c.Changeset().Record(evt)
 	return nil
 }
 
@@ -109,18 +114,15 @@ func (c *CustomerAggregate) RemoveAddress(addressID string) error {
 	if !slices.ContainsFunc(c.addresses, func(a types.Address) bool { return a.ID == addressID }) {
 		return ErrAddressNotFound
 	}
-	c.record(events.AddressRemoved{
+	evt := events.AddressRemoved{
 		AddressID: addressID,
-	})
+	}
+	c.apply(evt)
+	c.Changeset().Record(evt)
 	return nil
 }
 
-func (c *CustomerAggregate) record(evt events.CustomerEvent) {
-	c.Changeset().Record(evt)
-	_ = c.apply(evt)
-}
-
-func (c *CustomerAggregate) apply(evt events.CustomerEvent) error {
+func (c *CustomerAggregate) apply(evt events.CustomerEvent) {
 	switch e := evt.(type) {
 	case events.CustomerRegistered:
 		c.name = e.CustomerName
@@ -133,8 +135,5 @@ func (c *CustomerAggregate) apply(evt events.CustomerEvent) error {
 		c.addresses = slices.DeleteFunc(c.addresses, func(a types.Address) bool {
 			return a.ID == e.AddressID
 		})
-	default:
-		return fmt.Errorf("unhandled customer event: %s", evt.Name())
 	}
-	return nil
 }

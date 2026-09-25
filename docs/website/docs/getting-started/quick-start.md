@@ -50,25 +50,25 @@ func NewTodoList(stream flux.Stream) *TodoList {
 }
 
 // apply is the ONLY place state is ever mutated!
-func (l *TodoList) apply(event flux.Event) error {
+func (l *TodoList) apply(event flux.Event) {
 	switch e := event.(type) {
 	case TaskAdded:
 		l.Tasks = append(l.Tasks, e.Title)
 	}
-	return nil
 }
 ```
 
 ### Business Logic
-Public methods evaluate rules and **Record** events. They never modify state directly.
+Public methods evaluate rules and record events. They never modify state directly outside `apply`.
 
 ```go
 func (l *TodoList) AddTask(title string) {
     if title == "" {
         return // Business rule: no empty tasks
     }
-	// Record the event. The framework will automatically route this to apply()
-	l.Changeset().Record(TaskAdded{Title: title})
+	event := TaskAdded{Title: title}
+	l.apply(event)
+	l.Changeset().Record(event)
 }
 ```
 
