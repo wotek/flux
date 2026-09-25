@@ -33,6 +33,14 @@ type revisionSetter interface {
 
 // AggregateRoot is an embeddable struct providing the foundational boilerplate
 // for any domain aggregate (composition over inheritance).
+//
+// Encapsulation & Invariant Guarantees:
+// Domain methods on the concrete aggregate are strictly responsible for evaluating business rules,
+// guarding domain invariants, and returning errors if preconditions or business rules are violated.
+// Once an operation is validated, the domain method mutates internal state via its apply function
+// and records the event to its Changeset. The framework intentionally does not provide a public
+// Record helper on AggregateRoot to prevent encapsulation leaks and ensure all state transitions
+// pass through validated domain methods.
 type AggregateRoot[E Event] struct {
 	stream    Stream
 	revision  uint64

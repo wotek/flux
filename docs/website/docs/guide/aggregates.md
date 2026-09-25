@@ -75,9 +75,9 @@ func (a *BankAccount) apply(event flux.Event) {
 
 Public methods on your aggregate are where you evaluate business logic and guard your invariants. 
 
-If a request violates a business rule, return an error. If the request is valid, you mutate state and record the outcome as an Event using the `Changeset`. You NEVER mutate state directly outside of `apply`.
+Domain methods are strictly responsible for enforcing business invariants, validating preconditions, and returning descriptive domain errors whenever an operation is invalid. Only after all domain invariants are satisfied does the method proceed to mutate state and record the resulting event. 
 
-Domain methods are strictly responsible for mutating state by first calling their internal apply logic, and then recording the event to the Changeset. The framework does not provide a public Record helper to prevent encapsulation leaks.
+You NEVER mutate state directly outside of `apply`. Domain methods are responsible for mutating state by first calling their internal `apply` logic, and then recording the event to the `Changeset`. The framework intentionally does not provide a public `Record` helper on `AggregateRoot` to prevent encapsulation leaks and ensure external callers cannot bypass domain validation.
 
 ```go
 import "errors"
@@ -86,7 +86,7 @@ var ErrAccountClosed = errors.New("account is closed")
 var ErrNegativeDeposit = errors.New("cannot deposit negative amount")
 
 func (a *BankAccount) Deposit(amount int) error {
-	// 1. Enforce Invariants
+	// 1. Enforce Invariants & Validate Rules
 	if a.Closed {
 		return ErrAccountClosed
 	}
@@ -94,8 +94,7 @@ func (a *BankAccount) Deposit(amount int) error {
 		return ErrNegativeDeposit
 	}
 	
-	// 2. Record the Event
-	// Mutate state via apply and record the event to the uncommitted changeset
+	// 2. Mutate state via apply and record the event to the uncommitted changeset
 	event := MoneyDeposited{Amount: amount}
 	a.apply(event)
 	a.Changeset().Record(event)
@@ -106,11 +105,10 @@ func (a *BankAccount) Deposit(amount int) error {
 
 ## The Changeset Mechanism
 
-In `flux`, domain methods are strictly responsible for mutating state by first calling their internal apply logic, and then recording the event to the Changeset. The framework does not provide a public Record helper to prevent encapsulation leaks.
-
-When recording an event:
-1. The event is passed to `apply()` to synchronously update the in-memory state of your aggregate.
-2. The event is appended to an internal buffer of "Uncommitted Events" inside the `Changeset` via `a.Changeset().Record(event)`.
+In `flux`, domain methods serve as the exclusive gatekeepers of aggregate state:
+1. **Invariant Enforcement:** The domain method evaluates inputs against current aggregate state, returning an error if business rules are violated.
+2. **State Application:** Once validated, the domain method calls its internal `apply(event)` to synchronously update internal fields.
+3. **Event Buffering:** The domain method records the fact into the uncommitted buffer via `a.Changeset().Record(event)`.
 
 When you eventually call `repository.Save(ctx, aggregate)`, the repository extracts this buffer of uncommitted events from the `Changeset` and flushes them to the `EventStore`. 
 
