@@ -2,7 +2,6 @@ package pricing
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/example/e-commerce/internal/catalog/events"
@@ -38,23 +37,17 @@ func (p *PricingAggregate) SetPrice(price int) error {
 	if price < 0 {
 		return ErrNegativePrice
 	}
-	p.record(events.PricingSet{
+	evt := events.PricingSet{
 		Price: price,
-	})
+	}
+	p.apply(evt)
+	p.Changeset().Record(evt)
 	return nil
 }
 
-func (p *PricingAggregate) record(evt events.PricingEvent) {
-	p.Changeset().Record(evt)
-	_ = p.apply(evt)
-}
-
-func (p *PricingAggregate) apply(evt events.PricingEvent) error {
+func (p *PricingAggregate) apply(evt events.PricingEvent) {
 	switch e := evt.(type) {
 	case events.PricingSet:
 		p.price = e.Price
-	default:
-		return fmt.Errorf("unhandled pricing event: %s", evt.Name())
 	}
-	return nil
 }
