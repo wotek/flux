@@ -473,3 +473,56 @@ func TestEventStore_StreamDeferredQuery(t *testing.T) {
 		t.Errorf("unfulfilled sql expectations: %v", err)
 	}
 }
+
+func TestValidateTableName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		tableName string
+		wantErr   bool
+	}{
+		{name: "standard identifier", tableName: "events", wantErr: false},
+		{name: "with underscores and numbers", tableName: "my_events_v2", wantErr: false},
+		{name: "starting with underscore", tableName: "_events", wantErr: false},
+		{name: "schema qualified", tableName: "mydb.events", wantErr: false},
+		{name: "schema qualified with underscores", tableName: "my_db.my_events", wantErr: false},
+		{name: "backtick quoted", tableName: "`events`", wantErr: false},
+		{name: "schema qualified backticks", tableName: "`mydb`.`events`", wantErr: false},
+
+		// Invalid cases (SQL injection vectors and invalid syntax)
+		{name: "empty string", tableName: "", wantErr: true},
+		{name: "semicolon injection", tableName: "events; DROP TABLE users; --", wantErr: true},
+		{name: "dash comment injection", tableName: "events--", wantErr: true},
+		{name: "inline space", tableName: "events table", wantErr: true},
+		{name: "quote injection", tableName: "events' OR '1'='1", wantErr: true},
+		{name: "starts with number", tableName: "1events", wantErr: true},
+		{name: "invalid characters", tableName: "events$name", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := mysqlstore.ValidateTableName(tt.tableName)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateTableName(%q) error = %v, wantErr %v", tt.tableName, err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil && !errors.Is(err, mysqlstore.ErrInvalidTableName) {
+				t.Errorf("ValidateTableName(%q) error = %v, want ErrInvalidTableName", tt.tableName, err)
+			}
+		})
+	}
+}
+
+func TestWithTableName_PanicsOnInvalid(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Errorf("expected WithTableName to panic on invalid table name")
+		}
+	}()
+
+	_ = mysqlstore.WithTableName("events; DROP TABLE students;--")
+}

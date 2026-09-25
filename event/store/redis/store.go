@@ -1,3 +1,16 @@
+// Package redis provides a Redis Streams-backed implementation of [flux.EventStore].
+//
+// Deployment Constraint: Standalone Redis Only
+// The append operation utilizes an atomic Lua script (append.lua) that modifies
+// four distinct Redis keys across separate streams and sequence counters:
+//   - revision:{urn}
+//   - stream:{urn}
+//   - position:global
+//   - stream:global
+// Because these keys span multiple distinct hash slots without hash tags,
+// Redis Cluster will reject the EVAL script execution with a CROSSSLOT Keys error.
+// Therefore, this EventStore backend requires a standalone Redis instance or a
+// single-node/master-replica configuration, and is NOT compatible with Redis Cluster.
 package redis
 
 import (
@@ -21,6 +34,7 @@ var appendScriptSource string
 var _ flux.EventStore = (*EventStore)(nil)
 
 // EventStore is a Redis Streams-backed implementation of [flux.EventStore].
+// It requires a standalone (non-cluster) Redis deployment due to multi-key Lua script constraints.
 type EventStore struct {
 	client       redis.UniversalClient
 	serializer   codec.Serializer

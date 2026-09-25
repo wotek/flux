@@ -205,3 +205,50 @@ func TestSnapshotStore_ContextCancellation(t *testing.T) {
 		t.Errorf("expected context.Canceled on Load, got %v", err)
 	}
 }
+
+func TestValidateTableName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		tableName string
+		wantErr   bool
+	}{
+		{name: "standard identifier", tableName: "snapshots", wantErr: false},
+		{name: "with underscores", tableName: "my_snapshots_1", wantErr: false},
+		{name: "schema qualified", tableName: "mydb.snapshots", wantErr: false},
+		{name: "backticks", tableName: "`snapshots`", wantErr: false},
+
+		// Invalid cases
+		{name: "empty string", tableName: "", wantErr: true},
+		{name: "semicolon injection", tableName: "snapshots; DROP TABLE users; --", wantErr: true},
+		{name: "dash comment", tableName: "snapshots--", wantErr: true},
+		{name: "spaces", tableName: "snapshots table", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := snapstoremysql.ValidateTableName(tt.tableName)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateTableName(%q) error = %v, wantErr %v", tt.tableName, err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil && !errors.Is(err, snapstoremysql.ErrInvalidTableName) {
+				t.Errorf("ValidateTableName(%q) error = %v, want ErrInvalidTableName", tt.tableName, err)
+			}
+		})
+	}
+}
+
+func TestWithTableName_PanicsOnInvalid(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Errorf("expected WithTableName to panic on invalid table name")
+		}
+	}()
+
+	_ = snapstoremysql.WithTableName("snapshots; DROP TABLE students;--")
+}

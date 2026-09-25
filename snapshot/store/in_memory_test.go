@@ -240,3 +240,56 @@ func TestNewSnapshotStore_ConstructorAlias(t *testing.T) {
 		t.Errorf("unexpected loaded snapshot: %+v", loaded)
 	}
 }
+
+func TestSnapshotStore_MonotonicProgression(t *testing.T) {
+	t.Parallel()
+
+	store := snapstore.New[accountState]()
+	ctx := context.Background()
+	stream := flux.Stream{
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:account:acc-monotonic"),
+	}
+
+	// 1. Save revision 10
+	snap10 := flux.Snapshot[accountState]{
+		State:    accountState{Balance: 100, Owner: "V10"},
+		Revision: 10,
+	}
+	if err := store.Save(ctx, stream, snap10); err != nil {
+		t.Fatalf("failed to save rev 10: %v", err)
+	}
+
+	// 2. Out-of-order save with older revision 5 should be ignored
+	snap5 := flux.Snapshot[accountState]{
+		State:    accountState{Balance: 50, Owner: "V5"},
+		Revision: 5,
+	}
+	if err := store.Save(ctx, stream, snap5); err != nil {
+		t.Fatalf("failed to save rev 5: %v", err)
+	}
+
+	loaded, err := store.Load(ctx, stream)
+	if err != nil {
+		t.Fatalf("failed to load: %v", err)
+	}
+	if loaded.Revision != 10 || loaded.State.Owner != "V10" {
+		t.Errorf("expected revision 10 to be preserved, got revision %d (%s)", loaded.Revision, loaded.State.Owner)
+	}
+
+	// 3. Save newer revision 15 should update
+	snap15 := flux.Snapshot[accountState]{
+		State:    accountState{Balance: 150, Owner: "V15"},
+		Revision: 15,
+	}
+	if err := store.Save(ctx, stream, snap15); err != nil {
+		t.Fatalf("failed to save rev 15: %v", err)
+	}
+
+	loaded, err = store.Load(ctx, stream)
+	if err != nil {
+		t.Fatalf("failed to load: %v", err)
+	}
+	if loaded.Revision != 15 || loaded.State.Owner != "V15" {
+		t.Errorf("expected revision 15 to be stored, got revision %d (%s)", loaded.Revision, loaded.State.Owner)
+	}
+}
