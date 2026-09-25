@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -47,7 +48,7 @@ type Orchestrator struct {
 	id         flux.Identifier
 	eventStore flux.EventStore
 	checkpoint CheckpointStore
-	handlers   map[string]orchestratorHandler
+	handlers   map[string][]orchestratorHandler
 }
 
 // orchestratorHandler wraps the typed logic for a specific event.
@@ -64,7 +65,7 @@ func NewOrchestrator(id flux.Identifier, eventStore flux.EventStore, checkpoint 
 		id:         id,
 		eventStore: eventStore,
 		checkpoint: checkpoint,
-		handlers:   make(map[string]orchestratorHandler),
+		handlers:   make(map[string][]orchestratorHandler),
 	}
 }
 
@@ -74,6 +75,9 @@ func New(id flux.Identifier, eventStore flux.EventStore, checkpoint CheckpointSt
 }
 
 // RegisterHandler wires a specific event type to a workflow's state transition.
+// Multiple handlers can be registered for the same event name (e.g., routing one
+// domain event to multiple distinct workflow types). Handlers are invoked in order
+// of registration, failing fast if any handler returns an error.
 func RegisterHandler[W Workflow[W], E flux.Event](o *Orchestrator, store Store[W], handler func(ctx Context, workflow W, event E) error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -81,11 +85,7 @@ func RegisterHandler[W Workflow[W], E flux.Event](o *Orchestrator, store Store[W
 	var evt E
 	name := evt.Name()
 
-	if _, exists := o.handlers[name]; exists {
-		panic(fmt.Sprintf("handler already registered for workflow event %s", name))
-	}
-
-	o.handlers[name] = orchestratorHandler{
+	h := orchestratorHandler{
 		invoke: func(ctx context.Context, env flux.Envelope) error {
 			id := env.CorrelationIdentifier
 			if id.IsEmpty() {
@@ -123,6 +123,8 @@ func RegisterHandler[W Workflow[W], E flux.Event](o *Orchestrator, store Store[W
 			return nil
 		},
 	}
+
+	o.handlers[name] = append(o.handlers[name], h)
 }
 
 // Start begins tailing the EventStore in the background.
@@ -149,11 +151,11 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 				}
 
 				o.mu.RLock()
-				handler, ok := o.handlers[env.Event.Name()]
+				handlers := slices.Clone(o.handlers[env.Event.Name()])
 				o.mu.RUnlock()
 
-				if ok {
-					if err := handler.invoke(ctx, env); err != nil {
+				for _, h := range handlers {
+					if err := h.invoke(ctx, env); err != nil {
 						return err
 					}
 				}
