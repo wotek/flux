@@ -179,3 +179,56 @@ func TestSnapshotStore_ContextCancellation(t *testing.T) {
 		t.Errorf("expected context.Canceled on Load, got %v", err)
 	}
 }
+
+func TestSnapshotStore_MonotonicProgression(t *testing.T) {
+	t.Parallel()
+
+	store, _ := setupSnapshotStore[cartState](t)
+	ctx := context.Background()
+	stream := flux.Stream{
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:cart:c-monotonic"),
+	}
+
+	// 1. Save revision 10
+	snap10 := flux.Snapshot[cartState]{
+		State:    cartState{Items: []string{"v10"}, Total: 100},
+		Revision: 10,
+	}
+	if err := store.Save(ctx, stream, snap10); err != nil {
+		t.Fatalf("failed to save rev 10: %v", err)
+	}
+
+	// 2. Out-of-order save with older revision 5 should be ignored
+	snap5 := flux.Snapshot[cartState]{
+		State:    cartState{Items: []string{"v5"}, Total: 50},
+		Revision: 5,
+	}
+	if err := store.Save(ctx, stream, snap5); err != nil {
+		t.Fatalf("failed to save rev 5: %v", err)
+	}
+
+	loaded, err := store.Load(ctx, stream)
+	if err != nil {
+		t.Fatalf("failed to load: %v", err)
+	}
+	if loaded.Revision != 10 || loaded.State.Total != 100 {
+		t.Errorf("expected revision 10 to be preserved, got revision %d (%v)", loaded.Revision, loaded.State)
+	}
+
+	// 3. Save newer revision 15 should update
+	snap15 := flux.Snapshot[cartState]{
+		State:    cartState{Items: []string{"v15"}, Total: 150},
+		Revision: 15,
+	}
+	if err := store.Save(ctx, stream, snap15); err != nil {
+		t.Fatalf("failed to save rev 15: %v", err)
+	}
+
+	loaded, err = store.Load(ctx, stream)
+	if err != nil {
+		t.Fatalf("failed to load: %v", err)
+	}
+	if loaded.Revision != 15 || loaded.State.Total != 150 {
+		t.Errorf("expected revision 15 to be stored, got revision %d (%v)", loaded.Revision, loaded.State)
+	}
+}

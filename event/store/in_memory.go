@@ -38,6 +38,10 @@ func (s *EventStore) Append(ctx context.Context, stream flux.Stream, expectedRev
 		return err
 	}
 
+	if len(events) == 0 {
+		return nil
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
