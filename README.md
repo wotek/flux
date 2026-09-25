@@ -9,7 +9,7 @@
   <img src="./docs/assets/logo.png" alt="flux gopher logo" width="400">
 </p>
 
-`flux` is a lightweight, high-performance Event Sourcing and CQRS framework for Go. Leveraging Go 1.26 generics, it delivers fast and completely type-safe message routing. The built-in ecosystem features self-referencing aggregates, read-model projections, distributed workflows, snapshotting, and optimistic concurrency control.
+`flux` is a lightweight, high-performance Event Sourcing and CQRS framework for Go. Leveraging Go 1.27+ generics, it delivers fast and completely type-safe message routing. The built-in ecosystem features self-referencing aggregates, read-model projections, distributed workflows, snapshotting, and optimistic concurrency control.
 
 ## Why flux?
 
@@ -29,7 +29,7 @@
 
 ## Install
 
-Requires Go 1.26 or later:
+Requires Go 1.27 or later:
 
 ```bash
 go get github.com/wotek/flux
@@ -369,7 +369,7 @@ type Changeset[E Event] interface {
 func NewChangeset[E Event]() Changeset[E]
 
 // Aggregate defines the core contract for a domain aggregate.
-// It leverages Go 1.26 self-referencing constraints for reflection-free instantiation.
+// It leverages Go 1.27+ self-referencing constraints for reflection-free instantiation.
 type Aggregate[A Aggregate[A, E], E Event] interface {
 	// Identifier returns the globally unique identifier for this aggregate.
 	Identifier() Identifier
@@ -1007,7 +1007,7 @@ A **Workflow** coordinates long-running business processes that span multiple ag
 // package workflow
 
 // Workflow defines the contract for a process manager.
-// It leverages Go 1.26 self-referencing constraints for reflection-free instantiation.
+// It leverages Go 1.27+ self-referencing constraints for reflection-free instantiation.
 type Workflow[W Workflow[W]] interface {
 	// Identifier returns the globally unique ID of this workflow instance.
 	// This is typically derived from the CorrelationIdentifier of the triggering event.

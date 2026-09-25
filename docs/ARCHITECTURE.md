@@ -141,7 +141,7 @@ The core module providing foundational primitives, aggregate lifecycle managemen
 #### Interfaces
 
 - `Event`: Marker interface implemented by domain events; requires `Name() string`.
-- `Aggregate[A, E]`: Go 1.26 self-referencing generic constraint implemented by aggregate roots. Requires `Identifier() Identifier`, `Revision() uint64`, `Changeset() Changeset[E]`, `FromEvents(StreamIterator) error`, and `New(Stream) A`.
+- `Aggregate[A, E]`: Go 1.27+ self-referencing generic constraint implemented by aggregate roots. Requires `Identifier() Identifier`, `Revision() uint64`, `Changeset() Changeset[E]`, `FromEvents(StreamIterator) error`, and `New(Stream) A`.
 - `Changeset[E Event]`: Interface for recording and retrieving uncommitted domain events.
 - `EventStore`: Persistence contract defining `Append(ctx, stream, expectedRevision, events)`, `Read(ctx, stream, fromRevision)`, and `Stream(ctx, fromPosition)`.
   \* `Context`: Base execution context providing `Actor\(\)`, `CorrelationIdentifier\(\)`, and `CausationIdentifier\(\)`.
@@ -270,7 +270,7 @@ Orchestration engine coordinating long-running business processes and durable Ou
 
 #### Interfaces
 
-- `Workflow[W Workflow[W]]`: Go 1.26 self-referencing generic constraint requiring `Identifier() flux.Identifier`, `New() W`, and `Clone() W`.
+- `Workflow[W Workflow[W]]`: Go 1.27+ self-referencing generic constraint requiring `Identifier() flux.Identifier`, `New() W`, and `Clone() W`.
 - `Store[W Workflow[W]]`: Persistence contract for loading workflow state and atomically saving state alongside outbox commands.
 - `CheckpointStore`: Interface for persisting and retrieving orchestrator stream checkpoints (`GetPosition`, `SetPosition`).
 - `Context`: Extends `event.Context` with `QueuedCommands() []any`.

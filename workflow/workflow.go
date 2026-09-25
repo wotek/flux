@@ -5,7 +5,7 @@ import (
 )
 
 // Workflow defines the contract for a process manager.
-// It leverages Go 1.26 self-referencing constraints for reflection-free instantiation.
+// It leverages Go 1.27+ self-referencing constraints for reflection-free instantiation.
 type Workflow[W Workflow[W]] interface {
 	// Identifier returns the globally unique ID of this workflow instance.
 	// This is typically derived from the CorrelationIdentifier of the triggering event.
