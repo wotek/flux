@@ -7,6 +7,7 @@
 //   - stream:{urn}
 //   - position:global
 //   - stream:global
+//
 // Because these keys span multiple distinct hash slots without hash tags,
 // Redis Cluster will reject the EVAL script execution with a CROSSSLOT Keys error.
 // Therefore, this EventStore backend requires a standalone Redis instance or a
@@ -31,15 +32,16 @@ import (
 //go:embed append.lua
 var appendScriptSource string
 
+var appendScript = redis.NewScript(appendScriptSource)
+
 var _ flux.EventStore = (*EventStore)(nil)
 
 // EventStore is a Redis Streams-backed implementation of [flux.EventStore].
 // It requires a standalone (non-cluster) Redis deployment due to multi-key Lua script constraints.
 type EventStore struct {
-	client       redis.UniversalClient
-	serializer   codec.Serializer
-	config       config
-	appendScript *redis.Script
+	client     redis.UniversalClient
+	serializer codec.Serializer
+	config     config
 }
 
 // New creates a new Redis [EventStore].
@@ -50,10 +52,9 @@ func New(client redis.UniversalClient, serializer codec.Serializer, opts ...Opti
 	}
 
 	return &EventStore{
-		client:       client,
-		serializer:   serializer,
-		config:       cfg,
-		appendScript: redis.NewScript(appendScriptSource),
+		client:     client,
+		serializer: serializer,
+		config:     cfg,
 	}
 }
 
@@ -97,7 +98,7 @@ func (s *EventStore) Append(ctx context.Context, stream flux.Stream, expectedRev
 		s.globalStreamKey(),
 	}
 
-	err := s.appendScript.Run(ctx, s.client, keys, args...).Err()
+	err := appendScript.Run(ctx, s.client, keys, args...).Err()
 	if err != nil {
 		if strings.Contains(err.Error(), "ERR_CONCURRENCY") {
 			return fmt.Errorf("%w: %s", flux.ErrConcurrency, err.Error())
