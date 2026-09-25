@@ -3,7 +3,7 @@ package flux
 import "fmt"
 
 // Aggregate defines the core contract for a domain aggregate.
-// It leverages Go 1.26 self-referencing constraints for reflection-free instantiation.
+// It leverages Go 1.27+ self-referencing constraints for reflection-free instantiation.
 type Aggregate[A Aggregate[A, E], E Event] interface {
 	// Identifier returns the globally unique identifier for this aggregate.
 	Identifier() Identifier

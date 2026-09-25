@@ -23,7 +23,7 @@ features:
   - title: Event-Sourced Aggregates
     details: Embed a base type, register typed event handlers, and let the framework handle versioning, persistence, and replay.
   - title: Reflection-Free Generics
-    details: Fully utilizes Go 1.20+ Generics for type-safe, blazing fast execution without the overhead of reflection.
+    details: Fully utilizes Go 1.27+ Generics for type-safe, blazing fast execution without the overhead of reflection.
   - title: Type-Safe Commands
     details: Dispatch and handle commands with full generic type safety. Cleanly separate your read and write models.
   - title: Projection Toolkit

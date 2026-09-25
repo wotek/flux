@@ -124,7 +124,7 @@ example/todo/
 
 ## Prerequisites
 
-- **Go**: Modern Go (Go 1.26 or later recommended)
+- **Go**: Modern Go (Go 1.27 or later recommended)
 
 ---
 

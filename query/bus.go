@@ -31,6 +31,10 @@ func New() *Bus {
 }
 
 // NewBus is an alias for New to maintain explicit constructor naming.
+func NewBus() *Bus {
+	return New()
+}
+
 // RegisterHandler registers a strongly-typed handler for a specific query type.
 func RegisterHandler[Q any, R any](bus *Bus, handler Handler[Q, R]) {
 	bus.mu.Lock()

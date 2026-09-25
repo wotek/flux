@@ -6,7 +6,7 @@ If an action is valid, the Aggregate emits an **Event** (a fact) indicating what
 
 ## Reflection-Free Design
 
-Most Go event-sourcing libraries rely on `reflect` to magically bind events to aggregate state. `flux` takes a completely different approach, leveraging **Go 1.20+ Generics** to provide a blazing-fast, type-safe, and explicitly defined Aggregate lifecycle.
+Most Go event-sourcing libraries rely on `reflect` to magically bind events to aggregate state. `flux` takes a completely different approach, leveraging **Go 1.27+ Generics** to provide a blazing-fast, type-safe, and explicitly defined Aggregate lifecycle.
 
 To create an Aggregate in `flux`, you embed `flux.AggregateRoot[E flux.Event]` into your struct.
 
