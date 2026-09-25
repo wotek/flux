@@ -53,10 +53,12 @@ func (p *ProductAggregate) Create(name string, stock int) error {
 	if stock < 0 {
 		return ErrNegativeInitialStock
 	}
-	p.record(events.ProductCreated{
+	evt := events.ProductCreated{
 		ProductName: name,
 		Stock:       stock,
-	})
+	}
+	p.apply(evt)
+	p.Changeset().Record(evt)
 	return nil
 }
 
@@ -65,9 +67,11 @@ func (p *ProductAggregate) Rename(name string) error {
 	if name == "" {
 		return ErrEmptyProductName
 	}
-	p.record(events.ProductRenamed{
+	evt := events.ProductRenamed{
 		ProductName: name,
-	})
+	}
+	p.apply(evt)
+	p.Changeset().Record(evt)
 	return nil
 }
 
@@ -76,18 +80,15 @@ func (p *ProductAggregate) AdjustStock(quantity int) error {
 	if p.stock+quantity < 0 {
 		return fmt.Errorf("%w: current %d, change %d", ErrInsufficientStock, p.stock, quantity)
 	}
-	p.record(events.StockAdjusted{
+	evt := events.StockAdjusted{
 		Quantity: quantity,
-	})
+	}
+	p.apply(evt)
+	p.Changeset().Record(evt)
 	return nil
 }
 
-func (p *ProductAggregate) record(evt events.ProductEvent) {
-	p.Changeset().Record(evt)
-	_ = p.apply(evt)
-}
-
-func (p *ProductAggregate) apply(evt events.ProductEvent) error {
+func (p *ProductAggregate) apply(evt events.ProductEvent) {
 	switch e := evt.(type) {
 	case events.ProductCreated:
 		p.name = e.ProductName
@@ -96,8 +97,5 @@ func (p *ProductAggregate) apply(evt events.ProductEvent) error {
 		p.name = e.ProductName
 	case events.StockAdjusted:
 		p.stock += e.Quantity
-	default:
-		return fmt.Errorf("unhandled product event: %s", evt.Name())
 	}
-	return nil
 }

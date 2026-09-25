@@ -47,24 +47,25 @@ func NewBankAccount(stream flux.Stream) *BankAccount {
 	return a
 }
 
-func (a *BankAccount) apply(e BankEvent) error {
+func (a *BankAccount) apply(e BankEvent) {
 	switch e := e.(type) {
 	case AccountCreated:
 		a.Owner = e.Owner
 	case MoneyDeposited:
 		a.Balance += e.Amount
 	}
-	return nil
 }
 
 func (a *BankAccount) Create(owner string) {
-	a.Changeset().Record(AccountCreated{Owner: owner})
-	_ = a.apply(AccountCreated{Owner: owner})
+	evt := AccountCreated{Owner: owner}
+	a.apply(evt)
+	a.Changeset().Record(evt)
 }
 
 func (a *BankAccount) Deposit(amount int) {
-	a.Changeset().Record(MoneyDeposited{Amount: amount})
-	_ = a.apply(MoneyDeposited{Amount: amount})
+	evt := MoneyDeposited{Amount: amount}
+	a.apply(evt)
+	a.Changeset().Record(evt)
 }
 
 func TestAggregateRepository_SaveAndLoad(t *testing.T) {

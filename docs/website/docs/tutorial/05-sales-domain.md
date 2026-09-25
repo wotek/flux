@@ -51,7 +51,7 @@ func New(stream flux.Stream) *Order {
 Now, let's implement the `apply()` mutator. Notice how we use the map to keep track of item quantities, allowing customers to add the same product multiple times.
 
 ```go
-func (o *Order) apply(event flux.Event) error {
+func (o *Order) apply(event flux.Event) {
 	switch e := event.(type) {
 	case events.OrderStarted:
 		o.customerID = e.CustomerID
@@ -65,7 +65,6 @@ func (o *Order) apply(event flux.Event) error {
 	case events.OrderPlaced:
 		o.placed = true
 	}
-	return nil
 }
 ```
 
@@ -81,7 +80,9 @@ func (o *Order) Start(customerID string) error {
 		return errors.New("order is already started")
 	}
 	
-	o.Changeset().Record(events.OrderStarted{CustomerID: customerID})
+	evt := events.OrderStarted{CustomerID: customerID}
+	o.apply(evt)
+	o.Changeset().Record(evt)
 	return nil
 }
 
@@ -93,10 +94,12 @@ func (o *Order) AddItem(productID string, quantity int) error {
 		return ErrNegativeQuantity
 	}
 
-	o.Changeset().Record(events.ItemAdded{
+	evt := events.ItemAdded{
 		ProductID: productID,
 		Quantity:  quantity,
-	})
+	}
+	o.apply(evt)
+	o.Changeset().Record(evt)
 	return nil
 }
 
@@ -108,7 +111,9 @@ func (o *Order) Place() error {
 		return errors.New("cannot place an empty order")
 	}
 
-	o.Changeset().Record(events.OrderPlaced{})
+	evt := events.OrderPlaced{}
+	o.apply(evt)
+	o.Changeset().Record(evt)
 	return nil
 }
 ```

@@ -73,10 +73,12 @@ func (o *OrderAggregate) Place(customerID string, items []types.LineItem) error 
 		}
 	}
 
-	o.record(events.OrderPlaced{
+	evt := events.OrderPlaced{
 		CustomerID: customerID,
 		Items:      slices.Clone(items),
-	})
+	}
+	o.apply(evt)
+	o.Changeset().Record(evt)
 	return nil
 }
 
@@ -85,7 +87,9 @@ func (o *OrderAggregate) Pay() error {
 	if o.status != types.OrderStatusOpen {
 		return fmt.Errorf("%w: current status %s", ErrOrderNotOpen, o.status)
 	}
-	o.record(events.OrderPaid{})
+	evt := events.OrderPaid{}
+	o.apply(evt)
+	o.Changeset().Record(evt)
 	return nil
 }
 
@@ -94,18 +98,15 @@ func (o *OrderAggregate) Cancel(reason string) error {
 	if o.status != types.OrderStatusOpen {
 		return fmt.Errorf("%w: current status %s", ErrOrderNotOpen, o.status)
 	}
-	o.record(events.OrderCancelled{
+	evt := events.OrderCancelled{
 		Reason: reason,
-	})
+	}
+	o.apply(evt)
+	o.Changeset().Record(evt)
 	return nil
 }
 
-func (o *OrderAggregate) record(evt events.OrderEvent) {
-	o.Changeset().Record(evt)
-	_ = o.apply(evt)
-}
-
-func (o *OrderAggregate) apply(evt events.OrderEvent) error {
+func (o *OrderAggregate) apply(evt events.OrderEvent) {
 	switch e := evt.(type) {
 	case events.OrderPlaced:
 		o.customerID = e.CustomerID
@@ -115,8 +116,5 @@ func (o *OrderAggregate) apply(evt events.OrderEvent) error {
 		o.status = types.OrderStatusPaid
 	case events.OrderCancelled:
 		o.status = types.OrderStatusCancelled
-	default:
-		return fmt.Errorf("unhandled order event: %s", evt.Name())
 	}
-	return nil
 }

@@ -59,7 +59,7 @@ The golden rule of Event Sourcing is that **state is only ever mutated by events
 When an event is loaded from the database during rehydration, or when a new event is recorded locally, the framework routes it to your `apply()` method. **This is the ONLY place in your entire codebase where you should modify the Aggregate's fields.**
 
 ```go
-func (a *BankAccount) apply(event flux.Event) error {
+func (a *BankAccount) apply(event flux.Event) {
 	switch e := event.(type) {
 	case AccountOpened:
 		a.Owner = e.Owner
@@ -68,7 +68,6 @@ func (a *BankAccount) apply(event flux.Event) error {
 	case AccountClosed:
 		a.Closed = true
 	}
-	return nil
 }
 ```
 
@@ -76,7 +75,9 @@ func (a *BankAccount) apply(event flux.Event) error {
 
 Public methods on your aggregate are where you evaluate business logic and guard your invariants. 
 
-If a request violates a business rule, return an error. If the request is valid, you **Record** the outcome as an Event using the `Changeset`. You NEVER mutate state directly here.
+If a request violates a business rule, return an error. If the request is valid, you mutate state and record the outcome as an Event using the `Changeset`. You NEVER mutate state directly outside of `apply`.
+
+Domain methods are strictly responsible for mutating state by first calling their internal apply logic, and then recording the event to the Changeset. The framework does not provide a public Record helper to prevent encapsulation leaks.
 
 ```go
 import "errors"
@@ -94,10 +95,10 @@ func (a *BankAccount) Deposit(amount int) error {
 	}
 	
 	// 2. Record the Event
-	// Record executes apply(event) to mutate state and appends to the uncommitted changeset
-	if err := a.Record(MoneyDeposited{Amount: amount}); err != nil {
-		return err
-	}
+	// Mutate state via apply and record the event to the uncommitted changeset
+	event := MoneyDeposited{Amount: amount}
+	a.apply(event)
+	a.Changeset().Record(event)
 	
 	return nil
 }
@@ -105,11 +106,11 @@ func (a *BankAccount) Deposit(amount int) error {
 
 ## The Changeset Mechanism
 
-When you call `a.Record(event)`, two things happen in order:
-1. The event is passed to `apply()` to synchronously update the in-memory state of your aggregate. If `apply()` returns an error, the error is returned immediately.
-2. The event is appended to an internal buffer of "Uncommitted Events" inside the `Changeset`.
+In `flux`, domain methods are strictly responsible for mutating state by first calling their internal apply logic, and then recording the event to the Changeset. The framework does not provide a public Record helper to prevent encapsulation leaks.
 
-Alternatively, if an aggregate performs manual state mutations, it can invoke its mutator directly and then call `a.Changeset().Record(event)`.
+When recording an event:
+1. The event is passed to `apply()` to synchronously update the in-memory state of your aggregate.
+2. The event is appended to an internal buffer of "Uncommitted Events" inside the `Changeset` via `a.Changeset().Record(event)`.
 
 When you eventually call `repository.Save(ctx, aggregate)`, the repository extracts this buffer of uncommitted events from the `Changeset` and flushes them to the `EventStore`. 
 
@@ -125,7 +126,5 @@ Therefore, do not design massive Aggregates (like putting every `Order` inside a
 ### Don't Project Inside Aggregates
 Your Aggregate state should only contain the bare minimum data required to enforce business invariants. Do not store data in your Aggregate just because the UI needs to display it later. Use **Projections** to build Read Models for the UI.
 
-### Error Handling in `apply()`
-You might notice that `apply(event flux.Event) error` returns an error. **You should almost never return an error here.**
-
-By the time an event reaches `apply()`, it is an immutable historical fact. If your `apply()` method errors on a historical event, your Aggregate will fail to load, effectively bricking the stream. The only time `apply()` should fail is during severe system-level anomalies (like failing to unmarshal a fundamentally corrupt event payload). All business-level error handling belongs in your public methods (e.g., `Deposit()`).
+### Infallible `apply()`
+Notice that `apply(event flux.Event)` does not return an error. By the time an event reaches `apply()`, it represents an immutable historical fact. Rejecting a fact during hydration breaks the system and prevents an aggregate from loading. All validation errors strictly belong in domain methods prior to invoking `apply` and recording to the `Changeset`.

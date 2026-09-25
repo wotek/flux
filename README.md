@@ -82,22 +82,25 @@ func NewBankAccount(stream flux.Stream) *BankAccount {
 	return a
 }
 
-func (a *BankAccount) apply(event flux.Event) error {
+func (a *BankAccount) apply(event flux.Event) {
 	switch e := event.(type) {
 	case AccountCreated:
 		a.Owner = e.Owner
 	case MoneyDeposited:
 		a.Balance += e.Amount
 	}
-	return nil
 }
 
 func (a *BankAccount) Create(owner string) {
-	a.Changeset().Record(AccountCreated{Owner: owner})
+	evt := AccountCreated{Owner: owner}
+	a.apply(evt)
+	a.Changeset().Record(evt)
 }
 
 func (a *BankAccount) Deposit(amount int) {
-	a.Changeset().Record(MoneyDeposited{Amount: amount})
+	evt := MoneyDeposited{Amount: amount}
+	a.apply(evt)
+	a.Changeset().Record(evt)
 }
 ```
 
@@ -395,13 +398,13 @@ type AggregateRoot[E Event] struct {
 	changeset Changeset[E]
 
 	// apply is a closure/method provided by the concrete aggregate to mutate its state.
-	apply func(E) error
+	apply func(E)
 }
 
 // NewAggregateRoot initializes the boilerplate. The concrete aggregate passes its Apply method.
 // Note: Revisions are not incremented when recording new events to the changeset, only when
 // replaying from the EventStore or after successful persistence.
-func NewAggregateRoot[E Event](stream Stream, changeset Changeset[E], apply func(E) error) AggregateRoot[E] {
+func NewAggregateRoot[E Event](stream Stream, changeset Changeset[E], apply func(E)) AggregateRoot[E] {
 	return AggregateRoot[E]{
 		stream:    stream,
 		changeset: changeset,
@@ -438,8 +441,8 @@ func (a *AggregateRoot[E]) FromEvents(events StreamIterator) error {
 			return fmt.Errorf("%w: aggregate %s cannot apply %T", ErrInvalidEvent, a.Identifier(), env.Event)
 		}
 
-		if err := a.apply(domainEvent); err != nil {
-			return err
+		if a.apply != nil {
+			a.apply(domainEvent)
 		}
 		// Synchronize aggregate revision with the envelope's revision
 		a.revision = env.Revision

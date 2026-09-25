@@ -99,7 +99,7 @@ func (a *Aggregate) New(stream flux.Stream) *Aggregate {
 }
 
 // apply is the ONLY place in the entire application where the Product's state is mutated.
-func (a *Aggregate) apply(event flux.Event) error {
+func (a *Aggregate) apply(event flux.Event) {
 	switch e := event.(type) {
 	case events.ProductCreated:
 		a.State.Name = e.Name
@@ -108,7 +108,6 @@ func (a *Aggregate) apply(event flux.Event) error {
 	case events.PriceUpdated:
 		a.State.Price = e.NewPrice
 	}
-	return nil
 }
 ```
 
@@ -120,7 +119,7 @@ The `apply()` method should **never** contain business logic, validation, or con
 
 Finally, we expose public methods to interact with the aggregate. This is where we validate inputs and enforce business rules (invariants).
 
-If an action is invalid, we return a domain error. If it is valid, we **Record** the event.
+If an action is invalid, we return a domain error. If it is valid, we mutate state via `apply` and record the event to the `Changeset`.
 
 ```go
 // Create enforces invariants and emits the event.
@@ -132,8 +131,9 @@ func (a *Aggregate) Create(name string, price int) error {
 		return ErrInvalidPrice
 	}
 
-	// Record the event. The framework automatically routes this to apply().
-	a.Changeset().Record(events.ProductCreated{Name: name, Price: price})
+	evt := events.ProductCreated{Name: name, Price: price}
+	a.apply(evt)
+	a.Changeset().Record(evt)
 	return nil
 }
 
@@ -149,10 +149,12 @@ func (a *Aggregate) UpdatePrice(newPrice int) error {
 		return nil // Idempotent skip
 	}
 
-	a.Changeset().Record(events.PriceUpdated{
+	evt := events.PriceUpdated{
 		OldPrice: a.State.Price,
 		NewPrice: newPrice,
-	})
+	}
+	a.apply(evt)
+	a.Changeset().Record(evt)
 	return nil
 }
 ```
