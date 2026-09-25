@@ -1016,6 +1016,10 @@ type Workflow[W Workflow[W]] interface {
 	// New creates a new, empty instance of the workflow.
 	// This is called on a nil pointer by the Orchestrator during loading.
 	New() W
+
+	// Clone creates an isolated copy of the workflow instance to guarantee
+	// that in-flight mutations in handlers do not leak into the store before Save.
+	Clone() W
 }
 
 // Store defines how the internal state of a workflow is persisted between events.
@@ -1024,9 +1028,15 @@ type Store[W Workflow[W]] interface {
 	Load(ctx context.Context, id flux.Identifier) (W, error)
 
 	// Save persists the workflow's state alongside any enqueued commands within the SAME
-	// database transaction. A separate relay process is expected to poll these commands
-	// and forward them to the CommandBus to achieve At-Least-Once (Outbox) delivery.
+	// database transaction. A separate relay process polls these commands and forwards
+	// them to the CommandBus to achieve At-Least-Once (Outbox) delivery.
 	Save(ctx context.Context, workflow W, commands []any) error
+}
+
+// CheckpointStore persists and retrieves the stream position reached by an orchestrator.
+type CheckpointStore interface {
+	GetPosition(ctx context.Context, id flux.Identifier) (uint64, error)
+	SetPosition(ctx context.Context, id flux.Identifier, position uint64) error
 }
 
 // Orchestrator is the background worker that listens to the global event stream
@@ -1035,8 +1045,8 @@ type Orchestrator struct {
 	// internal fields
 }
 
-// NewOrchestrator creates a new orchestrator engine.
-func NewOrchestrator(eventStore flux.EventStore) *Orchestrator
+// NewOrchestrator creates a new orchestrator engine with position checkpointing.
+func NewOrchestrator(id flux.Identifier, eventStore flux.EventStore, checkpoint CheckpointStore) *Orchestrator
 
 // RegisterHandler wires a specific event type to a workflow's state transition.
 // The store is provided here so the orchestrator knows how to load/save this specific workflow type.

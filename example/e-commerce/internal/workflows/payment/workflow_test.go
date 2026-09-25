@@ -28,7 +28,8 @@ func TestPaymentWorkflow_SuccessfulPayment(t *testing.T) {
 	store := workflowstore.New[*payment.PaymentWorkflow](cmdBus)
 	store.StartRelay(ctx)
 
-	orchestrator := workflow.NewOrchestrator(es)
+	orchID := flux.MustParseIdentifier("urn:test:payment:wf:1:orchestrator:payment")
+	orchestrator := workflow.NewOrchestrator(orchID, es, store)
 	payment.RegisterPaymentWorkflow(orchestrator, store)
 
 	go func() {
@@ -105,7 +106,8 @@ func TestPaymentWorkflow_CancellationCompensation(t *testing.T) {
 	store := workflowstore.New[*payment.PaymentWorkflow](cmdBus)
 	store.StartRelay(ctx)
 
-	orchestrator := workflow.NewOrchestrator(es)
+	orchID := flux.MustParseIdentifier("urn:test:payment:wf:1:orchestrator:cancel")
+	orchestrator := workflow.NewOrchestrator(orchID, es, store)
 	payment.RegisterPaymentWorkflow(orchestrator, store)
 
 	adjustStockReceived := make(chan catalogcommands.AdjustStock, 1)

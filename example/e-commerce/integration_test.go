@@ -57,7 +57,8 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 	// 4. Workflows
 	paymentWorkflowStore := workflowstore.New[*paymentwf.PaymentWorkflow](cmdBus)
 	paymentWorkflowStore.StartRelay(ctx)
-	orchestrator := workflow.NewOrchestrator(es)
+	orchID := flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:orchestrator:payment")
+	orchestrator := workflow.NewOrchestrator(orchID, es, paymentWorkflowStore)
 	paymentwf.RegisterPaymentWorkflow(orchestrator, paymentWorkflowStore)
 	go func() {
 		_ = orchestrator.Start(ctx)
