@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -149,66 +148,36 @@ func TestCommandBus_Middleware(t *testing.T) {
 	}
 }
 
-func TestExecuteAsync_ContextDetached(t *testing.T) {
+func TestExecuteAsync_ContextCancellationHonored(t *testing.T) {
 	t.Parallel()
 	bus := command.New()
 
-	executed := make(chan struct{})
+	executed := make(chan error, 1)
 	command.Register(bus, func(ctx command.Context, cmd dummyCmd) error {
-		// Verify context is NOT canceled even though parent was canceled immediately
 		select {
 		case <-ctx.Done():
-			t.Errorf("expected detached context not to be canceled, got: %v", ctx.Err())
-		default:
+			executed <- ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+			executed <- nil
 		}
-		close(executed)
 		return nil
 	})
 
 	parentCtx, cancel := context.WithCancel(context.Background())
-	cmdCtx := command.NewContext(parentCtx, flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
+	cancel()
 
+	cmdCtx := command.NewContext(parentCtx, flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
 	if err := command.ExecuteAsync(cmdCtx, bus, dummyCmd{val: "async"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Immediately cancel the caller's context
-	cancel()
-
 	select {
-	case <-executed:
-		// Succeeded
-	case <-time.After(1 * time.Second):
-		t.Fatalf("timed out waiting for async handler execution")
-	}
-}
-
-func TestExecuteAsync_ErrorHook(t *testing.T) {
-	t.Parallel()
-	bus := command.New()
-
-	expectedErr := fmt.Errorf("async handler failure")
-	command.Register(bus, func(ctx command.Context, cmd dummyCmd) error {
-		return expectedErr
-	})
-
-	errReported := make(chan error, 1)
-	bus.SetAsyncErrorHandler(func(ctx command.Context, cmd any, err error) {
-		errReported <- err
-	})
-
-	cmdCtx := command.NewContext(context.Background(), flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
-	if err := command.ExecuteAsync(cmdCtx, bus, dummyCmd{val: "fail"}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	select {
-	case err := <-errReported:
-		if !errors.Is(err, expectedErr) {
-			t.Errorf("expected error %v, got %v", expectedErr, err)
+	case err := <-executed:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("expected context.Canceled, got: %v", err)
 		}
 	case <-time.After(1 * time.Second):
-		t.Fatalf("timed out waiting for async error hook")
+		t.Fatalf("timed out waiting for async handler execution")
 	}
 }
 

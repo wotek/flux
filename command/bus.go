@@ -1,7 +1,6 @@
 package command
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -18,14 +17,10 @@ type Handler[C any] interface {
 
 // Bus manages the registration and routing of commands.
 type Bus struct {
-	mu           sync.RWMutex
-	handlers     map[reflect.Type]any
-	middlewares  []Middleware
-	asyncErrHook AsyncErrorHandler
+	mu          sync.RWMutex
+	handlers    map[reflect.Type]any
+	middlewares []Middleware
 }
-
-// AsyncErrorHandler is a callback invoked when an asynchronous command fails.
-type AsyncErrorHandler func(ctx Context, cmd any, err error)
 
 type Middleware func(ctx Context, cmd any, next func(Context, any) error) error
 
@@ -34,13 +29,6 @@ func New() *Bus {
 	return &Bus{
 		handlers: make(map[reflect.Type]any),
 	}
-}
-
-// SetAsyncErrorHandler configures a callback for errors occurring during ExecuteAsync.
-func (b *Bus) SetAsyncErrorHandler(hook AsyncErrorHandler) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.asyncErrHook = hook
 }
 
 // NewBus is an alias for New to maintain explicit constructor naming.
@@ -137,53 +125,45 @@ func Execute[C any](ctx Context, bus *Bus, cmd C) error {
 
 // ExecuteAsync routes a command to its registered handler asynchronously in a background goroutine.
 //
-// Semantics:
-//   - Fire-and-forget: ExecuteAsync returns nil as soon as the command is queued to the goroutine.
-//   - Context Detachment: The execution context is detached from caller cancellation using
-//     context.WithoutCancel, preserving tracing metadata (actor, correlation, causation, and values).
+// Context Semantics:
+// The command executes using the provided context exactly as-is. If the caller's context is canceled
+// (for example, when an HTTP request ends or a caller deadline expires), the asynchronous command
+// execution will also be canceled. If callers want the command to survive the current request or scope,
+// they MUST construct and pass their own detached, deadline-bound context.
+//
+// Guarantees & Constraints:
+//   - Fire-and-Forget: ExecuteAsync returns nil as soon as the command is queued to the background
+//     goroutine (or returns an error immediately if no handler is registered). It is an in-memory,
+//     fire-and-forget mechanism and is lossy across application restarts or process crashes.
 //   - Concurrency & Mutation: If the command is a pointer or contains mutable references, callers
 //     must not mutate the command after passing it to ExecuteAsync as no deep-copy is performed.
-//   - Error Handling: Execution failures and panics are logged using slog.ErrorContext and
-//     optionally reported to the bus's AsyncErrorHandler if configured via SetAsyncErrorHandler.
+//   - Error Handling: Execution failures and panics are logged using slog.ErrorContext.
 func ExecuteAsync[C any](ctx Context, bus *Bus, cmd C) error {
 	cmdType := reflect.TypeOf(cmd)
 
 	bus.mu.RLock()
 	_, ok := bus.handlers[cmdType]
-	errHook := bus.asyncErrHook
 	bus.mu.RUnlock()
 
 	if !ok {
 		return fmt.Errorf("%w: command %v", flux.ErrNoHandler, cmdType)
 	}
 
-	// Detach context cancellation while preserving tracing metadata and values
-	asyncCtx := NewContext(
-		context.WithoutCancel(ctx),
-		ctx.CommandIdentifier(),
-		ctx.Actor(),
-		ctx.CorrelationIdentifier(),
-		ctx.CausationIdentifier(),
-	)
-
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				slog.ErrorContext(asyncCtx, "panic executing async command",
+				slog.ErrorContext(ctx, "panic executing async command",
 					"command_type", fmt.Sprintf("%T", cmd),
 					"panic", r,
 				)
 			}
 		}()
 
-		if err := Execute(asyncCtx, bus, cmd); err != nil {
-			slog.ErrorContext(asyncCtx, "failed to execute async command",
+		if err := Execute(ctx, bus, cmd); err != nil {
+			slog.ErrorContext(ctx, "failed to execute async command",
 				"command_type", fmt.Sprintf("%T", cmd),
 				"error", err,
 			)
-			if errHook != nil {
-				errHook(asyncCtx, cmd, err)
-			}
 		}
 	}()
 
