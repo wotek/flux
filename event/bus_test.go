@@ -5,11 +5,12 @@ import (
 	"context"
 	"log/slog"
 	"strings"
-	"github.com/wotek/flux/command"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/wotek/flux"
+	"github.com/wotek/flux/command"
 	"github.com/wotek/flux/event"
 )
 
@@ -146,4 +147,64 @@ func TestEventBus_Middleware(t *testing.T) {
 	if !strings.Contains(logOutput, "\"actor\":\"urn:acme:prod:payments:tenant-1:actor:1\"") {
 		t.Fatalf("expected log to contain auto-injected actor, got: %s", logOutput)
 	}
+}
+
+func TestEventBus_ConcurrentRegistrationAndPublish(t *testing.T) {
+	t.Parallel()
+	bus := event.New()
+
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:acme:prod:payments:tenant-1:actor:1")}
+	corrID := flux.MustParseIdentifier("urn:acme:prod:payments:tenant-1:correlation:2")
+	baseCtx := command.NewContext(context.Background(), flux.Identifier{}, actor, corrID, flux.Identifier{})
+	env := flux.Envelope{
+		Event:                 PingEvent{},
+		Actor:                 actor,
+		CorrelationIdentifier: corrID,
+	}
+	ctx := event.NewContext(baseCtx, env)
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	// Concurrently register handlers and middlewares
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					event.Register(bus, func(ctx event.Context, e PingEvent) error {
+						return nil
+					})
+					bus.Use(func(ctx event.Context, env flux.Envelope, next func(event.Context, flux.Envelope) error) error {
+						return next(ctx, env)
+					})
+					time.Sleep(10 * time.Microsecond)
+				}
+			}
+		}()
+	}
+
+	// Concurrently publish events
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_ = event.PublishEnvelope(ctx, bus, env)
+				}
+			}
+		}()
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	close(stop)
+	wg.Wait()
 }

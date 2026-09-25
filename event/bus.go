@@ -72,11 +72,11 @@ func PublishEnvelope(ctx Context, bus *Bus, env flux.Envelope) error {
 	name := env.Event.Name()
 
 	bus.mu.RLock()
-	handlers, ok := bus.handlers[name]
-	middlewares := bus.middlewares
+	handlers := slices.Clone(bus.handlers[name])
+	middlewares := slices.Clone(bus.middlewares)
 	bus.mu.RUnlock()
 
-	if !ok || len(handlers) == 0 {
+	if len(handlers) == 0 {
 		return nil
 	}
 
