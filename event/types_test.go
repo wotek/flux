@@ -146,7 +146,9 @@ func TestTypes_Concurrent(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			if idx%2 == 0 {
-				event.RegisterType[userRenamed](registry)
+				registry.Register(fmt.Sprintf("Event_%d", idx), func() flux.Event {
+					return &userRenamed{}
+				})
 			}
 			ev, err := registry.Instantiate("UserCreated")
 			if err != nil {
@@ -159,6 +161,22 @@ func TestTypes_Concurrent(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestTypes_Register_PanicsOnDuplicate(t *testing.T) {
+	t.Parallel()
+
+	registry := event.NewTypes()
+	event.RegisterType[userCreated](registry)
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Errorf("expected Register to panic on duplicate event name")
+		}
+	}()
+
+	event.RegisterType[userCreated](registry)
 }
 
 func TestTypes_RegisterType_PanicsOnPointer(t *testing.T) {

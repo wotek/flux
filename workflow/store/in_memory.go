@@ -10,6 +10,7 @@ import (
 
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/command"
+	"github.com/wotek/flux/event"
 	"github.com/wotek/flux/workflow"
 )
 
@@ -98,6 +99,9 @@ func (s *WorkflowStore[W]) Save(ctx context.Context, workflowInstance W, command
 		actor = fCtx.Actor()
 		correlationID = fCtx.CorrelationIdentifier()
 		causationID = fCtx.CausationIdentifier()
+	}
+	if evtCtx, ok := ctx.(event.Context); ok {
+		causationID = evtCtx.EventIdentifier()
 	}
 
 	// Atomically save state clone and outbox commands

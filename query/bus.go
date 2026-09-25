@@ -100,7 +100,11 @@ func Execute[Q any, R any](ctx Context, bus *Bus, query Q) (R, error) {
 		if !ok {
 			return nil, fmt.Errorf("%w: handler for query %v does not return the requested type", flux.ErrInvalidHandlerType, qType)
 		}
-		return h.Handle(execCtx, execQ.(Q))
+		typedQ, ok := execQ.(Q)
+		if !ok {
+			return nil, fmt.Errorf("%w: expected query of type %T, got %T", flux.ErrInvalidHandlerType, query, execQ)
+		}
+		return h.Handle(execCtx, typedQ)
 	}
 
 	for _, mw := range slices.Backward(middlewares) {
@@ -115,5 +119,10 @@ func Execute[Q any, R any](ctx Context, bus *Bus, query Q) (R, error) {
 		var zero R
 		return zero, err
 	}
-	return res.(R), err
+	typedRes, ok := res.(R)
+	if !ok {
+		var zero R
+		return zero, fmt.Errorf("%w: expected query result of type %T, got %T", flux.ErrInvalidHandlerType, zero, res)
+	}
+	return typedRes, err
 }

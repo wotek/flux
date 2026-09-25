@@ -22,6 +22,11 @@ const (
 // Identifier represents a globally unique resource identifier.
 // Format: urn:<organization>:<environment>:<service>:<account_id>:<resource_type>:<resource_id>[@<version>]
 // Note: ResourceID may natively contain path separators ('/').
+//
+// Design note: Modeled after AWS Amazon Resource Names (ARNs, e.g. "arn:aws:s3:::bucket"),
+// hierarchical components such as organization, environment, service, or account_id are
+// intentionally optional. Empty components (represented by consecutive colons, e.g. "urn:::stream::event:id")
+// are valid and supported when those scoping dimensions do not apply to the identified resource.
 type Identifier struct {
 	urn string
 }
@@ -32,6 +37,7 @@ var (
 )
 
 // NewIdentifier constructs an Identifier from its constituent parts.
+// Like AWS ARNs, constituent parts may be empty strings if that hierarchical scope is omitted.
 func NewIdentifier(org, env, svc, account, resType, resID, version string) Identifier {
 	base := fmt.Sprintf("urn:%s:%s:%s:%s:%s:%s", org, env, svc, account, resType, resID)
 	if version != "" {
@@ -41,6 +47,8 @@ func NewIdentifier(org, env, svc, account, resType, resID, version string) Ident
 }
 
 // ParseIdentifier parses a formatted URN string into an Identifier struct.
+// It verifies the URN prefix and structural colon delimiter count (at least 6 colons for 7 segments).
+// In accordance with AWS ARN conventions, individual components between colons may be empty strings.
 func ParseIdentifier(s string) (Identifier, error) {
 	if !strings.HasPrefix(s, "urn:") {
 		return Identifier{}, fmt.Errorf("invalid identifier: must start with 'urn:'")

@@ -197,3 +197,45 @@ func TestQueryBus_ConcurrentMiddlewareUseAndExecute(t *testing.T) {
 	close(stop)
 	wg.Wait()
 }
+
+func TestQueryBus_InvalidHandlerType(t *testing.T) {
+	t.Parallel()
+
+	t.Run("mismatched query parameter passed by middleware", func(t *testing.T) {
+		bus := query.New()
+		query.Register(bus, func(ctx query.Context, q dummyQuery) (string, error) {
+			return "ok", nil
+		})
+		bus.Use(func(ctx query.Context, q any, next func(query.Context, any) (any, error)) (any, error) {
+			return next(ctx, 12345) // wrong query type
+		})
+
+		ctx := query.NewContext(context.Background(), flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
+		_, err := query.Execute[dummyQuery, string](ctx, bus, dummyQuery{})
+		if err == nil {
+			t.Fatalf("expected error from mismatched query type, got nil")
+		}
+		if !errors.Is(err, flux.ErrInvalidHandlerType) {
+			t.Fatalf("expected ErrInvalidHandlerType, got %v", err)
+		}
+	})
+
+	t.Run("mismatched result returned by middleware", func(t *testing.T) {
+		bus := query.New()
+		query.Register(bus, func(ctx query.Context, q dummyQuery) (string, error) {
+			return "ok", nil
+		})
+		bus.Use(func(ctx query.Context, q any, next func(query.Context, any) (any, error)) (any, error) {
+			return 12345, nil // wrong return type instead of string
+		})
+
+		ctx := query.NewContext(context.Background(), flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
+		_, err := query.Execute[dummyQuery, string](ctx, bus, dummyQuery{})
+		if err == nil {
+			t.Fatalf("expected error from mismatched result type, got nil")
+		}
+		if !errors.Is(err, flux.ErrInvalidHandlerType) {
+			t.Fatalf("expected ErrInvalidHandlerType, got %v", err)
+		}
+	})
+}

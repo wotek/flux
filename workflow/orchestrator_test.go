@@ -464,3 +464,56 @@ func TestOrchestrator_MultipleHandlersPerEvent(t *testing.T) {
 	})
 }
 
+func TestOrchestrator_MissingCorrelationID_SkippedWithWarning(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	eventStore := eventstore.New()
+	cmdBus := command.New()
+	wfStore := workflowstore.New[*OnboardingWorkflow](cmdBus)
+
+	orchID := flux.MustParseIdentifier("urn:flux::workflow:1:orchestrator:missing_corr")
+	orchestrator := workflow.NewOrchestrator(orchID, eventStore, nil)
+
+	handlerCalled := false
+	secondEventHandled := make(chan struct{}, 1)
+
+	workflow.RegisterHandler(orchestrator, wfStore, func(ctx workflow.Context, w *OnboardingWorkflow, e UserRegistered) error {
+		if ctx.CorrelationIdentifier().IsEmpty() {
+			handlerCalled = true
+		} else {
+			close(secondEventHandled)
+		}
+		return nil
+	})
+
+	stream := flux.Stream{Identifier: flux.MustParseIdentifier("urn:events:::::stream_corr")}
+	corrID := flux.MustParseIdentifier("urn:user::auth:1:user:valid")
+	_ = eventStore.Append(ctx, stream, 0, []flux.Envelope{
+		{
+			Identifier: flux.MustParseIdentifier("urn:evt:::::no_corr"),
+			Event:      UserRegistered{Email: "nocorr@example.com"},
+		},
+		{
+			Identifier:            flux.MustParseIdentifier("urn:evt:::::with_corr"),
+			Event:                 UserRegistered{Email: "withcorr@example.com"},
+			CorrelationIdentifier: corrID,
+		},
+	})
+
+	go func() { _ = orchestrator.Start(ctx) }()
+
+	select {
+	case <-secondEventHandled:
+		// Success! The second event was processed, meaning the first event was safely skipped.
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for second event to be processed")
+	}
+
+	if handlerCalled {
+		t.Errorf("expected handler NOT to be invoked for event without correlation ID")
+	}
+}
+

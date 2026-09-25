@@ -1,5 +1,7 @@
 package flux
 
+import "slices"
+
 // Changeset captures all uncommitted events that have been applied to an aggregate.
 type Changeset[E Event] interface {
 	// Record appends a new event to the changeset.
@@ -11,7 +13,7 @@ type Changeset[E Event] interface {
 	// HasChanges returns true if there are uncommitted events.
 	HasChanges() bool
 
-	// Events returns the list of uncommitted events.
+	// Events returns a defensive copy of the uncommitted events.
 	Events() []E
 }
 
@@ -40,5 +42,6 @@ func (c *sliceChangeset[E]) HasChanges() bool {
 }
 
 func (c *sliceChangeset[E]) Events() []E {
-	return c.events
+	return slices.Clone(c.events)
 }
+

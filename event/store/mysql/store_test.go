@@ -142,8 +142,8 @@ func TestEventStore_AppendAndRead(t *testing.T) {
 	}
 
 	// 2. Mock Read
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = ? AND revision > ? ORDER BY revision ASC")).
-		WithArgs(stream.Identifier.String(), uint64(0)).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = ? AND revision > ? ORDER BY revision ASC LIMIT ?")).
+		WithArgs(stream.Identifier.String(), uint64(0), 100).
 		WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}).
 			AddRow(uint64(42), uint64(1), payloadBytes))
 
@@ -268,8 +268,8 @@ func TestEventStore_StreamGlobal(t *testing.T) {
 		t.Fatalf("Marshal failed: %v", err)
 	}
 
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE position > ? ORDER BY position ASC")).
-		WithArgs(uint64(10)).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE position > ? ORDER BY position ASC LIMIT ?")).
+		WithArgs(uint64(10), 100).
 		WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}).
 			AddRow(uint64(11), uint64(1), payloadBytes))
 
@@ -308,8 +308,8 @@ func TestEventStore_EmptyStream(t *testing.T) {
 		Identifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:order:ord-empty"),
 	}
 
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = ? AND revision > ? ORDER BY revision ASC")).
-		WithArgs(stream.Identifier.String(), uint64(0)).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = ? AND revision > ? ORDER BY revision ASC LIMIT ?")).
+		WithArgs(stream.Identifier.String(), uint64(0), 100).
 		WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}))
 
 	iter, err := store.Read(ctx, stream, 0)
@@ -344,8 +344,8 @@ func TestEventStore_WithCustomTableName(t *testing.T) {
 		Identifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:order:ord-101"),
 	}
 
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM custom_events WHERE stream_id = ? AND revision > ? ORDER BY revision ASC")).
-		WithArgs("urn:acme:prod:sales:tenant-1:order:ord-101", uint64(0)).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM custom_events WHERE stream_id = ? AND revision > ? ORDER BY revision ASC LIMIT ?")).
+		WithArgs("urn:acme:prod:sales:tenant-1:order:ord-101", uint64(0), 100).
 		WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}))
 
 	iter, err := store.Read(ctx, stream, 0)
@@ -418,8 +418,8 @@ func TestEventStore_ReadDeferredQuery(t *testing.T) {
 	}
 
 	// 2. When iterator is invoked, query error is yielded.
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = ? AND revision > ? ORDER BY revision ASC")).
-		WithArgs("urn:acme:prod:sales:tenant-1:order:ord-lazy", uint64(0)).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = ? AND revision > ? ORDER BY revision ASC LIMIT ?")).
+		WithArgs("urn:acme:prod:sales:tenant-1:order:ord-lazy", uint64(0), 100).
 		WillReturnError(errors.New("db connection failure"))
 
 	var yieldedErr error
@@ -454,8 +454,8 @@ func TestEventStore_StreamDeferredQuery(t *testing.T) {
 	}
 
 	// 2. When iterator is invoked, query error is yielded.
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE position > ? ORDER BY position ASC")).
-		WithArgs(uint64(10)).
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE position > ? ORDER BY position ASC LIMIT ?")).
+		WithArgs(uint64(10), 100).
 		WillReturnError(errors.New("db stream failure"))
 
 	var yieldedErr error
@@ -525,4 +525,84 @@ func TestWithTableName_PanicsOnInvalid(t *testing.T) {
 	}()
 
 	_ = mysqlstore.WithTableName("events; DROP TABLE students;--")
+}
+
+func TestEventStore_Pagination(t *testing.T) {
+	t.Parallel()
+
+	store, mock, _, serializer := setupTestStore(t, mysqlstore.WithBatchSize(2))
+	ctx := context.Background()
+
+	stream := flux.Stream{Identifier: flux.MustParseIdentifier("urn:test::stream:1:order:page")}
+
+	e1 := flux.Envelope{Event: orderPlaced{OrderNumber: "1", Amount: 10}}
+	e2 := flux.Envelope{Event: orderPlaced{OrderNumber: "2", Amount: 20}}
+	e3 := flux.Envelope{Event: orderPlaced{OrderNumber: "3", Amount: 30}}
+	p1, _ := serializer.Marshal(e1)
+	p2, _ := serializer.Marshal(e2)
+	p3, _ := serializer.Marshal(e3)
+
+	t.Run("Read keyset pagination", func(t *testing.T) {
+		// Batch 1 (limit 2): returns 2 rows -> triggers next page
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = ? AND revision > ? ORDER BY revision ASC LIMIT ?")).
+			WithArgs(stream.Identifier.String(), uint64(0), 2).
+			WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}).
+				AddRow(uint64(10), uint64(1), p1).
+				AddRow(uint64(11), uint64(2), p2))
+
+		// Batch 2 (limit 2): starts after revision 2, returns 1 row (< batchSize, stops)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = ? AND revision > ? ORDER BY revision ASC LIMIT ?")).
+			WithArgs(stream.Identifier.String(), uint64(2), 2).
+			WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}).
+				AddRow(uint64(12), uint64(3), p3))
+
+		iter, err := store.Read(ctx, stream, 0)
+		if err != nil {
+			t.Fatalf("Read failed: %v", err)
+		}
+
+		var count int
+		for _, err := range iter {
+			if err != nil {
+				t.Fatalf("unexpected iteration error: %v", err)
+			}
+			count++
+		}
+
+		if count != 3 {
+			t.Errorf("expected 3 events read across pages, got %d", count)
+		}
+	})
+
+	t.Run("Stream keyset pagination", func(t *testing.T) {
+		// Batch 1 (limit 2): returns 2 rows -> triggers next page
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE position > ? ORDER BY position ASC LIMIT ?")).
+			WithArgs(uint64(0), 2).
+			WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}).
+				AddRow(uint64(10), uint64(1), p1).
+				AddRow(uint64(11), uint64(2), p2))
+
+		// Batch 2 (limit 2): starts after position 11, returns 1 row (< batchSize, stops)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE position > ? ORDER BY position ASC LIMIT ?")).
+			WithArgs(uint64(11), 2).
+			WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}).
+				AddRow(uint64(12), uint64(3), p3))
+
+		iter, err := store.Stream(ctx, 0)
+		if err != nil {
+			t.Fatalf("Stream failed: %v", err)
+		}
+
+		var count int
+		for _, err := range iter {
+			if err != nil {
+				t.Fatalf("unexpected stream error: %v", err)
+			}
+			count++
+		}
+
+		if count != 3 {
+			t.Errorf("expected 3 stream events across pages, got %d", count)
+		}
+	})
 }

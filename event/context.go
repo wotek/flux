@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"maps"
 
 	"github.com/wotek/flux"
 )
@@ -30,12 +31,12 @@ func (e *eventContext) EventIdentifier() flux.Identifier { return e.eventID }
 func (e *eventContext) Stream() flux.Stream              { return e.stream }
 func (e *eventContext) Revision() uint64                 { return e.revision }
 func (e *eventContext) Position() uint64                 { return e.position }
-func (e *eventContext) Metadata() map[string]string      { return e.metadata }
+func (e *eventContext) Metadata() map[string]string      { return maps.Clone(e.metadata) }
 
 // NewContext creates a new event Context from a parent context and Envelope.
 func NewContext(parent context.Context, env flux.Envelope) Context {
 	return &eventContext{
-		Context:  flux.NewContext(parent, env.Actor, env.CorrelationIdentifier, env.Identifier),
+		Context:  flux.NewContext(parent, env.Actor, env.CorrelationIdentifier, env.CausationIdentifier),
 		eventID:  env.Identifier,
 		stream:   env.Stream,
 		revision: env.Revision,

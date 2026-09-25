@@ -63,6 +63,18 @@ func (a *AggregateRoot[E]) Changeset() Changeset[E] {
 	return a.changeset
 }
 
+// Record mutates aggregate state by applying the event via the configured apply function,
+// and records the event into the uncommitted changeset upon success.
+func (a *AggregateRoot[E]) Record(event E) error {
+	if a.apply != nil {
+		if err := a.apply(event); err != nil {
+			return err
+		}
+	}
+	a.changeset.Record(event)
+	return nil
+}
+
 // Revision returns the aggregate's current sequence number.
 func (a *AggregateRoot[E]) Revision() uint64 {
 	return a.revision
