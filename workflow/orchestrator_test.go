@@ -287,3 +287,44 @@ func TestWorkflow_CloneIsolationOnHandlerFailure(t *testing.T) {
 		t.Errorf("expected workflow status to remain COMMITTED after external mutation, got %s", loadedAgain.Status)
 	}
 }
+
+type OrchestratorEvtA struct{}
+func (e OrchestratorEvtA) Name() string { return "OrchestratorEvtA" }
+
+type OrchestratorEvtB struct{}
+func (e OrchestratorEvtB) Name() string { return "OrchestratorEvtB" }
+
+func TestOrchestrator_ConcurrentRegistrationAndStart(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	eventStore := eventstore.New()
+	cmdBus := command.New()
+	wfStore := workflowstore.New[*OnboardingWorkflow](cmdBus)
+
+	orchID := flux.MustParseIdentifier("urn:flux::workflow:1:orchestrator:concurrent")
+	orchestrator := workflow.NewOrchestrator(orchID, eventStore, wfStore)
+
+	stream := flux.Stream{Identifier: flux.MustParseIdentifier("urn:stream:::::orch_concurrent:1")}
+	_ = eventStore.Append(ctx, stream, 0, []flux.Envelope{
+		{Identifier: flux.MustParseIdentifier("urn:evt:::::oa1"), Event: OrchestratorEvtA{}, CorrelationIdentifier: flux.MustParseIdentifier("urn:corr:::::oa1")},
+		{Identifier: flux.MustParseIdentifier("urn:evt:::::ob1"), Event: OrchestratorEvtB{}, CorrelationIdentifier: flux.MustParseIdentifier("urn:corr:::::ob1")},
+	})
+
+	go func() { _ = orchestrator.Start(ctx) }()
+
+	go func() {
+		workflow.RegisterHandler(orchestrator, wfStore, func(ctx workflow.Context, w *OnboardingWorkflow, e OrchestratorEvtA) error {
+			return nil
+		})
+	}()
+
+	go func() {
+		workflow.RegisterHandler(orchestrator, wfStore, func(ctx workflow.Context, w *OnboardingWorkflow, e OrchestratorEvtB) error {
+			return nil
+		})
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+}

@@ -43,6 +43,7 @@ func (c *inMemoryCheckpoint) SetPosition(ctx context.Context, id flux.Identifier
 // Orchestrator is the background worker that listens to the global event stream
 // and routes events to the appropriate workflow instances.
 type Orchestrator struct {
+	mu         sync.RWMutex
 	id         flux.Identifier
 	eventStore flux.EventStore
 	checkpoint CheckpointStore
@@ -74,6 +75,9 @@ func New(id flux.Identifier, eventStore flux.EventStore, checkpoint CheckpointSt
 
 // RegisterHandler wires a specific event type to a workflow's state transition.
 func RegisterHandler[W Workflow[W], E flux.Event](o *Orchestrator, store Store[W], handler func(ctx Context, workflow W, event E) error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	var evt E
 	name := evt.Name()
 
@@ -144,7 +148,11 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 					return fmt.Errorf("stream iteration error: %w", err)
 				}
 
-				if handler, ok := o.handlers[env.Event.Name()]; ok {
+				o.mu.RLock()
+				handler, ok := o.handlers[env.Event.Name()]
+				o.mu.RUnlock()
+
+				if ok {
 					if err := handler.invoke(ctx, env); err != nil {
 						return err
 					}

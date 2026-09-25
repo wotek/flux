@@ -87,7 +87,7 @@ func Execute[Q any, R any](ctx Context, bus *Bus, query Q) (R, error) {
 
 	bus.mu.RLock()
 	handler, ok := bus.handlers[qType]
-	middlewares := bus.middlewares
+	middlewares := slices.Clone(bus.middlewares)
 	bus.mu.RUnlock()
 
 	if !ok {

@@ -3,9 +3,11 @@ package command_test
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
-	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -145,4 +147,120 @@ func TestCommandBus_Middleware(t *testing.T) {
 	if !strings.Contains(logOutput, "\"correlation_id\":\"urn:acme:prod:payments:tenant-1:correlation:2\"") {
 		t.Fatalf("expected log to contain auto-injected correlation_id, got: %s", logOutput)
 	}
+}
+
+func TestExecuteAsync_ContextDetached(t *testing.T) {
+	t.Parallel()
+	bus := command.New()
+
+	executed := make(chan struct{})
+	command.Register(bus, func(ctx command.Context, cmd dummyCmd) error {
+		// Verify context is NOT canceled even though parent was canceled immediately
+		select {
+		case <-ctx.Done():
+			t.Errorf("expected detached context not to be canceled, got: %v", ctx.Err())
+		default:
+		}
+		close(executed)
+		return nil
+	})
+
+	parentCtx, cancel := context.WithCancel(context.Background())
+	cmdCtx := command.NewContext(parentCtx, flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
+
+	if err := command.ExecuteAsync(cmdCtx, bus, dummyCmd{val: "async"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Immediately cancel the caller's context
+	cancel()
+
+	select {
+	case <-executed:
+		// Succeeded
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timed out waiting for async handler execution")
+	}
+}
+
+func TestExecuteAsync_ErrorHook(t *testing.T) {
+	t.Parallel()
+	bus := command.New()
+
+	expectedErr := fmt.Errorf("async handler failure")
+	command.Register(bus, func(ctx command.Context, cmd dummyCmd) error {
+		return expectedErr
+	})
+
+	errReported := make(chan error, 1)
+	bus.SetAsyncErrorHandler(func(ctx command.Context, cmd any, err error) {
+		errReported <- err
+	})
+
+	cmdCtx := command.NewContext(context.Background(), flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
+	if err := command.ExecuteAsync(cmdCtx, bus, dummyCmd{val: "fail"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	select {
+	case err := <-errReported:
+		if !errors.Is(err, expectedErr) {
+			t.Errorf("expected error %v, got %v", expectedErr, err)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timed out waiting for async error hook")
+	}
+}
+
+func TestCommandBus_ConcurrentMiddlewareUseAndExecute(t *testing.T) {
+	t.Parallel()
+	bus := command.New()
+
+	command.Register(bus, func(ctx command.Context, cmd dummyCmd) error {
+		return nil
+	})
+
+	ctx := command.NewContext(context.Background(), flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	// Concurrently append middleware
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					bus.Use(func(ctx command.Context, cmd any, next func(command.Context, any) error) error {
+						return next(ctx, cmd)
+					})
+					time.Sleep(10 * time.Microsecond)
+				}
+			}
+		}()
+	}
+
+	// Concurrently execute commands
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_ = command.Execute(ctx, bus, dummyCmd{val: "concurrent"})
+				}
+			}
+		}()
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	close(stop)
+	wg.Wait()
 }

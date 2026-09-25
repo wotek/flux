@@ -3,6 +3,7 @@ package projection
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/wotek/flux"
@@ -12,6 +13,7 @@ import (
 // Projector is the background worker that powers a Projection.
 // It tails the EventStore starting from the Store.GetPosition().
 type Projector struct {
+	mu         sync.RWMutex
 	id         flux.Identifier
 	eventStore flux.EventStore
 	projStore  Store
@@ -31,6 +33,9 @@ func New(id flux.Identifier, eventStore flux.EventStore, projStore Store) *Proje
 // NewProjector is an alias for New to maintain explicit naming.
 // RegisterHandler wires a specific event type to the projection's logic.
 func RegisterHandler[E flux.Event](p *Projector, handler func(ctx Context, event E) error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	var event E
 	name := event.Name()
 	if _, exists := p.handlers[name]; exists {
@@ -89,7 +94,10 @@ func (p *Projector) Start(ctx context.Context) error {
 }
 
 func (p *Projector) processEnvelope(ctx context.Context, env flux.Envelope) error {
+	p.mu.RLock()
 	h, exists := p.handlers[env.Event.Name()]
+	p.mu.RUnlock()
+
 	if !exists {
 		// Ignore events we don't care about
 		return p.projStore.Update(ctx, p.id, env, func(txCtx context.Context) error {
