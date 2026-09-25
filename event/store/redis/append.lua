@@ -25,8 +25,8 @@ for i = 1, event_count do
     local stream_id = tostring(new_revision) .. "-0"
     local global_id = tostring(new_global) .. "-0"
 
-    redis.call('XADD', stream_key, stream_id, 'data', payload)
-    redis.call('XADD', global_stream_key, global_id, 'data', payload)
+    redis.call('XADD', stream_key, stream_id, 'data', payload, 'position', tostring(new_global))
+    redis.call('XADD', global_stream_key, global_id, 'data', payload, 'position', tostring(new_global))
 end
 
 return new_revision

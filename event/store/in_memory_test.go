@@ -144,3 +144,57 @@ func TestEventStore_ConcurrencyError(t *testing.T) {
 		t.Fatalf("expected ErrConcurrency, got %v", err)
 	}
 }
+
+func TestEventStore_StreamPreserved(t *testing.T) {
+	t.Parallel()
+
+	store := eventstore.New()
+	ctx := context.Background()
+	stream := flux.Stream{
+		Identifier: flux.MustParseIdentifier("urn:test:prod:items:123:item:stream-test"),
+	}
+
+	rawEnv := flux.Envelope{
+		Event: dummyEvent{Value: "val"},
+	}
+
+	if err := store.Append(ctx, stream, 0, []flux.Envelope{rawEnv}); err != nil {
+		t.Fatalf("failed to append: %v", err)
+	}
+
+	iter, err := store.Read(ctx, stream, 0)
+	if err != nil {
+		t.Fatalf("failed to read stream: %v", err)
+	}
+
+	var found bool
+	for env, err := range iter {
+		if err != nil {
+			t.Fatalf("unexpected iteration error: %v", err)
+		}
+		found = true
+		if env.Stream.Identifier != stream.Identifier {
+			t.Errorf("expected Stream identifier %v, got %v", stream.Identifier, env.Stream.Identifier)
+		}
+	}
+	if !found {
+		t.Fatal("expected at least one event in stream")
+	}
+}
+
+func TestEventStore_ContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	store := eventstore.New()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	stream := flux.Stream{
+		Identifier: flux.MustParseIdentifier("urn:test:prod:items:123:item:cancel-test"),
+	}
+
+	err := store.Append(ctx, stream, 0, []flux.Envelope{{Event: dummyEvent{Value: "v"}}})
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got %v", err)
+	}
+}

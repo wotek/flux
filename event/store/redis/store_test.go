@@ -99,6 +99,10 @@ func TestEventStore_AppendAndRead(t *testing.T) {
 		t.Errorf("unexpected revisions: %d, %d", readEvents[0].Revision, readEvents[1].Revision)
 	}
 
+	if readEvents[0].Position != 1 || readEvents[1].Position != 2 {
+		t.Errorf("unexpected positions: %d, %d", readEvents[0].Position, readEvents[1].Position)
+	}
+
 	if readEvents[0].Stream != stream || readEvents[1].Stream != stream {
 		t.Errorf("unexpected stream on events")
 	}
@@ -397,6 +401,69 @@ func TestEventStore_WithXMLCodec(t *testing.T) {
 	gotEvent, ok := events[0].Event.(*itemAdded)
 	if !ok || gotEvent.ItemName != "Widget" || gotEvent.Count != 5 {
 		t.Errorf("unexpected event payload: %+v", events[0].Event)
+	}
+}
+
+func TestEventStore_ReadPositionMatchesStream(t *testing.T) {
+	t.Parallel()
+
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	stream := flux.Stream{
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:catalog:tenant-1:product:pos-test"),
+	}
+
+	env1 := flux.Envelope{
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:catalog:tenant-1:event:evt-pos-1"),
+		Event:      &itemAdded{ItemName: "Mouse", Count: 1},
+	}
+	env2 := flux.Envelope{
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:catalog:tenant-1:event:evt-pos-2"),
+		Event:      &itemAdded{ItemName: "Monitor", Count: 2},
+	}
+
+	if err := store.Append(ctx, stream, 0, []flux.Envelope{env1, env2}); err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+
+	// 1. Read from stream
+	readIter, err := store.Read(ctx, stream, 0)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	var readEvents []flux.Envelope
+	for env, err := range readIter {
+		if err != nil {
+			t.Fatalf("Read iteration error: %v", err)
+		}
+		readEvents = append(readEvents, env)
+	}
+
+	// 2. Stream from global log
+	streamIter, err := store.Stream(ctx, 0)
+	if err != nil {
+		t.Fatalf("Stream failed: %v", err)
+	}
+	var globalEvents []flux.Envelope
+	for env, err := range streamIter {
+		if err != nil {
+			t.Fatalf("Stream iteration error: %v", err)
+		}
+		globalEvents = append(globalEvents, env)
+	}
+
+	if len(readEvents) != 2 || len(globalEvents) != 2 {
+		t.Fatalf("expected 2 read events and 2 global events, got %d and %d", len(readEvents), len(globalEvents))
+	}
+
+	for i := range 2 {
+		if readEvents[i].Position == 0 {
+			t.Errorf("readEvent[%d].Position is 0, want non-zero", i)
+		}
+		if readEvents[i].Position != globalEvents[i].Position {
+			t.Errorf("event %d: Read position %d does not match Stream position %d", i, readEvents[i].Position, globalEvents[i].Position)
+		}
 	}
 }
 

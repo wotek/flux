@@ -68,7 +68,10 @@ func (a *BankAccount) Deposit(amount int) {
 }
 
 func TestAggregateRepository_SaveAndLoad(t *testing.T) {
-	ctx := flux.NewContext(context.Background(), flux.Actor{}, flux.Identifier{}, flux.Identifier{})
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:bank:prod:iam:123:user:usr-1")}
+	corrID := flux.MustParseIdentifier("urn:bank:prod:commands:123:cmd:c-100")
+	causID := flux.MustParseIdentifier("urn:bank:prod:commands:123:cmd:c-099")
+	ctx := flux.NewContext(context.Background(), actor, corrID, causID)
 	store := eventstore.New()
 	repo := flux.NewAggregateRepository[*BankAccount, BankEvent](store)
 
@@ -91,6 +94,31 @@ func TestAggregateRepository_SaveAndLoad(t *testing.T) {
 
 	if account.Changeset().HasChanges() {
 		t.Errorf("expected changeset to be cleared after save")
+	}
+
+	// Verify envelopes carry metadata from context
+	iter, err := store.Read(ctx, stream, 0)
+	if err != nil {
+		t.Fatalf("failed to read stream from store: %v", err)
+	}
+	count := 0
+	for env, err := range iter {
+		if err != nil {
+			t.Fatalf("iteration error: %v", err)
+		}
+		count++
+		if env.Actor.Identifier != actor.Identifier {
+			t.Errorf("envelope %d: expected actor %v, got %v", count, actor, env.Actor)
+		}
+		if env.CorrelationIdentifier != corrID {
+			t.Errorf("envelope %d: expected correlation %v, got %v", count, corrID, env.CorrelationIdentifier)
+		}
+		if env.CausationIdentifier != causID {
+			t.Errorf("envelope %d: expected causation %v, got %v", count, causID, env.CausationIdentifier)
+		}
+	}
+	if count != 3 {
+		t.Errorf("expected 3 envelopes, got %d", count)
 	}
 
 	// Load it back

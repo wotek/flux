@@ -153,6 +153,13 @@ func (s *EventStore) Read(ctx context.Context, stream flux.Stream, fromRevision 
 					return
 				}
 
+				pos, posErr := extractPosition(msg.Values)
+				if posErr != nil {
+					yield(flux.Envelope{}, fmt.Errorf("extracting message position: %w", posErr))
+					return
+				}
+
+				env.Position = pos
 				env.Revision = rev
 				env.Stream = stream
 
@@ -292,5 +299,31 @@ func extractPayload(values map[string]any) ([]byte, error) {
 		return v, nil
 	default:
 		return nil, fmt.Errorf("unexpected payload type %T in redis stream message", val)
+	}
+}
+
+func extractPosition(values map[string]any) (uint64, error) {
+	val, ok := values["position"]
+	if !ok {
+		return 0, nil
+	}
+
+	switch v := val.(type) {
+	case string:
+		pos, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parsing position %q: %w", v, err)
+		}
+		return pos, nil
+	case []byte:
+		pos, err := strconv.ParseUint(string(v), 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parsing position %q: %w", string(v), err)
+		}
+		return pos, nil
+	case int64:
+		return uint64(v), nil
+	default:
+		return 0, fmt.Errorf("unexpected position type %T in redis stream message", val)
 	}
 }

@@ -63,6 +63,7 @@ func (r *AggregateRepository[A, E]) Save(ctx Context, aggregate A) error {
 			Event:                 event,
 			Actor:                 ctx.Actor(),
 			CorrelationIdentifier: ctx.CorrelationIdentifier(),
+			CausationIdentifier:   ctx.CausationIdentifier(),
 			CreatedAt:             time.Now(),
 		}
 		envelopes = append(envelopes, env)

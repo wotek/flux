@@ -9,6 +9,8 @@ import (
 	"github.com/wotek/flux"
 )
 
+var _ flux.EventStore = (*EventStore)(nil)
+
 // EventStore is an in-memory implementation of flux.EventStore.
 // It is thread-safe and suitable for unit testing and local development.
 type EventStore struct {
@@ -26,8 +28,16 @@ func New() *EventStore {
 }
 
 // NewEventStore is an alias for New to maintain backwards compatibility.
+func NewEventStore() *EventStore {
+	return New()
+}
+
 // Append adds new events to a specific stream, enforcing optimistic concurrency.
 func (s *EventStore) Append(ctx context.Context, stream flux.Stream, expectedRevision uint64, events []flux.Envelope) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -46,6 +56,7 @@ func (s *EventStore) Append(ctx context.Context, stream flux.Stream, expectedRev
 
 	// Append events
 	for i, env := range events {
+		env.Stream = stream
 		env.Revision = currentRevision + uint64(i) + 1
 		env.Position = uint64(len(s.globalStream) + 1)
 
