@@ -2,6 +2,7 @@ package workflow_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -328,3 +329,138 @@ func TestOrchestrator_ConcurrentRegistrationAndStart(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 }
+
+type AuditWorkflow struct {
+	ID      flux.Identifier
+	Audited bool
+}
+
+func (w *AuditWorkflow) Identifier() flux.Identifier { return w.ID }
+func (w *AuditWorkflow) New() *AuditWorkflow         { return &AuditWorkflow{} }
+func (w *AuditWorkflow) Clone() *AuditWorkflow {
+	if w == nil {
+		return nil
+	}
+	c := *w
+	return &c
+}
+
+func TestOrchestrator_MultipleHandlersPerEvent(t *testing.T) {
+	t.Run("all handlers invoked for same event", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		eventStore := eventstore.New()
+		cmdBus := command.New()
+		onboardingStore := workflowstore.New[*OnboardingWorkflow](cmdBus)
+		auditStore := workflowstore.New[*AuditWorkflow](cmdBus)
+
+		orchID := flux.MustParseIdentifier("urn:flux::workflow:1:orchestrator:multi1")
+		orchestrator := workflow.NewOrchestrator(orchID, eventStore, nil)
+
+		onboardingHandled := make(chan struct{}, 1)
+		auditHandled := make(chan struct{}, 1)
+
+		workflow.RegisterHandler(orchestrator, onboardingStore, func(ctx workflow.Context, w *OnboardingWorkflow, e UserRegistered) error {
+			w.ID = ctx.CorrelationIdentifier()
+			w.Status = "HANDLED"
+			close(onboardingHandled)
+			return nil
+		})
+
+		workflow.RegisterHandler(orchestrator, auditStore, func(ctx workflow.Context, w *AuditWorkflow, e UserRegistered) error {
+			w.ID = ctx.CorrelationIdentifier()
+			w.Audited = true
+			close(auditHandled)
+			return nil
+		})
+
+		corrID := flux.MustParseIdentifier("urn:user::auth:1:user:u123")
+		stream := flux.Stream{Identifier: flux.MustParseIdentifier("urn:events:::::stream1")}
+		_ = eventStore.Append(ctx, stream, 0, []flux.Envelope{
+			{
+				Identifier:            flux.MustParseIdentifier("urn:evt:::::e1"),
+				Event:                 UserRegistered{Email: "user@example.com"},
+				CorrelationIdentifier: corrID,
+			},
+		})
+
+		go func() { _ = orchestrator.Start(ctx) }()
+
+		select {
+		case <-onboardingHandled:
+		case <-time.After(1 * time.Second):
+			t.Fatal("timed out waiting for onboarding handler")
+		}
+
+		select {
+		case <-auditHandled:
+		case <-time.After(1 * time.Second):
+			t.Fatal("timed out waiting for audit handler")
+		}
+
+		obWf, err := onboardingStore.Load(ctx, corrID)
+		if err != nil || obWf.Status != "HANDLED" {
+			t.Fatalf("expected onboarding workflow to be HANDLED, got err=%v wf=%v", err, obWf)
+		}
+
+		audWf, err := auditStore.Load(ctx, corrID)
+		if err != nil || !audWf.Audited {
+			t.Fatalf("expected audit workflow to be Audited=true, got err=%v wf=%v", err, audWf)
+		}
+	})
+
+	t.Run("fail fast on first handler error", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		eventStore := eventstore.New()
+		cmdBus := command.New()
+		onboardingStore := workflowstore.New[*OnboardingWorkflow](cmdBus)
+		auditStore := workflowstore.New[*AuditWorkflow](cmdBus)
+
+		orchID := flux.MustParseIdentifier("urn:flux::workflow:1:orchestrator:multi2")
+		orchestrator := workflow.NewOrchestrator(orchID, eventStore, nil)
+
+		expectedErr := errors.New("failing handler")
+		secondHandlerCalled := false
+
+		workflow.RegisterHandler(orchestrator, onboardingStore, func(_ workflow.Context, _ *OnboardingWorkflow, _ UserRegistered) error {
+			return expectedErr
+		})
+
+		workflow.RegisterHandler(orchestrator, auditStore, func(_ workflow.Context, _ *AuditWorkflow, _ UserRegistered) error {
+			secondHandlerCalled = true
+			return nil
+		})
+
+		corrID := flux.MustParseIdentifier("urn:user::auth:1:user:u456")
+		stream := flux.Stream{Identifier: flux.MustParseIdentifier("urn:events:::::stream2")}
+		_ = eventStore.Append(ctx, stream, 0, []flux.Envelope{
+			{
+				Identifier:            flux.MustParseIdentifier("urn:evt:::::e2"),
+				Event:                 UserRegistered{Email: "user2@example.com"},
+				CorrelationIdentifier: corrID,
+			},
+		})
+
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- orchestrator.Start(ctx)
+		}()
+
+		select {
+		case err := <-errCh:
+			if !errors.Is(err, expectedErr) {
+				t.Fatalf("expected %v, got %v", expectedErr, err)
+			}
+		case <-time.After(1 * time.Second):
+			t.Fatal("timed out waiting for orchestrator to fail fast")
+		}
+
+		if secondHandlerCalled {
+			t.Fatalf("second handler should not have been called after first handler error")
+		}
+	})
+}
+

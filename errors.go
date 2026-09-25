@@ -20,4 +20,13 @@ var (
 
 	// ErrInvalidHandlerType is returned when a requested handler signature does not match the registered handler.
 	ErrInvalidHandlerType = errors.New("invalid handler type")
+
+	// ErrSnapshotPersistence is returned by SnapshotRepository.Save when events were
+	// successfully appended to the EventStore, but saving the snapshot failed.
+	// Callers can safely retry Save to re-attempt the snapshot write.
+	ErrSnapshotPersistence = errors.New("failed to persist snapshot (events were successfully committed)")
+
+	// ErrMissingRevisionSetter indicates that an aggregate does not implement the internal
+	// revisionSetter interface (typically because it failed to embed flux.AggregateRoot).
+	ErrMissingRevisionSetter = errors.New("aggregate must embed flux.AggregateRoot to manage revisions")
 )
