@@ -14,4 +14,8 @@ type Workflow[W Workflow[W]] interface {
 	// New creates a new, empty instance of the workflow.
 	// This is called on a nil pointer by the Orchestrator during loading.
 	New() W
+
+	// Clone creates an isolated copy of the workflow instance to guarantee
+	// that in-flight mutations in handlers do not leak into the store before Save.
+	Clone() W
 }

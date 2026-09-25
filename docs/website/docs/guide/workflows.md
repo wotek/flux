@@ -112,3 +112,42 @@ func PayOrderActivity(ctx context.Context, orderID string) error {
     return command.Execute(cmdCtx, globalCmdBus, salesCmd.PayOrder{OrderID: orderID})
 }
 ```
+
+## In-Process Workflow Orchestration
+
+For lightweight or embedded orchestrations that do not require an external Temporal cluster, `flux` provides the `workflow` package.
+
+### 1. Workflow Contract and Clone Semantics
+
+Workflow instances are state machines driven by events from the global stream. To avoid dirty read/write concurrency hazards and partial mutation leaks when handlers fail, all workflow types must implement the `Workflow[W]` generic interface:
+
+```go
+type Workflow[W Workflow[W]] interface {
+	Identifier() flux.Identifier
+	New() W
+	Clone() W
+}
+```
+
+Handlers mutate an isolated clone returned by `Load`. The store commits mutated state only after the handler completes successfully without error. If a handler fails mid-flight, the uncommitted in-memory mutations are discarded and the store retains its last durable state.
+
+### 2. Durable Checkpoint Semantics
+
+The `Orchestrator` tails the `EventStore` and maintains a durable stream position checkpoint through `CheckpointStore`:
+
+```go
+type CheckpointStore interface {
+	GetPosition(ctx context.Context, id flux.Identifier) (uint64, error)
+	SetPosition(ctx context.Context, id flux.Identifier, position uint64) error
+}
+```
+
+On startup or recovery, the orchestrator retrieves its last checkpoint position via `GetPosition`. As envelopes are processed, the position is advanced and saved via `SetPosition`. Unhandled events also advance the checkpoint position. If an orchestrator crashes or restarts, processing resumes from the last persisted position. Handlers should remain idempotent to handle at-least-once delivery during restarts.
+
+### 3. Outbox Pattern and Traceability
+
+To ensure atomic state transitions and side effects, workflows enqueue commands via `workflow.EnqueueCommand(ctx, cmd)`. Commands are stored transactionally alongside the workflow state in `Store.Save(ctx, workflow, commands)`.
+
+A background outbox relay polls these records and dispatches them to the `CommandBus`:
+- **Ack-After-Success:** Commands are removed from the outbox table only after successful dispatch by the command handler. On failure, the command remains in the outbox and is retried.
+- **Trace Context Propagation:** Causal and correlation metadata (`Actor`, `CorrelationIdentifier`, `CausationIdentifier`) from the triggering event is persisted in the outbox message and reconstructed into the `command.Context` seen by command handlers.

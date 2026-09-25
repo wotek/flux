@@ -12,8 +12,10 @@ type Store[W Workflow[W]] interface {
 	Load(ctx context.Context, id flux.Identifier) (W, error)
 
 	// Save persists the workflow's state alongside any enqueued commands within the SAME
-	// database transaction. A separate relay process is expected to poll these commands
-	// and forward them to the CommandBus to achieve At-Least-Once (Outbox) delivery.
+	// database transaction. A separate relay process polls these commands and forwards
+	// them to the CommandBus to achieve At-Least-Once (Outbox) delivery.
+	// Because at-least-once delivery may re-dispatch commands upon restart or retry,
+	// target command handlers must be idempotent.
 	Save(ctx context.Context, workflow W, commands []any) error
 }
 

@@ -269,13 +269,14 @@ Orchestration engine coordinating long-running business processes and durable Ou
 
 #### Interfaces
 
-- `Workflow[W Workflow[W]]`: Go 1.26 self-referencing generic constraint requiring `Identifier() flux.Identifier` and `New() W`.
+- `Workflow[W Workflow[W]]`: Go 1.26 self-referencing generic constraint requiring `Identifier() flux.Identifier`, `New() W`, and `Clone() W`.
 - `Store[W Workflow[W]]`: Persistence contract for loading workflow state and atomically saving state alongside outbox commands.
+- `CheckpointStore`: Interface for persisting and retrieving orchestrator stream checkpoints (`GetPosition`, `SetPosition`).
 - `Context`: Extends `event.Context` with `QueuedCommands() []any`.
 
 #### Functions
 
-- `NewOrchestrator(eventStore flux.EventStore) *Orchestrator`: Creates a Workflow Orchestrator.
+- `NewOrchestrator(id flux.Identifier, eventStore flux.EventStore, checkpoint CheckpointStore) *Orchestrator`: Creates a Workflow Orchestrator with durable checkpointing.
 - `NewContext(parent event.Context) Context`: Creates a workflow context.
 - `EnqueueCommand[C any](ctx Context, cmd C)`: Safely enqueues a strongly-typed command into the workflow outbox.
 - `RegisterHandler[W Workflow[W], E flux.Event](o *Orchestrator, store Store[W], handler func(ctx Context, workflow W, event E) error)`: Links an event to a workflow step.
