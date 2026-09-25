@@ -180,11 +180,12 @@ Provides in-memory, constant-time `O(1)` routing for CQRS command dispatching.
 
 - `New() *Bus`: Creates a new command bus.
 - `(*Bus).Use(middlewares ...Middleware)`: Registers interceptors in the bus.
+- `(*Bus).SetAsyncErrorHandler(hook AsyncErrorHandler)`: Registers a callback for asynchronous command dispatch errors.
 - `NewContext(parent context.Context, cmdID flux.Identifier, actor flux.Actor, correlationID flux.Identifier, causationID flux.Identifier) Context`: Creates a command context.
 - `Register[C any](bus *Bus, handler func(ctx Context, cmd C) error)`: Registers a closure handler for command type `C`.
 - `RegisterHandler[C any](bus *Bus, handler Handler[C])`: Registers an interface handler for command type `C`.
 - `Execute[C any](ctx Context, bus *Bus, cmd C) error`: Dispatches command `C` synchronously with `O(1)` performance.
-- `ExecuteAsync[C any](ctx Context, bus *Bus, cmd C) error`: Dispatches command `C` in a background goroutine with panic recovery.
+- `ExecuteAsync[C any](ctx Context, bus *Bus, cmd C) error`: Dispatches command `C` in a background goroutine with detached cancellation context, error logging, and panic recovery.
 
 ---
 

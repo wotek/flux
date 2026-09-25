@@ -3,10 +3,12 @@ package query_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
-	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/query"
@@ -141,4 +143,57 @@ func TestQueryBus_Middleware(t *testing.T) {
 	if !strings.Contains(logOutput, "\"actor\":\"urn:acme:prod:payments:tenant-1:actor:1\"") {
 		t.Fatalf("expected log to contain auto-injected actor, got: %s", logOutput)
 	}
+}
+
+func TestQueryBus_ConcurrentMiddlewareUseAndExecute(t *testing.T) {
+	t.Parallel()
+	bus := query.New()
+
+	query.Register(bus, func(ctx query.Context, q MyQuery) (MyResult, error) {
+		return MyResult{Value: 1}, nil
+	})
+
+	ctx := query.NewContext(context.Background(), flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	// Concurrently append middleware
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					bus.Use(func(ctx query.Context, q any, next func(query.Context, any) (any, error)) (any, error) {
+						return next(ctx, q)
+					})
+					time.Sleep(10 * time.Microsecond)
+				}
+			}
+		}()
+	}
+
+	// Concurrently execute queries
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_, _ = query.Execute[MyQuery, MyResult](ctx, bus, MyQuery{ID: "123"})
+				}
+			}
+		}()
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	close(stop)
+	wg.Wait()
 }

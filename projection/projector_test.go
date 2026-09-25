@@ -25,6 +25,7 @@ type MoneyDeposited struct {
 func (e MoneyDeposited) Name() string { return "MoneyDeposited" }
 
 func TestProjector(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -68,4 +69,46 @@ func TestProjector(t *testing.T) {
 	if pos != 3 {
 		t.Errorf("expected position 3, got %d", pos)
 	}
+}
+
+type EventA struct{}
+func (e EventA) Name() string { return "EventA" }
+
+type EventB struct{}
+func (e EventB) Name() string { return "EventB" }
+
+func TestProjector_ConcurrentRegistrationAndStart(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	eventStore := eventstore.New()
+	projectionStore := projstore.New()
+	projID := flux.MustParseIdentifier("urn:proj::::concurrent:1")
+	projector := projection.New(projID, eventStore, projectionStore)
+
+	// Append some events first
+	stream := flux.Stream{Identifier: flux.MustParseIdentifier("urn:stream::::concurrent:1")}
+	_ = eventStore.Append(ctx, stream, 0, []flux.Envelope{
+		{Event: EventA{}},
+		{Event: EventB{}},
+	})
+
+	// Start projector
+	go func() { _ = projector.Start(ctx) }()
+
+	// Concurrently register handlers
+	go func() {
+		projection.RegisterHandler(projector, func(ctx projection.Context, e EventA) error {
+			return nil
+		})
+	}()
+
+	go func() {
+		projection.RegisterHandler(projector, func(ctx projection.Context, e EventB) error {
+			return nil
+		})
+	}()
+
+	time.Sleep(100 * time.Millisecond)
 }
