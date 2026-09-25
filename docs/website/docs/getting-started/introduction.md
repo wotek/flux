@@ -8,7 +8,7 @@ Welcome to the `flux` framework documentation!
 
 Most Go event-sourcing libraries rely heavily on `reflect` to decode events, map handlers, and hydrate aggregates. This introduces significant runtime performance penalties and completely bypasses the compiler's type safety.
 
-`flux` was built from the ground up to leverage **Go 1.20+ Generics**. 
+`flux` was built from the ground up to leverage **Go 1.27+ Generics**.
 
 By utilizing strict generic constraints on Aggregates and explicitly typed decoding mechanisms, `flux` ensures that if your event-sourced application compiles, it is fundamentally sound.
 

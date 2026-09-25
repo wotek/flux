@@ -68,6 +68,7 @@ func (a *BankAccount) Deposit(amount int) {
 }
 
 func TestAggregateRepository_SaveAndLoad(t *testing.T) {
+	t.Parallel()
 	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:bank:prod:iam:123:user:usr-1")}
 	corrID := flux.MustParseIdentifier("urn:bank:prod:commands:123:cmd:c-100")
 	causID := flux.MustParseIdentifier("urn:bank:prod:commands:123:cmd:c-099")
@@ -139,6 +140,7 @@ func TestAggregateRepository_SaveAndLoad(t *testing.T) {
 }
 
 func TestAggregateRepository_ConcurrencyError(t *testing.T) {
+	t.Parallel()
 	ctx := flux.NewContext(context.Background(), flux.Actor{}, flux.Identifier{}, flux.Identifier{})
 	store := eventstore.New()
 	repo := flux.NewAggregateRepository[*BankAccount, BankEvent](store)
@@ -177,6 +179,7 @@ func TestAggregateRepository_ConcurrencyError(t *testing.T) {
 }
 
 func TestAggregateRepository_NotFound(t *testing.T) {
+	t.Parallel()
 	ctx := flux.NewContext(context.Background(), flux.Actor{}, flux.Identifier{}, flux.Identifier{})
 	store := eventstore.New()
 	repo := flux.NewAggregateRepository[*BankAccount, BankEvent](store)

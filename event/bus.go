@@ -31,6 +31,10 @@ func New() *Bus {
 }
 
 // NewBus is an alias for New to maintain explicit constructor naming.
+func NewBus() *Bus {
+	return New()
+}
+
 // RegisterHandler registers a strongly-typed handler for a specific event type.
 func RegisterHandler[E flux.Event](bus *Bus, handler Handler[E]) {
 	bus.mu.Lock()

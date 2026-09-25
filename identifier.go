@@ -65,8 +65,9 @@ func ParseIdentifier(s string) (Identifier, error) {
 }
 
 // MustParseIdentifier constructs an Identifier directly from a formatted URN string.
-// It is a convenience method that delegates to ParseIdentifier and panics on error,
-// making it ideal for inline test declarations and static definitions.
+// It is a convenience helper that delegates to ParseIdentifier and panics on error.
+// It is intended exclusively for inline test declarations, static constants, and application bootstrap.
+// For dynamic runtime input, use ParseIdentifier and handle errors appropriately.
 func MustParseIdentifier(s string) Identifier {
 	id, err := ParseIdentifier(s)
 	if err != nil {

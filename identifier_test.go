@@ -6,6 +6,7 @@ import (
 )
 
 func TestIdentifier_Components(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		urn          string
 		org          string
@@ -40,6 +41,7 @@ func TestIdentifier_Components(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.urn, func(t *testing.T) {
+			t.Parallel()
 			id, err := ParseIdentifier(tt.urn)
 			if err != nil {
 				t.Fatalf("unexpected error parsing identifier: %v", err)
@@ -75,6 +77,7 @@ func TestIdentifier_Components(t *testing.T) {
 }
 
 func TestIdentifier_Is(t *testing.T) {
+	t.Parallel()
 	id, _ := ParseIdentifier("urn:org:env:svc:acc:type:id@v1")
 
 	if !id.Is(ComponentOrganization, "org") {
@@ -89,6 +92,7 @@ func TestIdentifier_Is(t *testing.T) {
 }
 
 func TestNewIdentifier(t *testing.T) {
+	t.Parallel()
 	id := NewIdentifier("org", "env", "svc", "acc", "type", "id/path", "v1")
 	expected := "urn:org:env:svc:acc:type:id/path@v1"
 	if id.String() != expected {
@@ -97,6 +101,7 @@ func TestNewIdentifier(t *testing.T) {
 }
 
 func TestIdentifier_TextSerialization(t *testing.T) {
+	t.Parallel()
 	id := MustParseIdentifier("urn:acme:prod:payments:tenant-1:order:12345@v2")
 
 	// MarshalText
@@ -134,6 +139,7 @@ func TestIdentifier_TextSerialization(t *testing.T) {
 }
 
 func TestIdentifier_JSONSerialization(t *testing.T) {
+	t.Parallel()
 	type wrapper struct {
 		ID   Identifier `json:"id"`
 		Name string     `json:"name"`

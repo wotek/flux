@@ -1,6 +1,6 @@
 # Installation
 
-`flux` is designed for modern Go and relies heavily on Go 1.20+ generic features to provide a reflection-free, type-safe API.
+`flux` is designed for modern Go and relies heavily on Go 1.27+ generic features to provide a reflection-free, type-safe API.
 
 ## Requirements
 - **Go 1.27 or higher**

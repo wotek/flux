@@ -63,6 +63,7 @@ func sliceIterator(envelopes []Envelope) StreamIterator {
 }
 
 func TestAggregateRoot_FromEvents(t *testing.T) {
+	t.Parallel()
 	id := MustParseIdentifier("urn:test::svc:1:counter:abc")
 	stream := Stream{Identifier: id}
 	agg := NewCounterAggregate(stream)
@@ -93,6 +94,7 @@ func TestAggregateRoot_FromEvents(t *testing.T) {
 }
 
 func TestAggregateRoot_FromEvents_WrongType(t *testing.T) {
+	t.Parallel()
 	id := MustParseIdentifier("urn:test::svc:1:counter:abc")
 	stream := Stream{Identifier: id}
 	agg := NewCounterAggregate(stream)

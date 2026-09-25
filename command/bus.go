@@ -44,6 +44,10 @@ func (b *Bus) SetAsyncErrorHandler(hook AsyncErrorHandler) {
 }
 
 // NewBus is an alias for New to maintain explicit constructor naming.
+func NewBus() *Bus {
+	return New()
+}
+
 // RegisterHandler registers a strongly-typed handler for a specific command type.
 func RegisterHandler[C any](bus *Bus, handler Handler[C]) {
 	bus.mu.Lock()
