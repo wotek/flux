@@ -9,6 +9,7 @@ type mockEvent struct {
 func (m mockEvent) Name() string { return m.name }
 
 func TestChangeset(t *testing.T) {
+	t.Parallel()
 	cs := NewChangeset[Event]()
 
 	if cs.HasChanges() {
@@ -43,3 +44,26 @@ func TestChangeset(t *testing.T) {
 		t.Errorf("expected 0 events after Clear, got %d", len(cs.Events()))
 	}
 }
+
+func TestChangeset_DefensiveCopy(t *testing.T) {
+	t.Parallel()
+
+	cs := NewChangeset[Event]()
+	e1 := mockEvent{name: "Event1"}
+	cs.Record(e1)
+
+	events := cs.Events()
+	events[0] = mockEvent{name: "Mutated"}
+
+	if cs.Events()[0].Name() != "Event1" {
+		t.Errorf("expected internal event to remain 'Event1', got %q", cs.Events()[0].Name())
+	}
+
+	// Also verify that holding a reference across Clear doesn't corrupt the returned slice
+	held := cs.Events()
+	cs.Clear()
+	if len(held) != 1 || held[0].Name() != "Event1" {
+		t.Errorf("expected held slice to remain intact after Clear")
+	}
+}
+

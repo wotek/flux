@@ -114,6 +114,7 @@ func TestAggregateRoot_FromEvents_WrongType(t *testing.T) {
 }
 
 func TestAggregateRoot_Changeset(t *testing.T) {
+	t.Parallel()
 	id := MustParseIdentifier("urn:test::svc:1:counter:abc")
 	stream := Stream{Identifier: id}
 	agg := NewCounterAggregate(stream)
@@ -126,5 +127,42 @@ func TestAggregateRoot_Changeset(t *testing.T) {
 	cs.Record(CounterIncremented{})
 	if !cs.HasChanges() {
 		t.Fatalf("expected changes")
+	}
+}
+
+func TestAggregateRoot_Record(t *testing.T) {
+	t.Parallel()
+
+	id := MustParseIdentifier("urn:test::svc:1:counter:rec")
+	stream := Stream{Identifier: id}
+	agg := NewCounterAggregate(stream)
+
+	if agg.Count != 0 {
+		t.Fatalf("expected initial Count = 0, got %d", agg.Count)
+	}
+
+	// 1. Successful Record mutates state and updates changeset
+	if err := agg.Record(CounterIncremented{}); err != nil {
+		t.Fatalf("unexpected error recording event: %v", err)
+	}
+	if agg.Count != 1 {
+		t.Errorf("expected Count = 1, got %d", agg.Count)
+	}
+	if !agg.Changeset().HasChanges() || len(agg.Changeset().Events()) != 1 {
+		t.Fatalf("expected 1 uncommitted event in changeset")
+	}
+
+	// 2. Failed apply does not append to changeset and returns error
+	failingAgg := &CounterAggregate{}
+	errFailingApply := errors.New("apply invariant failed")
+	failingAgg.AggregateRoot = NewAggregateRoot[TestEvent](stream, NewChangeset[TestEvent](), func(e TestEvent) error {
+		return errFailingApply
+	})
+
+	if err := failingAgg.Record(CounterIncremented{}); !errors.Is(err, errFailingApply) {
+		t.Fatalf("expected %v, got %v", errFailingApply, err)
+	}
+	if failingAgg.Changeset().HasChanges() {
+		t.Errorf("expected changeset to remain empty when apply returns error")
 	}
 }

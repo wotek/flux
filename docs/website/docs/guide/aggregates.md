@@ -94,8 +94,10 @@ func (a *BankAccount) Deposit(amount int) error {
 	}
 	
 	// 2. Record the Event
-	// The Changeset will automatically route this to apply() to update a.Balance!
-	a.Changeset().Record(MoneyDeposited{Amount: amount})
+	// Record executes apply(event) to mutate state and appends to the uncommitted changeset
+	if err := a.Record(MoneyDeposited{Amount: amount}); err != nil {
+		return err
+	}
 	
 	return nil
 }
@@ -103,11 +105,13 @@ func (a *BankAccount) Deposit(amount int) error {
 
 ## The Changeset Mechanism
 
-When you call `a.Changeset().Record(event)`, two things happen instantly:
-1. The event is passed to `apply()` to synchronously update the in-memory state of your aggregate.
+When you call `a.Record(event)`, two things happen in order:
+1. The event is passed to `apply()` to synchronously update the in-memory state of your aggregate. If `apply()` returns an error, the error is returned immediately.
 2. The event is appended to an internal buffer of "Uncommitted Events" inside the `Changeset`.
 
-When you eventually call `repository.Save(ctx, aggregate)`, the repository simply extracts this buffer of uncommitted events from the `Changeset` and flushes them to the `EventStore`. 
+Alternatively, if an aggregate performs manual state mutations, it can invoke its mutator directly and then call `a.Changeset().Record(event)`.
+
+When you eventually call `repository.Save(ctx, aggregate)`, the repository extracts this buffer of uncommitted events from the `Changeset` and flushes them to the `EventStore`. 
 
 Once the save is successful, the repository clears the `Changeset`.
 

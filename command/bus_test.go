@@ -264,3 +264,26 @@ func TestCommandBus_ConcurrentMiddlewareUseAndExecute(t *testing.T) {
 	close(stop)
 	wg.Wait()
 }
+
+func TestCommandBus_InvalidHandlerType(t *testing.T) {
+	t.Parallel()
+
+	bus := command.New()
+	command.Register(bus, func(ctx command.Context, cmd dummyCmd) error {
+		return nil
+	})
+
+	// Middleware replaces cmd with a different type
+	bus.Use(func(ctx command.Context, cmd any, next func(command.Context, any) error) error {
+		return next(ctx, 12345) // wrong type
+	})
+
+	ctx := command.NewContext(context.Background(), flux.Identifier{}, flux.Actor{}, flux.Identifier{}, flux.Identifier{})
+	err := command.Execute(ctx, bus, dummyCmd{val: "test"})
+	if err == nil {
+		t.Fatalf("expected error from mismatched command type, got nil")
+	}
+	if !errors.Is(err, flux.ErrInvalidHandlerType) {
+		t.Fatalf("expected ErrInvalidHandlerType, got %v", err)
+	}
+}

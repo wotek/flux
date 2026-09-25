@@ -156,105 +156,155 @@ func (s *EventStore) Append(ctx context.Context, stream flux.Stream, expectedRev
 
 // Read retrieves events for a specific stream starting after the given fromRevision.
 // Passing 0 reads the entire stream from the beginning.
+// Keyset pagination is used to prevent holding database connections open during extended consumption.
 func (s *EventStore) Read(ctx context.Context, stream flux.Stream, fromRevision uint64) (flux.StreamIterator, error) {
 	streamID := stream.Identifier.String()
-	query := fmt.Sprintf("SELECT position, revision, event_data FROM %s WHERE stream_id = ? AND revision > ? ORDER BY revision ASC", s.config.tableName)
+	batchSize := s.config.batchSize
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+	query := fmt.Sprintf("SELECT position, revision, event_data FROM %s WHERE stream_id = ? AND revision > ? ORDER BY revision ASC LIMIT ?", s.config.tableName)
 
 	return func(yield func(flux.Envelope, error) bool) {
-		rows, err := s.db.QueryContext(ctx, query, streamID, fromRevision)
-		if err != nil {
-			yield(flux.Envelope{}, fmt.Errorf("querying events for stream %q: %w", streamID, err))
-			return
-		}
-		defer func() {
-			_ = rows.Close()
-		}()
+		lastRevision := fromRevision
 
-		for rows.Next() {
+		for {
 			if err := ctx.Err(); err != nil {
 				yield(flux.Envelope{}, err)
 				return
 			}
 
-			var (
+			rows, err := s.db.QueryContext(ctx, query, streamID, lastRevision, batchSize)
+			if err != nil {
+				yield(flux.Envelope{}, fmt.Errorf("querying events for stream %q: %w", streamID, err))
+				return
+			}
+
+			type rowData struct {
 				position  uint64
 				revision  uint64
 				eventData []byte
-			)
-			if err := rows.Scan(&position, &revision, &eventData); err != nil {
-				yield(flux.Envelope{}, fmt.Errorf("scanning event row: %w", err))
+			}
+			var batch []rowData
+
+			for rows.Next() {
+				var r rowData
+				if err := rows.Scan(&r.position, &r.revision, &r.eventData); err != nil {
+					_ = rows.Close()
+					yield(flux.Envelope{}, fmt.Errorf("scanning event row: %w", err))
+					return
+				}
+				batch = append(batch, r)
+			}
+
+			if err := rows.Err(); err != nil {
+				_ = rows.Close()
+				yield(flux.Envelope{}, fmt.Errorf("iterating event rows: %w", err))
+				return
+			}
+			_ = rows.Close()
+
+			if len(batch) == 0 {
 				return
 			}
 
-			env, err := s.serializer.Unmarshal(eventData)
-			if err != nil {
-				yield(flux.Envelope{}, fmt.Errorf("unmarshaling event payload: %w", err))
-				return
+			for _, r := range batch {
+				lastRevision = r.revision
+
+				env, err := s.serializer.Unmarshal(r.eventData)
+				if err != nil {
+					yield(flux.Envelope{}, fmt.Errorf("unmarshaling event payload: %w", err))
+					return
+				}
+
+				env.Position = r.position
+				env.Revision = r.revision
+				env.Stream = stream
+
+				if !yield(env, nil) {
+					return
+				}
 			}
 
-			env.Position = position
-			env.Revision = revision
-			env.Stream = stream
-
-			if !yield(env, nil) {
+			if len(batch) < batchSize {
 				return
 			}
-		}
-
-		if err := rows.Err(); err != nil {
-			yield(flux.Envelope{}, fmt.Errorf("iterating event rows: %w", err))
-			return
 		}
 	}, nil
 }
 
 // Stream retrieves events from the global event log starting after the given position.
+// Keyset pagination is used to prevent holding database connections open during extended consumption.
 func (s *EventStore) Stream(ctx context.Context, position uint64) (flux.StreamIterator, error) {
-	query := fmt.Sprintf("SELECT position, revision, event_data FROM %s WHERE position > ? ORDER BY position ASC", s.config.tableName)
+	batchSize := s.config.batchSize
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+	query := fmt.Sprintf("SELECT position, revision, event_data FROM %s WHERE position > ? ORDER BY position ASC LIMIT ?", s.config.tableName)
 
 	return func(yield func(flux.Envelope, error) bool) {
-		rows, err := s.db.QueryContext(ctx, query, position)
-		if err != nil {
-			yield(flux.Envelope{}, fmt.Errorf("querying global event stream: %w", err))
-			return
-		}
-		defer func() {
-			_ = rows.Close()
-		}()
+		lastPosition := position
 
-		for rows.Next() {
+		for {
 			if err := ctx.Err(); err != nil {
 				yield(flux.Envelope{}, err)
 				return
 			}
 
-			var (
-				pos       uint64
+			rows, err := s.db.QueryContext(ctx, query, lastPosition, batchSize)
+			if err != nil {
+				yield(flux.Envelope{}, fmt.Errorf("querying global event stream: %w", err))
+				return
+			}
+
+			type rowData struct {
+				position  uint64
 				revision  uint64
 				eventData []byte
-			)
-			if err := rows.Scan(&pos, &revision, &eventData); err != nil {
-				yield(flux.Envelope{}, fmt.Errorf("scanning global event row: %w", err))
+			}
+			var batch []rowData
+
+			for rows.Next() {
+				var r rowData
+				if err := rows.Scan(&r.position, &r.revision, &r.eventData); err != nil {
+					_ = rows.Close()
+					yield(flux.Envelope{}, fmt.Errorf("scanning global event row: %w", err))
+					return
+				}
+				batch = append(batch, r)
+			}
+
+			if err := rows.Err(); err != nil {
+				_ = rows.Close()
+				yield(flux.Envelope{}, fmt.Errorf("iterating global event rows: %w", err))
+				return
+			}
+			_ = rows.Close()
+
+			if len(batch) == 0 {
 				return
 			}
 
-			env, err := s.serializer.Unmarshal(eventData)
-			if err != nil {
-				yield(flux.Envelope{}, fmt.Errorf("unmarshaling event payload: %w", err))
-				return
+			for _, r := range batch {
+				lastPosition = r.position
+
+				env, err := s.serializer.Unmarshal(r.eventData)
+				if err != nil {
+					yield(flux.Envelope{}, fmt.Errorf("unmarshaling event payload: %w", err))
+					return
+				}
+
+				env.Position = r.position
+				env.Revision = r.revision
+
+				if !yield(env, nil) {
+					return
+				}
 			}
 
-			env.Position = pos
-			env.Revision = revision
-
-			if !yield(env, nil) {
+			if len(batch) < batchSize {
 				return
 			}
-		}
-
-		if err := rows.Err(); err != nil {
-			yield(flux.Envelope{}, fmt.Errorf("iterating global event rows: %w", err))
-			return
 		}
 	}, nil
 }
