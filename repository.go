@@ -76,9 +76,11 @@ func (r *AggregateRepository[A, E]) Save(ctx Context, aggregate A) error {
 	}
 
 	// Safely update the aggregate revision using the internal capability interface
-	if setter, ok := any(aggregate).(revisionSetter); ok {
-		setter.setRevision(baseRevision + uint64(len(uncommitted)))
+	setter, ok := any(aggregate).(revisionSetter)
+	if !ok {
+		return fmt.Errorf("%w: aggregate %T cannot update revision after save", ErrMissingRevisionSetter, aggregate)
 	}
+	setter.setRevision(baseRevision + uint64(len(uncommitted)))
 
 	changeset.Clear()
 	return nil

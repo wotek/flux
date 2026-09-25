@@ -26,5 +26,19 @@ For long-lived aggregates (like a Bank Account with 10,000 transactions), replay
 
 When configured, the repository will:
 1. Load the latest Snapshot.
-2. Fetch only the events that occurred *after* the snapshot's revision.
+2. Fetch only the events that occurred after the snapshot's revision.
 3. Replay the remaining events.
+
+### Mandatory AggregateRoot Embedding
+
+All domain aggregates managed by `flux` repositories must embed `flux.AggregateRoot[E]`. The root encapsulates revision tracking, changeset management, and internal revision synchronization after persistence and snapshot hydration. If a custom aggregate struct fails to embed `AggregateRoot`, `AggregateRepository.Save` and `SnapshotRepository.Load` will return `flux.ErrMissingRevisionSetter`.
+
+### Snapshot Persistence Failures (`ErrSnapshotPersistence`)
+
+When persisting an aggregate through `SnapshotRepository.Save`, operations proceed sequentially:
+1. The aggregate's uncommitted events are committed to the durable `EventStore`.
+2. The aggregate's changeset is cleared and its internal revision is updated.
+3. The snapshot schedule is evaluated. If due, the snapshot is saved to the `SnapshotStore`.
+
+If snapshot persistence fails after events have already been committed, `Save` returns `flux.ErrSnapshotPersistence` wrapping the root cause. This distinguishes snapshot persistence errors from concurrency conflicts or event store write failures. Because events are already durably recorded and the changeset cleared, callers can safely retry `Save(ctx, aggregate)` to re-attempt writing the snapshot without duplicating events.
+

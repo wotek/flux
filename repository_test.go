@@ -192,3 +192,40 @@ func TestAggregateRepository_NotFound(t *testing.T) {
 		t.Fatalf("expected ErrAggregateNotFound, got %v", err)
 	}
 }
+
+type aggregateWithoutRoot struct {
+	id        flux.Identifier
+	rev       uint64
+	changeset flux.Changeset[BankEvent]
+}
+
+func (a *aggregateWithoutRoot) Identifier() flux.Identifier            { return a.id }
+func (a *aggregateWithoutRoot) Revision() uint64                      { return a.rev }
+func (a *aggregateWithoutRoot) Changeset() flux.Changeset[BankEvent]  { return a.changeset }
+func (a *aggregateWithoutRoot) FromEvents(_ flux.StreamIterator) error { return nil }
+func (a *aggregateWithoutRoot) New(stream flux.Stream) *aggregateWithoutRoot {
+	return &aggregateWithoutRoot{id: stream.Identifier, changeset: flux.NewChangeset[BankEvent]()}
+}
+
+func TestAggregateRepository_MissingRevisionSetter(t *testing.T) {
+	t.Parallel()
+	ctx := flux.NewContext(context.Background(), flux.Actor{}, flux.Identifier{}, flux.Identifier{})
+	store := eventstore.New()
+	repo := flux.NewAggregateRepository[*aggregateWithoutRoot, BankEvent](store)
+
+	id := flux.MustParseIdentifier("urn:bank:prod:accounts:123:account:no-root")
+	agg := &aggregateWithoutRoot{
+		id:        id,
+		changeset: flux.NewChangeset[BankEvent](),
+	}
+	agg.changeset.Record(AccountCreated{Owner: "Alice"})
+
+	err := repo.Save(ctx, agg)
+	if err == nil {
+		t.Fatalf("expected error saving aggregate without revisionSetter, got nil")
+	}
+	if !errors.Is(err, flux.ErrMissingRevisionSetter) {
+		t.Fatalf("expected ErrMissingRevisionSetter, got %v", err)
+	}
+}
+

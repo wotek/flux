@@ -151,3 +151,12 @@ To ensure atomic state transitions and side effects, workflows enqueue commands 
 A background outbox relay polls these records and dispatches them to the `CommandBus`:
 - **Ack-After-Success:** Commands are removed from the outbox table only after successful dispatch by the command handler. On failure, the command remains in the outbox and is retried.
 - **Trace Context Propagation:** Causal and correlation metadata (`Actor`, `CorrelationIdentifier`, `CausationIdentifier`) from the triggering event is persisted in the outbox message and reconstructed into the `command.Context` seen by command handlers.
+
+### 4. Multi-Workflow Event Routing
+
+Multiple distinct workflow types can subscribe to the same domain event name (for example, `OrderPlaced` may initiate both an `OrderFulfillmentWorkflow` and an `AuditLoggingWorkflow`). 
+
+The `Orchestrator` maintains an ordered slice of handlers for each event name. When processing an event envelope:
+- All matching handlers are invoked in registration order.
+- Execution follows a fail-fast policy: if any handler returns an error, the orchestrator halts immediately and returns the error without advancing the checkpoint position, preventing partial executions or unnoticed state corruptions.
+

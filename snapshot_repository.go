@@ -49,9 +49,11 @@ func (r *SnapshotRepository[A, E, S]) Load(ctx Context, stream Stream) (A, error
 		agg.With(snap.State)
 
 		// Safely update the aggregate revision using the internal capability interface
-		if setter, ok := any(agg).(revisionSetter); ok {
-			setter.setRevision(snap.Revision)
+		setter, ok := any(agg).(revisionSetter)
+		if !ok {
+			return zero, fmt.Errorf("%w: aggregate %T cannot set revision from snapshot", ErrMissingRevisionSetter, agg)
 		}
+		setter.setRevision(snap.Revision)
 		startRevision = snap.Revision
 	} else if errors.Is(err, ErrSnapshotNotFound) {
 		// Fallback to purely event-sourced
@@ -81,6 +83,9 @@ func (r *SnapshotRepository[A, E, S]) Load(ctx Context, stream Stream) (A, error
 
 // Save persists uncommitted events to the underlying event store and evaluates the snapshot schedule.
 // If the schedule matches, a new snapshot is captured and persisted.
+// If snapshot persistence fails after events are committed, Save returns ErrSnapshotPersistence wrapping the cause.
+// Because uncommitted events were already committed to the event store, callers can safely retry Save
+// to re-attempt the snapshot write without duplicating events.
 func (r *SnapshotRepository[A, E, S]) Save(ctx Context, aggregate A) error {
 	if err := r.base.Save(ctx, aggregate); err != nil {
 		return err
@@ -97,7 +102,7 @@ func (r *SnapshotRepository[A, E, S]) Save(ctx Context, aggregate A) error {
 
 	stream := Stream{Identifier: aggregate.Identifier()}
 	if err := r.store.Save(ctx, stream, snap); err != nil {
-		return fmt.Errorf("saving snapshot: %w", err)
+		return fmt.Errorf("%w: %w", ErrSnapshotPersistence, err)
 	}
 
 	return nil

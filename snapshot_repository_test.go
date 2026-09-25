@@ -588,3 +588,112 @@ func TestSnapshotRepository_Load_ErrorHandling(t *testing.T) {
 		})
 	}
 }
+
+type snapshotAggregateWithoutRoot struct {
+	id        flux.Identifier
+	rev       uint64
+	changeset flux.Changeset[itemEvent]
+	state     itemState
+}
+
+func (a *snapshotAggregateWithoutRoot) Identifier() flux.Identifier            { return a.id }
+func (a *snapshotAggregateWithoutRoot) Revision() uint64                      { return a.rev }
+func (a *snapshotAggregateWithoutRoot) Changeset() flux.Changeset[itemEvent]  { return a.changeset }
+func (a *snapshotAggregateWithoutRoot) FromEvents(_ flux.StreamIterator) error { return nil }
+func (a *snapshotAggregateWithoutRoot) New(stream flux.Stream) *snapshotAggregateWithoutRoot {
+	return &snapshotAggregateWithoutRoot{id: stream.Identifier, changeset: flux.NewChangeset[itemEvent]()}
+}
+func (a *snapshotAggregateWithoutRoot) Snapshot() itemState {
+	return a.state
+}
+func (a *snapshotAggregateWithoutRoot) With(state itemState) {
+	a.state = state
+}
+
+func TestSnapshotRepository_Save_SnapshotPersistenceError(t *testing.T) {
+	t.Parallel()
+	ctx := newTestContext()
+	es := eventstore.New()
+	snapStore := newInMemorySnapshotStore[itemState]()
+	simulatedErr := errors.New("disk full")
+	snapStore.saveErr = simulatedErr
+
+	baseRepo := flux.NewAggregateRepository[*itemAggregate, itemEvent](es)
+	schedule := flux.Every[*itemAggregate, itemEvent](1)
+	snapRepo := flux.NewSnapshotRepository(baseRepo, snapStore, schedule, es)
+
+	stream := newStream("snapshot-persistence-err")
+	agg := newItemAggregate(stream)
+	agg.AddItem("first")
+
+	// First save: event store succeeds, but snapshot store fails.
+	err := snapRepo.Save(ctx, agg)
+	if err == nil {
+		t.Fatalf("expected error saving snapshot, got nil")
+	}
+	if !errors.Is(err, flux.ErrSnapshotPersistence) {
+		t.Fatalf("expected ErrSnapshotPersistence, got %v", err)
+	}
+	if !errors.Is(err, simulatedErr) {
+		t.Fatalf("expected underlying error %v, got %v", simulatedErr, err)
+	}
+
+	// Verify events were actually committed to the event store
+	loadedFromES, err := baseRepo.Load(ctx, stream)
+	if err != nil {
+		t.Fatalf("expected aggregate to be loadable from event store: %v", err)
+	}
+	if loadedFromES.Revision() != 1 {
+		t.Errorf("expected revision 1, got %d", loadedFromES.Revision())
+	}
+
+	// Aggregate in memory should have its changeset cleared and revision set to 1
+	if agg.Changeset().HasChanges() {
+		t.Errorf("expected aggregate changeset to be cleared")
+	}
+	if agg.Revision() != 1 {
+		t.Errorf("expected aggregate revision 1, got %d", agg.Revision())
+	}
+
+	// Fix the transient error in snapshot store and retry Save with empty changeset
+	snapStore.saveErr = nil
+	if err := snapRepo.Save(ctx, agg); err != nil {
+		t.Fatalf("expected retry to succeed, got %v", err)
+	}
+
+	// Verify snapshot was saved
+	snap, err := snapStore.Load(ctx, stream)
+	if err != nil {
+		t.Fatalf("expected snapshot to exist in store: %v", err)
+	}
+	if snap.Revision != 1 {
+		t.Errorf("expected snapshot revision 1, got %d", snap.Revision)
+	}
+}
+
+func TestSnapshotRepository_Load_MissingRevisionSetter(t *testing.T) {
+	t.Parallel()
+	ctx := newTestContext()
+	es := eventstore.New()
+	snapStore := newInMemorySnapshotStore[itemState]()
+
+	baseRepo := flux.NewAggregateRepository[*snapshotAggregateWithoutRoot, itemEvent](es)
+	schedule := flux.Every[*snapshotAggregateWithoutRoot, itemEvent](1)
+	snapRepo := flux.NewSnapshotRepository(baseRepo, snapStore, schedule, es)
+
+	stream := newStream("snapshot-missing-setter")
+	// Save a snapshot directly into snapshot store
+	_ = snapStore.Save(ctx, stream, flux.Snapshot[itemState]{
+		Revision: 5,
+		State:    itemState{Items: []string{"item-1"}},
+	})
+
+	_, err := snapRepo.Load(ctx, stream)
+	if err == nil {
+		t.Fatalf("expected error loading aggregate without revisionSetter from snapshot, got nil")
+	}
+	if !errors.Is(err, flux.ErrMissingRevisionSetter) {
+		t.Fatalf("expected ErrMissingRevisionSetter, got %v", err)
+	}
+}
+
