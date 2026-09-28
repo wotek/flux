@@ -2,6 +2,7 @@ package projection_test
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -111,4 +112,57 @@ func TestProjector_ConcurrentRegistrationAndStart(t *testing.T) {
 	}()
 
 	time.Sleep(100 * time.Millisecond)
+}
+
+type fakeAccountCreated struct{}
+
+func (f fakeAccountCreated) Name() string { return "AccountCreated" }
+
+func TestProjector_Aliases(t *testing.T) {
+	t.Parallel()
+
+	projID := flux.MustParseIdentifier("urn:proj::::alias:1")
+	store := projstore.NewProjectionStore()
+	if store == nil {
+		t.Fatal("expected non-nil store from NewProjectionStore")
+	}
+
+	p := projection.NewProjector(projID, eventstore.New(), store)
+	if p == nil {
+		t.Fatal("expected non-nil projector from NewProjector")
+	}
+}
+
+func TestProjector_InvalidHandlerType(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	eventStore := eventstore.New()
+	projectionStore := projstore.NewProjectionStore()
+
+	projID := flux.MustParseIdentifier("urn:proj::::type_err:1")
+	projector := projection.NewProjector(projID, eventStore, projectionStore)
+
+	projection.RegisterHandler(projector, func(ctx projection.Context, e AccountCreated) error {
+		return nil
+	})
+
+	streamID := flux.MustParseIdentifier("urn:bank::::acc:err")
+	stream := flux.Stream{Identifier: streamID}
+
+	err := eventStore.Append(ctx, stream, 0, []flux.Envelope{
+		{Event: fakeAccountCreated{}}, // Matches event name "AccountCreated", but wrong concrete type
+	})
+	if err != nil {
+		t.Fatalf("failed to append event: %v", err)
+	}
+
+	err = projector.Start(ctx)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, flux.ErrInvalidHandlerType) {
+		t.Fatalf("expected ErrInvalidHandlerType, got %v", err)
+	}
 }
