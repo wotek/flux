@@ -30,7 +30,11 @@ func New(id flux.Identifier, eventStore flux.EventStore, projStore Store) *Proje
 	}
 }
 
-// NewProjector is an alias for New to maintain explicit naming.
+// NewProjector is an alias for New to maintain explicit constructor naming.
+func NewProjector(id flux.Identifier, eventStore flux.EventStore, projStore Store) *Projector {
+	return New(id, eventStore, projStore)
+}
+
 // RegisterHandler wires a specific event type to the projection's logic.
 func RegisterHandler[E flux.Event](p *Projector, handler func(ctx Context, event E) error) {
 	p.mu.Lock()
@@ -43,7 +47,11 @@ func RegisterHandler[E flux.Event](p *Projector, handler func(ctx Context, event
 	}
 
 	wrapper := func(ctx Context, rawEvent any) error {
-		return handler(ctx, rawEvent.(E))
+		typedEvent, ok := rawEvent.(E)
+		if !ok {
+			return fmt.Errorf("%w: expected event of type %T, got %T", flux.ErrInvalidHandlerType, event, rawEvent)
+		}
+		return handler(ctx, typedEvent)
 	}
 
 	p.handlers[name] = wrapper
