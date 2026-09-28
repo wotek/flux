@@ -56,7 +56,7 @@ func NewBankAccount(stream flux.Stream) *BankAccount {
 
 The golden rule of Event Sourcing is that **state is only ever mutated by events**. 
 
-When an event is loaded from the database during rehydration, or when a new event is recorded locally, the framework routes it to your `apply()` method. **This is the ONLY place in your entire codebase where you should modify the Aggregate's fields.**
+When events are loaded from the database during rehydration (`FromEvents`), the framework routes them to your `apply()` method. During normal command handling, domain methods explicitly invoke `apply(event)` to mutate in-memory state before calling `Changeset().Record(event)`. **The `apply()` method is the ONLY place in your entire codebase where you should modify the Aggregate's fields.**
 
 ```go
 func (a *BankAccount) apply(event flux.Event) {
