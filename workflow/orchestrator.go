@@ -58,6 +58,13 @@ type orchestratorHandler struct {
 }
 
 // NewOrchestrator creates a new orchestrator engine with position checkpointing.
+//
+// Checkpoint Persistence:
+// If checkpoint is nil, an in-memory checkpoint store is automatically used.
+// In-memory checkpoints are process-local and non-durable; restarting the process
+// will reprocess the stream from the beginning. Passing nil is intended for tests
+// and local prototyping only. Production environments must pass a durable
+// [CheckpointStore] implementation to guarantee progress persistence across restarts.
 func NewOrchestrator(id flux.Identifier, eventStore flux.EventStore, checkpoint CheckpointStore) *Orchestrator {
 	if checkpoint == nil {
 		checkpoint = &inMemoryCheckpoint{positions: make(map[string]uint64)}
@@ -71,6 +78,7 @@ func NewOrchestrator(id flux.Identifier, eventStore flux.EventStore, checkpoint 
 }
 
 // New is an alias for NewOrchestrator to maintain explicit naming parity with projection.New.
+// Passing nil for checkpoint creates a process-local, non-durable in-memory store.
 func New(id flux.Identifier, eventStore flux.EventStore, checkpoint CheckpointStore) *Orchestrator {
 	return NewOrchestrator(id, eventStore, checkpoint)
 }
@@ -79,6 +87,13 @@ func New(id flux.Identifier, eventStore flux.EventStore, checkpoint CheckpointSt
 // Multiple handlers can be registered for the same event name (e.g., routing one
 // domain event to multiple distinct workflow types). Handlers are invoked in order
 // of registration, failing fast if any handler returns an error.
+//
+// At-Least-Once Delivery & Idempotency:
+// If an envelope matches multiple handlers and handler N fails, earlier handlers
+// (1 to N-1) will have already committed their state and outbox commands. Because the
+// orchestrator fails fast without advancing the checkpoint position, restarting the
+// orchestrator will re-deliver the envelope to all registered handlers. All handlers
+// must therefore be idempotent.
 func RegisterHandler[W Workflow[W], E flux.Event](o *Orchestrator, store Store[W], handler func(ctx Context, workflow W, event E) error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
