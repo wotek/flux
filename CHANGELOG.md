@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.2.0](https://github.com/wotek/flux/compare/v1.1.0...v1.2.0) (2026-09-28)
+
+
+### Features
+
+* **core:** enforce strict aggregate encapsulation and infallible event application ([a8df8b1](https://github.com/wotek/flux/commit/a8df8b19d39ed10a2bb790634d65ccf28ddc6044))
+
+
+### Bug Fixes
+
+* distinguish snapshot not-found from load failures ([3f12917](https://github.com/wotek/flux/commit/3f129173d7d3bf632b8bfb054cc00deed6c9e74a))
+* medium correctness, safety, and defensive copies across stores and buses ([42be257](https://github.com/wotek/flux/commit/42be2570e0b32af8c07637960be53068028b3cb3))
+* populate causation identifier and ensure envelope position consistency ([d9d0955](https://github.com/wotek/flux/commit/d9d0955be6fadf254e18cbd36970540783509bf9))
+* **projection:** restore constructor aliases and safe type assert in RegisterHandler ([37d97dc](https://github.com/wotek/flux/commit/37d97dcd8e2cb9128b572d3cc6627fd30a518d50))
+* **store:** validate mysql table names, align empty append, and enforce monotonic snapshots ([13c90ee](https://github.com/wotek/flux/commit/13c90ee578bba60f7c0ff828c654449637cbdca3))
+* support multi-workflow event routing, typed snapshot save errors, and mandatory revision setters ([1a36665](https://github.com/wotek/flux/commit/1a3666560eab6248dadf48b248bd1dc5f5023a2e))
+* synchronize handler registration, clone bus slices, and detach async command context ([53d09c0](https://github.com/wotek/flux/commit/53d09c00d592c18685a1af10fcc8bb181fa32b6e))
+* **workflow:** require Clone on workflow types and persist orchestrator position ([9c8e7be](https://github.com/wotek/flux/commit/9c8e7be753879d99cda91f6f3c4b66376f054039))
+
 ## [1.1.0](https://github.com/wotek/flux/compare/v1.0.1...v1.1.0) (2026-09-23)
 
 
