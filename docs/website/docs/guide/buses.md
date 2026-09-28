@@ -40,7 +40,7 @@ result := queryBus.Ask(ctx, GetItemQuery{ID: "123"})
 
 All three dispatchers (`command`, `query`, and `event`) natively support middleware chaining. 
 
-This allows developers to inject cross-cutting concerns like global telemetry, authentication barriers, database transaction management, and OpenTelemetry spans without polluting domain logic.
+This allows developers to inject cross-cutting concerns like global telemetry, authentication barriers, database transaction management, and OpenTelemetry spans without polluting domain logic. For the official OpenTelemetry middlewares and store decorators, see [Instrumentation & Observability](/guide/instrumentation).
 
 Middlewares are registered using the `Use()` method:
 

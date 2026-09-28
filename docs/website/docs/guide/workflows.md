@@ -152,7 +152,7 @@ To ensure atomic state transitions and side effects, workflows enqueue commands 
 
 A background outbox relay polls these records and dispatches them to the `CommandBus`:
 - **Ack-After-Success:** Commands are removed from the outbox table only after successful dispatch by the command handler. On failure, the command remains in the outbox and is retried.
-- **Trace Context Propagation:** Causal, correlation, and distributed tracing metadata (`Actor`, `CorrelationIdentifier`, `CausationIdentifier`, `Instrumentation`) from the triggering event is persisted in the outbox message and reconstructed into the `command.Context` seen by command handlers, ensuring distributed traces continue seamlessly across asynchronous outbox boundaries.
+- **Trace Context Propagation:** Causal, correlation, and distributed tracing metadata (`Actor`, `CorrelationIdentifier`, `CausationIdentifier`, `Instrumentation`) from the triggering event is persisted in the outbox message and reconstructed into the `command.Context` seen by command handlers, ensuring distributed traces continue seamlessly across asynchronous outbox boundaries. Pair this with [`fluxotel.CommandMiddleware`](https://github.com/wotek/flux-opentelemetry) for OpenTelemetry remote parenting—see [Instrumentation & Observability](/guide/instrumentation).
 
 ### 4. Multi-Workflow Event Routing
 

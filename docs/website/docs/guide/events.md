@@ -26,7 +26,7 @@ The `Envelope` contains crucial metadata for the framework:
 - **Actor:** Who performed the action.
 - **CorrelationIdentifier:** Used to trace a workflow across multiple systems.
 - **CausationIdentifier:** Points to the command or event that directly caused this event.
-- **Metadata:** Custom headers including standard OpenTelemetry distributed tracing metadata (`trace_id`, `span_id`, `trace_flags`).
+- **Metadata:** Custom headers including standard OpenTelemetry distributed tracing metadata (`trace_id`, `span_id`, `trace_flags`). See [Instrumentation & Observability](/guide/instrumentation) for how these keys are stamped on save and continued across projectors, workflows, and outbox commands.
 
 You will rarely interact with Envelopes directly unless you are building a custom backend or a Temporal tailing projection.
 

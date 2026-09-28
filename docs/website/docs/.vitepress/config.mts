@@ -59,6 +59,7 @@ export default defineConfig({
           { text: 'Command, Query, and Event Buses', link: '/guide/buses' },
           { text: 'Projections', link: '/guide/projections' },
           { text: 'Workflows & Temporal Integration', link: '/guide/workflows' },
+          { text: 'Instrumentation & Observability', link: '/guide/instrumentation' },
           { text: 'Structured Identifiers (URNs)', link: '/guide/identifiers' },
           { text: 'Serialization & Codecs', link: '/guide/serialization' },
         ]
