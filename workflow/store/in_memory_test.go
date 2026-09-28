@@ -228,3 +228,70 @@ func TestCheckpointStore(t *testing.T) {
 		t.Fatalf("expected position 42, got %d", pos)
 	}
 }
+
+type instrumentedCmd struct{ Data string }
+
+type instrumentedHandler struct {
+	capturedInst chan flux.Instrumentation
+}
+
+func (h *instrumentedHandler) Handle(ctx command.Context, cmd instrumentedCmd) error {
+	h.capturedInst <- ctx.Instrumentation()
+	return nil
+}
+
+func TestInMemoryWorkflowStore_InstrumentationPropagation(t *testing.T) {
+	t.Parallel()
+
+	cmdBus := command.New()
+	handler := &instrumentedHandler{capturedInst: make(chan flux.Instrumentation, 1)}
+	command.RegisterHandler(cmdBus, handler)
+
+	s := store.New[*dummyWorkflow](cmdBus)
+
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:user::iam:1:usr:99")}
+	corrID := flux.MustParseIdentifier("urn:corr::wf:1:corr:77")
+	causID := flux.MustParseIdentifier("urn:caus::evt:1:caus:88")
+	inst := flux.Instrumentation{
+		TraceID:    "4bf92f3577b34da6a3ce929d0e0e4736",
+		SpanID:     "00f067aa0ba902b7",
+		TraceFlags: "01",
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	fCtx := flux.NewContext(ctx, actor, corrID, causID, flux.WithInstrumentation(inst))
+
+	id := flux.MustParseIdentifier("urn:test:prod:workflow:1:test:inst-wf")
+	wf := &dummyWorkflow{id: id, Count: 1}
+
+	if err := s.Save(fCtx, wf, []any{instrumentedCmd{Data: "payload"}}); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	// 1. Verify OutboxMessage stored the Instrumentation
+	msgs := s.OutboxMessages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 outbox message, got %d", len(msgs))
+	}
+	if msgs[0].Instrumentation != inst {
+		t.Errorf("OutboxMessage.Instrumentation = %+v, want %+v", msgs[0].Instrumentation, inst)
+	}
+	if msgs[0].Actor.Identifier != actor.Identifier {
+		t.Errorf("OutboxMessage.Actor = %v, want %v", msgs[0].Actor, actor)
+	}
+
+	// 2. Start relay and verify the dispatched command handler receives the Instrumentation
+	s.StartRelay(ctx)
+
+	select {
+	case receivedInst := <-handler.capturedInst:
+		if receivedInst != inst {
+			t.Errorf("dispatched command Instrumentation = %+v, want %+v", receivedInst, inst)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timed out waiting for relayed command execution")
+	}
+}
+

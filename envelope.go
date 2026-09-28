@@ -2,6 +2,18 @@ package flux
 
 import "time"
 
+// Standard OpenTelemetry-compatible tracing metadata keys.
+const (
+	// MetadataTraceID is the metadata key for the distributed trace identifier.
+	MetadataTraceID = "trace_id"
+
+	// MetadataSpanID is the metadata key for the distributed span identifier.
+	MetadataSpanID = "span_id"
+
+	// MetadataTraceFlags is the metadata key for distributed trace flags (canonical single-byte hex, e.g., "01").
+	MetadataTraceFlags = "trace_flags"
+)
+
 // Envelope wraps a domain event with standard framework metadata.
 type Envelope struct {
 	// Identifier is the globally unique identifier of this specific event occurrence.

@@ -16,12 +16,18 @@ import (
 
 // OutboxMessage represents a durable outbox record containing an enqueued command
 // along with its causal, correlation, and actor tracing metadata.
+//
+// Tracing & Audit Metadata:
+// Any future durable outbox implementation must persist these exact metadata
+// fields (Actor, CorrelationIdentifier, CausationIdentifier, Instrumentation)
+// to guarantee trace propagation across asynchronous outbox boundaries.
 type OutboxMessage struct {
 	ID                    flux.Identifier
 	Command               any
 	Actor                 flux.Actor
 	CorrelationIdentifier flux.Identifier
 	CausationIdentifier   flux.Identifier
+	Instrumentation       flux.Instrumentation
 }
 
 // WorkflowStore is an in-memory test double that simulates a database table for workflows
@@ -95,12 +101,14 @@ func (s *WorkflowStore[W]) Save(ctx context.Context, workflowInstance W, command
 	var actor flux.Actor
 	var correlationID flux.Identifier
 	var causationID flux.Identifier
+	var inst flux.Instrumentation
 	if fCtx, ok := ctx.(flux.Context); ok {
 		actor = fCtx.Actor()
 		correlationID = fCtx.CorrelationIdentifier()
 		causationID = fCtx.CausationIdentifier()
+		inst = fCtx.Instrumentation()
 	}
-	if evtCtx, ok := ctx.(event.Context); ok {
+	if evtCtx, ok := ctx.(event.EventMetadata); ok {
 		causationID = evtCtx.EventIdentifier()
 	}
 
@@ -116,6 +124,7 @@ func (s *WorkflowStore[W]) Save(ctx context.Context, workflowInstance W, command
 			Actor:                 actor,
 			CorrelationIdentifier: correlationID,
 			CausationIdentifier:   causationID,
+			Instrumentation:       inst,
 		})
 	}
 
@@ -186,7 +195,14 @@ func (s *WorkflowStore[W]) StartRelay(ctx context.Context) {
 					s.mu.Unlock()
 
 					// Execute command with rebuilt context
-					cmdCtx := command.NewContext(ctx, msg.ID, msg.Actor, msg.CorrelationIdentifier, msg.CausationIdentifier)
+					cmdCtx := command.NewContext(
+						ctx,
+						msg.ID,
+						msg.Actor,
+						msg.CorrelationIdentifier,
+						msg.CausationIdentifier,
+						flux.WithInstrumentation(msg.Instrumentation),
+					)
 					if err := command.Execute(cmdCtx, s.cmdBus, msg.Command); err != nil {
 						slog.ErrorContext(ctx, "failed to execute outbox command",
 							"command", fmt.Sprintf("%T", msg.Command),

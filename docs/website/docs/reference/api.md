@@ -34,8 +34,8 @@ To bridge the gap between keeping domain payloads lean and providing explicit, t
 
 Because they embed standard `context.Context`, they can be passed directly into standard library functions, database queries, and the Event Store.
 
-::: warning
-Wrapping a typed context (e.g., using `context.WithTimeout`) returns a standard `context.Context`, stripping the typed methods. Handlers should extract needed metadata early if they plan to wrap the context for downstream calls.
+::: tip
+To reparent a typed context with a new Go `context.Context` (such as after starting an OpenTelemetry span or applying a timeout) while preserving all typed metadata and identifiers, use the `WithParent(parent context.Context)` method on the typed context (or the `flux.WithParent(ctx, parent)` package helper).
 :::
 
 ### Base Context
@@ -48,6 +48,7 @@ type Context interface {
 	CorrelationIdentifier() Identifier
 	CausationIdentifier() Identifier
 	Logger() *slog.Logger
+	Instrumentation() Instrumentation
 }
 ```
 
@@ -58,6 +59,18 @@ Extends the base context specifically for mutations.
 type Context interface {
 	flux.Context
 	CommandIdentifier() flux.Identifier
+	WithParent(parent context.Context) Context
+}
+```
+
+### Query Context
+Extends the base context specifically for read operations.
+```go
+// package query
+type Context interface {
+	flux.Context
+	QueryIdentifier() flux.Identifier
+	WithParent(parent context.Context) Context
 }
 ```
 
@@ -65,13 +78,45 @@ type Context interface {
 Provides strongly-typed access to the `Envelope` metadata (stream, revision, global position) while keeping your event structs pure.
 ```go
 // package event
-type Context interface {
+
+// EventMetadata is flux.Context plus read-only access to the envelope currently
+// being handled (stream coordinates and application metadata).
+// It is embedded by [Context], [projection.Context], and [workflow.Context].
+// Note: This is not an io.Reader and not a CQRS read-model type.
+type EventMetadata interface {
 	flux.Context
 	EventIdentifier() flux.Identifier
 	Stream() flux.Stream
 	Revision() uint64
 	Position() uint64
 	Metadata() map[string]string
+}
+
+// Context provides EventMetadata and supports reparenting the underlying Go context.
+type Context interface {
+	EventMetadata
+	WithParent(parent context.Context) Context
+}
+```
+
+### Projection Context
+Extends event metadata and provides a distinct type boundary guaranteeing that the context is bound to the projection's active database transaction.
+```go
+// package projection
+type Context interface {
+	event.EventMetadata
+	WithParent(parent context.Context) Context
+}
+```
+
+### Workflow Context
+Extends event metadata, giving workflow handlers the ability to dispatch commands transactionally via an outbox.
+```go
+// package workflow
+type Context interface {
+	event.EventMetadata
+	QueuedCommands() []any
+	WithParent(parent context.Context) Context
 }
 ```
 

@@ -61,6 +61,7 @@ func (r *AggregateRepository[A, E]) Save(ctx Context, aggregate A) error {
 			Stream:                Stream{Identifier: aggregate.Identifier()},
 			Revision:              baseRevision + uint64(i) + 1,
 			Event:                 event,
+			Metadata:              metadataFromInstrumentation(ctx.Instrumentation()),
 			Actor:                 ctx.Actor(),
 			CorrelationIdentifier: ctx.CorrelationIdentifier(),
 			CausationIdentifier:   ctx.CausationIdentifier(),
@@ -84,4 +85,20 @@ func (r *AggregateRepository[A, E]) Save(ctx Context, aggregate A) error {
 
 	changeset.Clear()
 	return nil
+}
+
+// metadataFromInstrumentation returns envelope Metadata populated from inst when valid.
+// TraceFlags is included only when non-empty. Returns an empty non-nil map otherwise.
+func metadataFromInstrumentation(inst Instrumentation) map[string]string {
+	if !inst.IsValid() {
+		return make(map[string]string)
+	}
+	metadata := map[string]string{
+		MetadataTraceID: inst.TraceID,
+		MetadataSpanID:  inst.SpanID,
+	}
+	if inst.TraceFlags != "" {
+		metadata[MetadataTraceFlags] = inst.TraceFlags
+	}
+	return metadata
 }

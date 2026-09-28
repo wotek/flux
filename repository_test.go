@@ -233,3 +233,104 @@ func TestAggregateRepository_MissingRevisionSetter(t *testing.T) {
 	}
 }
 
+func TestAggregateRepository_Save_TraceMetadataInjection(t *testing.T) {
+	t.Parallel()
+
+	inst := flux.Instrumentation{
+		TraceID:    "4bf92f3577b34da6a3ce929d0e0e4736",
+		SpanID:     "00f067aa0ba902b7",
+		TraceFlags: "01",
+	}
+
+	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:user::iam:1:usr:1")}
+	corrID := flux.MustParseIdentifier("urn:corr::wf:1:corr:1")
+	causID := flux.MustParseIdentifier("urn:caus::cmd:1:caus:1")
+
+	t.Run("injects trace metadata when valid", func(t *testing.T) {
+		t.Parallel()
+		ctx := flux.NewContext(context.Background(), actor, corrID, causID, flux.WithInstrumentation(inst))
+		store := eventstore.New()
+		repo := flux.NewAggregateRepository[*BankAccount, BankEvent](store)
+
+		stream := flux.Stream{Identifier: flux.MustParseIdentifier("urn:bank:prod:accounts:1:account:trace-1")}
+		account := NewBankAccount(stream)
+		account.Create("Alice")
+
+		if err := repo.Save(ctx, account); err != nil {
+			t.Fatalf("Save failed: %v", err)
+		}
+
+		iter, err := store.Read(ctx, stream, 0)
+		if err != nil {
+			t.Fatalf("Read failed: %v", err)
+		}
+
+		var envelopes []flux.Envelope
+		for env, err := range iter {
+			if err != nil {
+				t.Fatalf("iter failed: %v", err)
+			}
+			envelopes = append(envelopes, env)
+		}
+
+		if len(envelopes) != 1 {
+			t.Fatalf("expected 1 envelope, got %d", len(envelopes))
+		}
+
+		env := envelopes[0]
+		if env.Metadata == nil {
+			t.Fatal("expected env.Metadata to be initialized")
+		}
+		if env.Metadata[flux.MetadataTraceID] != inst.TraceID {
+			t.Errorf("Metadata[TraceID] = %q, want %q", env.Metadata[flux.MetadataTraceID], inst.TraceID)
+		}
+		if env.Metadata[flux.MetadataSpanID] != inst.SpanID {
+			t.Errorf("Metadata[SpanID] = %q, want %q", env.Metadata[flux.MetadataSpanID], inst.SpanID)
+		}
+		if env.Metadata[flux.MetadataTraceFlags] != inst.TraceFlags {
+			t.Errorf("Metadata[TraceFlags] = %q, want %q", env.Metadata[flux.MetadataTraceFlags], inst.TraceFlags)
+		}
+	})
+
+	t.Run("does not inject trace metadata when invalid", func(t *testing.T) {
+		t.Parallel()
+		ctx := flux.NewContext(context.Background(), actor, corrID, causID)
+		store := eventstore.New()
+		repo := flux.NewAggregateRepository[*BankAccount, BankEvent](store)
+
+		stream := flux.Stream{Identifier: flux.MustParseIdentifier("urn:bank:prod:accounts:1:account:trace-2")}
+		account := NewBankAccount(stream)
+		account.Create("Bob")
+
+		if err := repo.Save(ctx, account); err != nil {
+			t.Fatalf("Save failed: %v", err)
+		}
+
+		iter, err := store.Read(ctx, stream, 0)
+		if err != nil {
+			t.Fatalf("Read failed: %v", err)
+		}
+
+		var envelopes []flux.Envelope
+		for env, err := range iter {
+			if err != nil {
+				t.Fatalf("iter failed: %v", err)
+			}
+			envelopes = append(envelopes, env)
+		}
+
+		if len(envelopes) != 1 {
+			t.Fatalf("expected 1 envelope, got %d", len(envelopes))
+		}
+
+		env := envelopes[0]
+		if env.Metadata == nil {
+			t.Fatal("expected env.Metadata to be non-nil")
+		}
+		if _, exists := env.Metadata[flux.MetadataTraceID]; exists {
+			t.Errorf("expected no TraceID in metadata, found %q", env.Metadata[flux.MetadataTraceID])
+		}
+	})
+}
+
+

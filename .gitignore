@@ -33,6 +33,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
+docs/notes.md
 
 # Antigravity CLI local files (preserve shared config)
 .agy/*
