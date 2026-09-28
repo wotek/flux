@@ -144,6 +144,8 @@ type CheckpointStore interface {
 
 On startup or recovery, the orchestrator retrieves its last checkpoint position via `GetPosition`. As envelopes are processed, the position is advanced and saved via `SetPosition`. Unhandled events also advance the checkpoint position. If an orchestrator crashes or restarts, processing resumes from the last persisted position. Handlers should remain idempotent to handle at-least-once delivery during restarts.
 
+Passing `nil` for the `CheckpointStore` when creating an `Orchestrator` substitutes an in-memory checkpoint store that is process-local and non-durable (process restarts reprocess the stream from the beginning). This is intended for tests and local prototyping; production environments must pass a durable `CheckpointStore`.
+
 ### 3. Outbox Pattern and Traceability
 
 To ensure atomic state transitions and side effects, workflows enqueue commands via `workflow.EnqueueCommand(ctx, cmd)`. Commands are stored transactionally alongside the workflow state in `Store.Save(ctx, workflow, commands)`.
@@ -159,4 +161,6 @@ Multiple distinct workflow types can subscribe to the same domain event name (fo
 The `Orchestrator` maintains an ordered slice of handlers for each event name. When processing an event envelope:
 - All matching handlers are invoked in registration order.
 - Execution follows a fail-fast policy: if any handler returns an error, the orchestrator halts immediately and returns the error without advancing the checkpoint position, preventing partial executions or unnoticed state corruptions.
+
+Because the stream checkpoint advances only after **all** registered handlers for an envelope succeed, an error returned by handler *N* halts processing after handlers *1* through *N-1* have already committed their state transitions and enqueued outbox commands. When the orchestrator recovers and restarts, it resumes from the unadvanced checkpoint and re-delivers the envelope to all registered handlers. All workflow handlers must therefore be strictly idempotent to safely accommodate this at-least-once delivery guarantee.
 
