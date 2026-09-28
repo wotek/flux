@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/wotek/flux/compare/v1.2.0...v1.3.0) (2026-09-28)
+
+
+### Features
+
+* **core:** add telemetry instrumentation primitives, context reparenting, and outbox trace propagation ([a72d712](https://github.com/wotek/flux/commit/a72d712b1775d870be9c74548b4f71bdd1f2ad91))
+
 ## [1.2.0](https://github.com/wotek/flux/compare/v1.1.0...v1.2.0) (2026-09-28)
 
 
