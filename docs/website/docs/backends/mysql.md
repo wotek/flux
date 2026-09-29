@@ -258,3 +258,100 @@ func main() {
 	_ = position
 }
 ```
+
+## Projection Store (Transactional Update)
+
+The MySQL Projection Store runs read-model SQL mutations and consumer checkpoint position updates in a **single atomic database transaction**.
+
+- **Package:** `github.com/wotek/flux/projection/store/mysql`
+
+### Transactional Atomicity vs. Best-Effort
+
+| Approach | Architecture | Atomicity Guarantee |
+|----------|--------------|---------------------|
+| **Same-Database MySQL Store** (`projection/store/mysql`) | Read-model tables and checkpoints table live in the **same** MySQL database instance | **ACID Transactional:** Mutation and checkpoint commit together in one transaction. If mutation fails, rollback prevents checkpoint advance. |
+| **Cross-Database / Composed Store** | Read-model in PostgreSQL / Redis / Elasticsearch; checkpoint in MySQL / Redis | **Best-Effort:** Application mutates external read model, then calls `checkpoint.Store.SetPosition`. Crash between mutation and position save causes at-least-once redelivery. |
+
+### Schema Requirement
+
+The projection store uses the standard `checkpoints` table. Refer to [`checkpoint/store/mysql/schema.sql`](https://github.com/wotek/flux/blob/main/checkpoint/store/mysql/schema.sql) for the table DDL definition.
+
+### Usage with `TxFromContext`
+
+When `Projector` processes an envelope, `Store.Update` begins a MySQL transaction and injects it into the context passed to registered event handlers. Retrieve the transaction using `mysqlproj.TxFromContext(ctx)`:
+
+```go
+package main
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/wotek/flux"
+	"github.com/wotek/flux/projection"
+	mysqlproj "github.com/wotek/flux/projection/store/mysql"
+)
+
+type ProductCreated struct {
+	ProductID string
+	Name      string
+	Price     int
+}
+
+func (e ProductCreated) Name() string { return "ProductCreated" }
+
+func main() {
+	db, err := sql.Open("mysql", "user:password@tcp(127.0.0.1:3306)/flux?parseTime=true")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+
+	projStore := mysqlproj.New(
+		db,
+		mysqlproj.WithCheckpointsTable("checkpoints"),
+	)
+
+	consumerID := flux.MustParseIdentifier("urn:acme:prod:projector:1:worker:products")
+	projector := projection.New(consumerID, eventStore, projStore)
+
+	projection.RegisterHandler(projector, func(ctx projection.Context, ev ProductCreated) error {
+		tx, ok := mysqlproj.TxFromContext(ctx)
+		if !ok {
+			return fmt.Errorf("active transaction missing from context")
+		}
+
+		_, err := tx.ExecContext(ctx,
+			"INSERT INTO catalog_products (id, name, price) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), price = VALUES(price)",
+			ev.ProductID, ev.Name, ev.Price,
+		)
+		return err
+	})
+}
+```
+
+::: warning Same-Database Requirement
+Atomicity is only achieved when the application SQL executed inside the handler operates through the transaction extracted via `mysqlproj.TxFromContext(ctx)`. If the handler accesses a different database connection or skips `tx`, atomicity between the read model and checkpoint cursor is lost.
+:::
+
+### Direct `Update` (without `Projector`)
+
+If your application updates a read model manually outside the background `Projector` engine, call `Store.Update` directly and retrieve the transaction from `txCtx` inside the `mutate` closure:
+
+```go
+err := projStore.Update(ctx, consumerID, env, func(txCtx context.Context) error {
+	tx, ok := mysqlproj.TxFromContext(txCtx)
+	if !ok {
+		return fmt.Errorf("active transaction missing from context")
+	}
+
+	_, err := tx.ExecContext(txCtx,
+		"INSERT INTO catalog_products (id, name, price) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), price = VALUES(price)",
+		ev.ProductID, ev.Name, ev.Price,
+	)
+	return err
+})
+```
+

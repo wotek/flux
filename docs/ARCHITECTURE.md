@@ -332,6 +332,10 @@ Subpackages providing concrete storage implementations:
 - **`github.com/wotek/flux/projection/store`**:
   - `ProjectionStore`: Implementation of `projection.Store` that composes `checkpoint.Store`.
   - `New(opts ...Option)`: Constructor.
+- **`github.com/wotek/flux/projection/store/mysql`**:
+  - `Store`: MySQL-backed implementation of `projection.Store` executing mutations and checkpoint position updates in a single atomic database transaction.
+  - `New(db *sql.DB, opts ...Option)`: Constructor.
+  - `TxFromContext(ctx context.Context) (*sql.Tx, bool)`: Helper extracting the active transaction from context inside `mutate`.
 - **`github.com/wotek/flux/workflow/store`**:
   - `WorkflowStore[W workflow.Workflow[W]]`: Implementation of `workflow.Store` with an Outbox Relay worker (`StartRelay(ctx)`) that propagates stored `Instrumentation` to dispatched commands.
   - `CheckpointStore`: In-memory implementation of `checkpoint.Store` (deprecated in favor of `checkpoint/store`).

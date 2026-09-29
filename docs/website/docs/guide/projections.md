@@ -91,23 +91,24 @@ func main() {
 	checkpointStore := checkpointstore.New()
 
 	// 2. Instantiate projection store composed with checkpoint persistence
-	readStore := projstore.New(projstore.WithCheckpointStore(checkpointStore))
+	projStore := projstore.New(projstore.WithCheckpointStore(checkpointStore))
 
-	// 3. Create and wire the projector
-	projector := projection.NewProjector(consumerID, eventStore, readStore)
+	// 3. Application read-model storage
+	catalogItems := make(map[string]CatalogItem)
+
+	// 4. Create and wire the projector
+	projector := projection.NewProjector(consumerID, eventStore, projStore)
 
 	projection.RegisterHandler(projector, func(ctx projection.Context, ev ProductCreated) error {
-		return readStore.Update(ctx, consumerID, ctx.Envelope().Position, func() error {
-			readStore.Save("product:"+ev.ProductID, CatalogItem{
-				ID:    ev.ProductID,
-				Name:  ev.Name,
-				Price: ev.Price,
-			})
-			return nil
-		})
+		catalogItems["product:"+ev.ProductID] = CatalogItem{
+			ID:    ev.ProductID,
+			Name:  ev.Name,
+			Price: ev.Price,
+		}
+		return nil
 	})
 
-	// 4. Start background tailing
+	// 5. Start background tailing
 	go func() {
 		if err := projector.Start(ctx); err != nil {
 			panic(err)
@@ -128,6 +129,10 @@ The native `Projector` processes stream envelopes sequentially. When a handler f
 - When the projector restarts, it queries `GetPosition` from the `projection.Store` and resumes stream tailing from the last committed checkpoint.
 
 Because replaying from a checkpoint may re-deliver envelopes that were partially handled before a crash, handlers must be designed to be strictly idempotent.
+
+### Durable Transactional Projections (MySQL)
+
+When read-model tables and checkpoints reside in the same MySQL database, [`projection/store/mysql`](/backends/mysql#projection-store-transactional-update) guarantees that read-model mutations and checkpoint position updates commit atomically in a single database transaction. If a process crashes before commit, the transaction rolls back cleanly without advancing the cursor. On recovery, the uncommitted envelope is replayed, so handlers must remain strictly idempotent.
 
 ## Choosing a Projection Runtime: Native vs. Temporal
 

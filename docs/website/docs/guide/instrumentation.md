@@ -109,10 +109,8 @@ Wrap handlers before registration so each invocation is a child span under the e
 ```go
 projection.RegisterHandler(projector, fluxotel.WrapProjectionHandler(tracer, meter,
 	func(ctx projection.Context, e OrderPlaced) error {
-		return projectionStore.Update(ctx, projectorID, env, func(txCtx context.Context) error {
-			// Read-model mutation
-			return nil
-		})
+		// Read-model mutation
+		return orderReadStore.Save(ctx, e.OrderID)
 	},
 ))
 
