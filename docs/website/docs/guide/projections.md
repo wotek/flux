@@ -61,13 +61,88 @@ func (p *Projector) Handle(ctx event.Context, e flux.Event) error {
 // eventBus.RegisterGlobal(projector.Handle)
 ```
 
-## Continuous Tailing Projections (Enterprise)
+## Native Asynchronous Projections
 
-Synchronous projections are easy, but they have a fatal flaw: if your database is down, the projector errors out and the event is lost from the read model. Furthermore, if you ever need to completely rebuild your Read Model from scratch (e.g., adding a new SQL column), synchronous projectors can't do it.
+For services running without an external orchestrator, `flux` provides an in-process, asynchronous projector engine in the `projection` package. The `Projector` tails the `EventStore` in the background, invokes registered event handlers, and maintains position checkpoints through a `projection.Store`.
 
-For production systems, **Projections should be continuous background workers that "tail" the Event Store.**
+```go
+package main
 
-We highly recommend using a Temporal Workflow for this (as outlined in the [Workflows guide](/guide/workflows)). 
+import (
+	"context"
+
+	"github.com/wotek/flux"
+	checkpointstore "github.com/wotek/flux/checkpoint/store"
+	"github.com/wotek/flux/projection"
+	projstore "github.com/wotek/flux/projection/store"
+)
+
+type CatalogItem struct {
+	ID    string
+	Name  string
+	Price int
+}
+
+func main() {
+	ctx := context.Background()
+	consumerID := flux.MustParseIdentifier("urn:ecommerce:prod:catalog:global:projector:catalog-list")
+
+	// 1. Configure checkpoint store (in-memory for tests/prototypes, MySQL/Redis for production)
+	checkpointStore := checkpointstore.New()
+
+	// 2. Instantiate projection store composed with checkpoint persistence
+	readStore := projstore.New(projstore.WithCheckpointStore(checkpointStore))
+
+	// 3. Create and wire the projector
+	projector := projection.NewProjector(consumerID, eventStore, readStore)
+
+	projection.RegisterHandler(projector, func(ctx projection.Context, ev ProductCreated) error {
+		return readStore.Update(ctx, consumerID, ctx.Envelope().Position, func() error {
+			readStore.Save("product:"+ev.ProductID, CatalogItem{
+				ID:    ev.ProductID,
+				Name:  ev.Name,
+				Price: ev.Price,
+			})
+			return nil
+		})
+	})
+
+	// 4. Start background tailing
+	go func() {
+		if err := projector.Start(ctx); err != nil {
+			panic(err)
+		}
+	}()
+}
+```
+
+::: tip In-Memory Projection Store Mutex
+When composing `projection/store.New(WithCheckpointStore(...))`, `Update` synchronizes execution using a process-local mutex across `mutate` and `SetPosition`; injecting remote durable checkpoint stores holds this mutex across network I/O and does not provide same-database transactional atomicity.
+:::
+
+### At-Least-Once Delivery & Idempotency
+
+The native `Projector` processes stream envelopes sequentially. When a handler fails:
+- The projection stops immediately and returns the error (fail-fast).
+- The checkpoint position is **not** advanced.
+- When the projector restarts, it queries `GetPosition` from the `projection.Store` and resumes stream tailing from the last committed checkpoint.
+
+Because replaying from a checkpoint may re-deliver envelopes that were partially handled before a crash, handlers must be designed to be strictly idempotent.
+
+## Choosing a Projection Runtime: Native vs. Temporal
+
+| Runtime | Position / Cursor Tracking | State Storage | Best Used For |
+|---------|----------------------------|---------------|---------------|
+| **Native `Projector`** | `checkpoint.Store` (MySQL, Redis, in-memory) | User-defined read store via `projection.Store` | Embedded services, microservices without Temporal infrastructure, high-throughput linear tailing |
+| **Temporal Workflow** | Workflow execution history + `ContinueAsNew` | External database (Postgres, Elasticsearch, Redis) | Complex workflows, distributed replays, robust built-in retry policies, activities with long timeouts |
+
+::: danger Anti-Pattern: Dual-Cursor Split Brain
+Never mix the native `checkpoint.Store` and Temporal cursor tracking for the same logical consumer or read model. Temporal workflows track stream position deterministically in their execution history (`lastRevision`). Temporal activities must **never** call `SetPosition` on a flux `checkpoint.Store` for that same consumer, as external checkpoint mutations will conflict with Temporal history replays.
+:::
+
+## Continuous Tailing Projections with Temporal
+
+For teams operating Temporal, projections can be implemented as long-running, continuous workflows.
 
 ### 1. The Tailing Workflow
 Instead of listening to the live `EventBus`, the projection workflow asks the database for batches of historical events.

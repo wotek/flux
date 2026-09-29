@@ -9,38 +9,13 @@ import (
 	"time"
 
 	"github.com/wotek/flux"
+	"github.com/wotek/flux/checkpoint"
 	"github.com/wotek/flux/event"
 )
 
-// CheckpointStore persists and retrieves the stream position reached by an orchestrator.
-type CheckpointStore interface {
-	// GetPosition returns the last successfully processed event stream position.
-	GetPosition(ctx context.Context, id flux.Identifier) (uint64, error)
-
-	// SetPosition updates the checkpoint position for the orchestrator.
-	SetPosition(ctx context.Context, id flux.Identifier, position uint64) error
-}
-
-type inMemoryCheckpoint struct {
-	mu        sync.RWMutex
-	positions map[string]uint64
-}
-
-func (c *inMemoryCheckpoint) GetPosition(ctx context.Context, id flux.Identifier) (uint64, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.positions[id.String()], nil
-}
-
-func (c *inMemoryCheckpoint) SetPosition(ctx context.Context, id flux.Identifier, position uint64) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.positions == nil {
-		c.positions = make(map[string]uint64)
-	}
-	c.positions[id.String()] = position
-	return nil
-}
+// CheckpointStore is a deprecated alias for [checkpoint.Store].
+// Prefer importing and using [checkpoint.Store] directly.
+type CheckpointStore = checkpoint.Store
 
 // Orchestrator is the background worker that listens to the global event stream
 // and routes events to the appropriate workflow instances.
@@ -48,7 +23,7 @@ type Orchestrator struct {
 	mu         sync.RWMutex
 	id         flux.Identifier
 	eventStore flux.EventStore
-	checkpoint CheckpointStore
+	checkpoint checkpoint.Store
 	handlers   map[string][]orchestratorHandler
 }
 
@@ -60,14 +35,13 @@ type orchestratorHandler struct {
 // NewOrchestrator creates a new orchestrator engine with position checkpointing.
 //
 // Checkpoint Persistence:
-// If checkpoint is nil, an in-memory checkpoint store is automatically used.
-// In-memory checkpoints are process-local and non-durable; restarting the process
-// will reprocess the stream from the beginning. Passing nil is intended for tests
-// and local prototyping only. Production environments must pass a durable
-// [CheckpointStore] implementation to guarantee progress persistence across restarts.
-func NewOrchestrator(id flux.Identifier, eventStore flux.EventStore, checkpoint CheckpointStore) *Orchestrator {
+// checkpoint must be non-nil. Pass checkpoint/store.New() for in-memory testing
+// and local prototypes. Production environments must pass a durable [checkpoint.Store]
+// implementation (e.g. MySQL or Redis) to guarantee progress persistence across restarts.
+// A nil checkpoint is a programmer error and panics.
+func NewOrchestrator(id flux.Identifier, eventStore flux.EventStore, checkpoint checkpoint.Store) *Orchestrator {
 	if checkpoint == nil {
-		checkpoint = &inMemoryCheckpoint{positions: make(map[string]uint64)}
+		panic("workflow: checkpoint store is required; pass checkpoint/store.New() for in-memory or a durable store for production")
 	}
 	return &Orchestrator{
 		id:         id,
@@ -78,8 +52,7 @@ func NewOrchestrator(id flux.Identifier, eventStore flux.EventStore, checkpoint 
 }
 
 // New is an alias for NewOrchestrator to maintain explicit naming parity with projection.New.
-// Passing nil for checkpoint creates a process-local, non-durable in-memory store.
-func New(id flux.Identifier, eventStore flux.EventStore, checkpoint CheckpointStore) *Orchestrator {
+func New(id flux.Identifier, eventStore flux.EventStore, checkpoint checkpoint.Store) *Orchestrator {
 	return NewOrchestrator(id, eventStore, checkpoint)
 }
 

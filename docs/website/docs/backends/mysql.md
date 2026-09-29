@@ -180,3 +180,81 @@ func main() {
 	_ = loaded
 }
 ```
+
+## Checkpoint Store
+
+The MySQL Checkpoint Store persists the last successfully processed global event-stream position for tailing consumers such as `projection.Projector` and `workflow.Orchestrator`.
+
+- **Package:** `github.com/wotek/flux/checkpoint/store/mysql`
+
+### Relational Schema
+
+```sql
+CREATE TABLE IF NOT EXISTS checkpoints (
+    consumer_id VARCHAR(512) NOT NULL,
+    position BIGINT UNSIGNED NOT NULL,
+    updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (consumer_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+```
+
+The `consumer_id` column stores the full string representation of the consumer's `flux.Identifier` (e.g. `urn:acme:prod:projector:1:worker:lists`). The column width is set to `VARCHAR(512)` to safely accommodate environment-qualified URNs without truncation.
+
+### Monotonic Max Semantics
+
+Checkpoints are updated using an `INSERT ... ON DUPLICATE KEY UPDATE` query that enforces monotonic max semantics:
+
+```sql
+INSERT INTO checkpoints (consumer_id, position)
+VALUES (?, ?)
+ON DUPLICATE KEY UPDATE
+    position = IF(VALUES(position) >= position, VALUES(position), position),
+    updated_at = IF(VALUES(position) >= position, VALUES(updated_at), updated_at);
+```
+
+If an at-least-once retry or delayed worker attempts to commit an older position, MySQL leaves the existing higher position intact.
+
+### Usage
+
+```go
+package main
+
+import (
+	"context"
+	"database/sql"
+	"time"
+
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/wotek/flux"
+	checkpointmysql "github.com/wotek/flux/checkpoint/store/mysql"
+	"github.com/wotek/flux/workflow"
+)
+
+func main() {
+	db, err := sql.Open("mysql", "user:password@tcp(127.0.0.1:3306)/flux?parseTime=true")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+
+	checkpointStore := checkpointmysql.New(
+		db,
+		checkpointmysql.WithTableName("checkpoints"),
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	consumerID := flux.MustParseIdentifier("urn:acme:prod:workflow:1:orchestrator:payment")
+
+	if err := checkpointStore.SetPosition(ctx, consumerID, 1200); err != nil {
+		panic(err)
+	}
+
+	position, err := checkpointStore.GetPosition(ctx, consumerID)
+	if err != nil {
+		panic(err)
+	}
+	_ = position
+}
+```

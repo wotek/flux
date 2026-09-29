@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/wotek/flux"
+	checkpointstore "github.com/wotek/flux/checkpoint/store"
 	"github.com/wotek/flux/command"
 	eventstore "github.com/wotek/flux/event/store"
 	"github.com/wotek/flux/workflow"
@@ -67,7 +68,7 @@ func TestWorkflowOrchestrator(t *testing.T) {
 	workflowStore.StartRelay(ctx)
 
 	orchID := flux.MustParseIdentifier("urn:flux::workflow:1:orchestrator:onboarding")
-	orchestrator := workflow.NewOrchestrator(orchID, eventStore, workflowStore)
+	orchestrator := workflow.NewOrchestrator(orchID, eventStore, checkpointstore.New())
 
 	// Register Workflow
 	workflow.RegisterHandler(orchestrator, workflowStore, func(ctx workflow.Context, w *OnboardingWorkflow, e UserRegistered) error {
@@ -147,7 +148,7 @@ func TestWorkflowOrchestrator_DurableCheckpoint(t *testing.T) {
 	eventStore := eventstore.New()
 	cmdBus := command.New()
 	wfStore := workflowstore.New[*OnboardingWorkflow](cmdBus)
-	checkpointStore := workflowstore.NewCheckpointStore()
+	checkpointStore := checkpointstore.New()
 
 	orchID := flux.MustParseIdentifier("urn:flux::workflow:1:orchestrator:checkpoint_test")
 	orchestrator := workflow.NewOrchestrator(orchID, eventStore, checkpointStore)
@@ -244,7 +245,7 @@ func TestWorkflow_CloneIsolationOnHandlerFailure(t *testing.T) {
 	wfStore := workflowstore.New[*OnboardingWorkflow](cmdBus)
 
 	orchID := flux.MustParseIdentifier("urn:flux::workflow:1:orchestrator:failure_test")
-	orchestrator := workflow.NewOrchestrator(orchID, eventStore, wfStore)
+	orchestrator := workflow.NewOrchestrator(orchID, eventStore, checkpointstore.New())
 
 	corrID := flux.MustParseIdentifier("urn:user::auth:1:user:isolated")
 
@@ -305,7 +306,7 @@ func TestOrchestrator_ConcurrentRegistrationAndStart(t *testing.T) {
 	wfStore := workflowstore.New[*OnboardingWorkflow](cmdBus)
 
 	orchID := flux.MustParseIdentifier("urn:flux::workflow:1:orchestrator:concurrent")
-	orchestrator := workflow.NewOrchestrator(orchID, eventStore, wfStore)
+	orchestrator := workflow.NewOrchestrator(orchID, eventStore, checkpointstore.New())
 
 	stream := flux.Stream{Identifier: flux.MustParseIdentifier("urn:stream:::::orch_concurrent:1")}
 	_ = eventStore.Append(ctx, stream, 0, []flux.Envelope{
@@ -356,7 +357,7 @@ func TestOrchestrator_MultipleHandlersPerEvent(t *testing.T) {
 		auditStore := workflowstore.New[*AuditWorkflow](cmdBus)
 
 		orchID := flux.MustParseIdentifier("urn:flux::workflow:1:orchestrator:multi1")
-		orchestrator := workflow.NewOrchestrator(orchID, eventStore, nil)
+		orchestrator := workflow.NewOrchestrator(orchID, eventStore, checkpointstore.New())
 
 		onboardingHandled := make(chan struct{}, 1)
 		auditHandled := make(chan struct{}, 1)
@@ -420,7 +421,7 @@ func TestOrchestrator_MultipleHandlersPerEvent(t *testing.T) {
 		auditStore := workflowstore.New[*AuditWorkflow](cmdBus)
 
 		orchID := flux.MustParseIdentifier("urn:flux::workflow:1:orchestrator:multi2")
-		orchestrator := workflow.NewOrchestrator(orchID, eventStore, nil)
+		orchestrator := workflow.NewOrchestrator(orchID, eventStore, checkpointstore.New())
 
 		expectedErr := errors.New("failing handler")
 		secondHandlerCalled := false
@@ -475,7 +476,7 @@ func TestOrchestrator_MissingCorrelationID_SkippedWithWarning(t *testing.T) {
 	wfStore := workflowstore.New[*OnboardingWorkflow](cmdBus)
 
 	orchID := flux.MustParseIdentifier("urn:flux::workflow:1:orchestrator:missing_corr")
-	orchestrator := workflow.NewOrchestrator(orchID, eventStore, nil)
+	orchestrator := workflow.NewOrchestrator(orchID, eventStore, checkpointstore.New())
 
 	handlerCalled := false
 	secondEventHandled := make(chan struct{}, 1)
@@ -515,5 +516,37 @@ func TestOrchestrator_MissingCorrelationID_SkippedWithWarning(t *testing.T) {
 	if handlerCalled {
 		t.Errorf("expected handler NOT to be invoked for event without correlation ID")
 	}
+}
+
+func TestNewOrchestrator_NilCheckpointPanics(t *testing.T) {
+	t.Parallel()
+
+	orchID := flux.MustParseIdentifier("urn:flux::workflow:1:orchestrator:panic_test")
+	eventStore := eventstore.New()
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected NewOrchestrator with nil checkpoint to panic")
+		}
+	}()
+
+	_ = workflow.NewOrchestrator(orchID, eventStore, nil)
+}
+
+func TestNew_NilCheckpointPanics(t *testing.T) {
+	t.Parallel()
+
+	orchID := flux.MustParseIdentifier("urn:flux::workflow:1:orchestrator:panic_test_alias")
+	eventStore := eventstore.New()
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected New with nil checkpoint to panic")
+		}
+	}()
+
+	_ = workflow.New(orchID, eventStore, nil)
 }
 

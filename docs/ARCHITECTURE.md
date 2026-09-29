@@ -78,6 +78,11 @@ flowchart TD
         Event["event<br/>(Bus, Context, Handler)"]
     end
 
+    subgraph CheckpointDomain ["Checkpoints"]
+        Checkpoint["checkpoint<br/>(Store)"]
+        CheckpointStore["checkpoint/store<br/>(Store)"]
+    end
+
     subgraph ProjectionDomain ["Projections"]
         Projection["projection<br/>(Projector, Context, Store)"]
         ProjStore["projection/store<br/>(ProjectionStore)"]
@@ -94,13 +99,20 @@ flowchart TD
     Query --> Flux
     Event --> Flux
 
+    Checkpoint --> Flux
+    CheckpointStore --> Checkpoint
+    CheckpointStore --> Flux
+
     Projection --> Flux
     Projection --> Event
+    Projection --> Checkpoint
     ProjStore --> Projection
+    ProjStore --> Checkpoint
     ProjStore --> Flux
 
     Workflow --> Flux
     Workflow --> Event
+    Workflow --> Checkpoint
     WorkflowStore --> Workflow
     WorkflowStore --> Command
     WorkflowStore --> Flux
@@ -118,6 +130,7 @@ flowchart TD
    - `projection.Context` embeds `event.EventMetadata` and adds `WithParent(parent context.Context) Context`.
    - `workflow.Context` embeds `event.EventMetadata` and adds `QueuedCommands() []any` and `WithParent(parent context.Context) Context`.
 3. **Workflow Outbox Integration:** The `workflow/store` driver imports `command.Bus` to dispatch asynchronous outbox commands. Because `command` has no knowledge of `workflow`, the dependency remains strictly unidirectional (`workflow/store` $\rightarrow$ `command` $\rightarrow$ `flux`).
+4. **Checkpoint Storage Integration:** The shared `checkpoint.Store` contract depends only on `flux`. `projection` and `workflow` depend on `checkpoint`. The dependency flow remains strictly unidirectional (`flux` $\leftarrow$ `checkpoint` $\leftarrow$ `projection` / `workflow`).
 
 ---
 
@@ -265,6 +278,16 @@ Engine for maintaining asynchronous read models and tracking global event stream
 
 ---
 
+### Package: `github.com/wotek/flux/checkpoint`
+
+Provides the shared persistence contract for tracking the last successfully processed global event-stream position for tailing workers (projectors, orchestrators).
+
+#### Interfaces
+
+- `Store`: Persistence contract defining `GetPosition(ctx context.Context, id flux.Identifier) (uint64, error)` and `SetPosition(ctx context.Context, id flux.Identifier, position uint64) error`. Enforces monotonic max (CAS max) semantics: older positions never overwrite newer ones.
+
+---
+
 ### Package: `github.com/wotek/flux/workflow`
 
 Orchestration engine coordinating long-running business processes and durable Outbox command dispatching.
@@ -277,12 +300,12 @@ Orchestration engine coordinating long-running business processes and durable Ou
 
 - `Workflow[W Workflow[W]]`: Go 1.27+ self-referencing generic constraint requiring `Identifier() flux.Identifier`, `New() W`, and `Clone() W`.
 - `Store[W Workflow[W]]`: Persistence contract for loading workflow state and atomically saving state alongside outbox commands.
-- `CheckpointStore`: Interface for persisting and retrieving orchestrator stream checkpoints (`GetPosition`, `SetPosition`).
+- `CheckpointStore`: Deprecated type alias for `checkpoint.Store`.
 - `Context`: Extends `event.EventMetadata` with `QueuedCommands() []any` and `WithParent(parent context.Context) Context`.
 
 #### Functions
 
-- `NewOrchestrator(id flux.Identifier, eventStore flux.EventStore, checkpoint CheckpointStore) *Orchestrator`: Creates a Workflow Orchestrator with durable checkpointing.
+- `NewOrchestrator(id flux.Identifier, eventStore flux.EventStore, checkpoint checkpoint.Store) *Orchestrator`: Creates a Workflow Orchestrator with position checkpointing. Panics if `checkpoint` is `nil`.
 - `NewContext(parent event.Context) Context`: Creates a workflow context.
 - `EnqueueCommand[C any](ctx Context, cmd C)`: Safely enqueues a strongly-typed command into the workflow outbox.
 - `RegisterHandler[W Workflow[W], E flux.Event](o *Orchestrator, store Store[W], handler func(ctx Context, workflow W, event E) error)`: Links an event to a workflow step.
@@ -294,13 +317,23 @@ Orchestration engine coordinating long-running business processes and durable Ou
 
 Subpackages providing concrete storage implementations:
 
+- **`github.com/wotek/flux/checkpoint/store`**:
+  - `Store`: In-memory thread-safe implementation of `checkpoint.Store` using monotonic max.
+  - `New()`: Constructor.
+- **`github.com/wotek/flux/checkpoint/store/mysql`**:
+  - `Store`: MySQL-backed implementation of `checkpoint.Store` with `INSERT ... ON DUPLICATE KEY UPDATE` CAS max.
+  - `New(db *sql.DB, opts ...Option)`: Constructor.
+- **`github.com/wotek/flux/checkpoint/store/redis`**:
+  - `Store`: Redis-backed implementation of `checkpoint.Store` using single-key Lua CAS max script.
+  - `New(client redis.UniversalClient, opts ...Option)`: Constructor.
 - **`github.com/wotek/flux/event/store`**:
   - `EventStore`: Implementation of `flux.EventStore` with optimistic concurrency validation.
   - `New()`: Constructor.
 - **`github.com/wotek/flux/projection/store`**:
-  - `ProjectionStore`: Implementation of `projection.Store`.
-  - `New()`: Constructor.
+  - `ProjectionStore`: Implementation of `projection.Store` that composes `checkpoint.Store`.
+  - `New(opts ...Option)`: Constructor.
 - **`github.com/wotek/flux/workflow/store`**:
   - `WorkflowStore[W workflow.Workflow[W]]`: Implementation of `workflow.Store` with an Outbox Relay worker (`StartRelay(ctx)`) that propagates stored `Instrumentation` to dispatched commands.
+  - `CheckpointStore`: In-memory implementation of `checkpoint.Store` (deprecated in favor of `checkpoint/store`).
   - `OutboxMessage`: Struct representing a persisted outbox record including distributed tracing `Instrumentation`.
   - `New[W](cmdBus *command.Bus)`: Constructor.

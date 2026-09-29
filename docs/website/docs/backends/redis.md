@@ -87,3 +87,82 @@ func main() {
 }
 ```
 
+## Checkpoint Store
+
+The Redis Checkpoint Store persists the last successfully processed global event-stream position for tailing consumers such as `projection.Projector` and `workflow.Orchestrator`.
+
+- **Package:** `github.com/wotek/flux/checkpoint/store/redis`
+
+### Key Schema and Cluster Compatibility
+
+- Key format: `{prefix}checkpoint:{consumerURN}` (e.g. `myapp:checkpoint:urn:acme:prod:projector:1:worker:lists`).
+- Value: Decimal string representing the global stream position.
+
+::: tip Redis Cluster Compatible
+Unlike the multi-key Redis Event Store append script, the Checkpoint Store uses a **single-key** Lua script for compare-and-set max operations (`KEYS[1]`). It operates without cross-slot hash tags and is fully compatible with Redis Cluster as well as standalone Redis deployments.
+:::
+
+### Monotonic Max Lua Script
+
+Updates are executed atomically using Lua to ensure positions are strictly monotonic:
+
+```lua
+local current = redis.call('GET', KEYS[1])
+if not current then
+    redis.call('SET', KEYS[1], ARGV[1])
+else
+    local new_val = tostring(ARGV[1])
+    local cur_val = tostring(current)
+    local new_len = #new_val
+    local cur_len = #cur_val
+    if new_len > cur_len or (new_len == cur_len and new_val > cur_val) then
+        redis.call('SET', KEYS[1], new_val)
+    end
+end
+return 1
+```
+
+The script evaluates string length followed by lexicographical digit comparison on equal lengths. This guarantees monotonic ordering for arbitrary unsigned 64-bit integer (`uint64`) positions without floating-point precision loss beyond Lua's `2^53 - 1` limit. If an earlier position is submitted (such as during at-least-once message redelivery), the call succeeds as a no-op without regressing the cursor.
+
+### Usage
+
+```go
+package main
+
+import (
+	"context"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+	"github.com/wotek/flux"
+	checkpointredis "github.com/wotek/flux/checkpoint/store/redis"
+)
+
+func main() {
+	client := redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+	})
+	defer client.Close()
+
+	checkpointStore := checkpointredis.New(
+		client,
+		checkpointredis.WithKeyPrefix("myapp:"),
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	consumerID := flux.MustParseIdentifier("urn:acme:prod:projector:1:worker:analytics")
+
+	if err := checkpointStore.SetPosition(ctx, consumerID, 450); err != nil {
+		panic(err)
+	}
+
+	position, err := checkpointStore.GetPosition(ctx, consumerID)
+	if err != nil {
+		panic(err)
+	}
+	_ = position
+}
+```
+

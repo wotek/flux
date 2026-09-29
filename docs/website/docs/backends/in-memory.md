@@ -113,9 +113,51 @@ func main() {
 }
 ```
 
+## Checkpoint Store
+
+The in-memory Checkpoint Store provides thread-safe stream position tracking for tailing workers (`projection.Projector` and `workflow.Orchestrator`) during testing and local development.
+
+- **Package:** `github.com/wotek/flux/checkpoint/store`
+
+```go
+package main
+
+import (
+	"context"
+
+	"github.com/wotek/flux"
+	checkpointstore "github.com/wotek/flux/checkpoint/store"
+)
+
+func main() {
+	store := checkpointstore.New()
+	ctx := context.Background()
+
+	consumerID := flux.MustParseIdentifier("urn:acme:local:projector:1:worker:test")
+
+	// Set initial position
+	if err := store.SetPosition(ctx, consumerID, 100); err != nil {
+		panic(err)
+	}
+
+	// At-least-once retries with older positions succeed as no-ops
+	if err := store.SetPosition(ctx, consumerID, 50); err != nil {
+		panic(err)
+	}
+
+	pos, err := store.GetPosition(ctx, consumerID)
+	if err != nil {
+		panic(err)
+	}
+	_ = pos // Remains 100
+}
+```
+
 ## Characteristics
 
 - **Zero Dependencies:** Pure Go standard library without network sockets, serialization overhead, or external processes.
 - **Thread Safety:** All read and write operations are synchronized with `sync.RWMutex`.
 - **Ephemeral:** Data exists solely in application memory and is reset upon process termination.
+- **Monotonic Max:** Checkpoint position updates enforce monotonic max semantics, ensuring older positions never regress stream cursors.
+- **Projection Store Mutex:** When using `projection/store.New(WithCheckpointStore(...))`, `Update` synchronizes execution using a process-local mutex across `mutate` and `SetPosition`. Injecting remote durable checkpoint backends holds this process mutex across network I/O and does not provide cross-system transactional atomicity.
 

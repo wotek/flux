@@ -25,7 +25,7 @@
   - **Projector (`projection`):** Read-model state lifecycle and checkpoint management.
   - **Workflow & Orchestrator (`workflow`):** Multi-step process coordinators with durable Outbox command dispatching.
 - **Context & Metadata Propagation:** First-class auditability preserving `Actor`, `CorrelationIdentifier`, and `CausationIdentifier` across all operations.
-- **Pluggable Storage:** Built-in in-memory stores (`event/store`, `projection/store`, `workflow/store`) with clean interfaces for implementing durable event and projection databases.
+- **Pluggable Storage:** Built-in in-memory stores (`event/store`, `checkpoint/store`, `projection/store`, `workflow/store`) with clean interfaces for implementing durable event, checkpoint, and projection databases.
 
 ## Install
 
@@ -1036,11 +1036,8 @@ type Store[W Workflow[W]] interface {
 	Save(ctx context.Context, workflow W, commands []any) error
 }
 
-// CheckpointStore persists and retrieves the stream position reached by an orchestrator.
-type CheckpointStore interface {
-	GetPosition(ctx context.Context, id flux.Identifier) (uint64, error)
-	SetPosition(ctx context.Context, id flux.Identifier, position uint64) error
-}
+// CheckpointStore is an alias for checkpoint.Store, persisting and retrieving consumer positions.
+type CheckpointStore = checkpoint.Store
 
 // Orchestrator is the background worker that listens to the global event stream
 // and routes events to the appropriate workflow instances.
@@ -1049,7 +1046,8 @@ type Orchestrator struct {
 }
 
 // NewOrchestrator creates a new orchestrator engine with position checkpointing.
-func NewOrchestrator(id flux.Identifier, eventStore flux.EventStore, checkpoint CheckpointStore) *Orchestrator
+// Requires a non-nil checkpoint.Store (panics if nil).
+func NewOrchestrator(id flux.Identifier, eventStore flux.EventStore, checkpoint checkpoint.Store) *Orchestrator
 
 // RegisterHandler wires a specific event type to a workflow's state transition.
 // The store is provided here so the orchestrator knows how to load/save this specific workflow type.

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/wotek/flux"
+	checkpointstore "github.com/wotek/flux/checkpoint/store"
 	"github.com/wotek/flux/command"
 	eventstore "github.com/wotek/flux/event/store"
 	catalogcommands "github.com/wotek/flux/example/e-commerce/internal/catalog/commands"
@@ -29,7 +30,7 @@ func TestPaymentWorkflow_SuccessfulPayment(t *testing.T) {
 	store.StartRelay(ctx)
 
 	orchID := flux.MustParseIdentifier("urn:test:payment:wf:1:orchestrator:payment")
-	orchestrator := workflow.NewOrchestrator(orchID, es, store)
+	orchestrator := workflow.NewOrchestrator(orchID, es, checkpointstore.New())
 	payment.RegisterPaymentWorkflow(orchestrator, store)
 
 	go func() {
@@ -107,7 +108,7 @@ func TestPaymentWorkflow_CancellationCompensation(t *testing.T) {
 	store.StartRelay(ctx)
 
 	orchID := flux.MustParseIdentifier("urn:test:payment:wf:1:orchestrator:cancel")
-	orchestrator := workflow.NewOrchestrator(orchID, es, store)
+	orchestrator := workflow.NewOrchestrator(orchID, es, checkpointstore.New())
 	payment.RegisterPaymentWorkflow(orchestrator, store)
 
 	adjustStockReceived := make(chan catalogcommands.AdjustStock, 1)

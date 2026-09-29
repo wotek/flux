@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/wotek/flux"
+	"github.com/wotek/flux/checkpoint"
+	checkpointstore "github.com/wotek/flux/checkpoint/store"
 	"github.com/wotek/flux/command"
 	"github.com/wotek/flux/event"
 	"github.com/wotek/flux/workflow"
@@ -33,51 +35,49 @@ type OutboxMessage struct {
 // WorkflowStore is an in-memory test double that simulates a database table for workflows
 // and an outbox table for commands with at-least-once relay delivery semantics.
 type WorkflowStore[W workflow.Workflow[W]] struct {
-	mu        sync.RWMutex
-	state     map[string]W
-	outbox    []OutboxMessage
-	cmdBus    *command.Bus
-	positions map[string]uint64
-	cmdSeq    uint64
-	running   bool
+	mu      sync.RWMutex
+	state   map[string]W
+	outbox  []OutboxMessage
+	cmdBus  *command.Bus
+	cmdSeq  uint64
+	running bool
 }
 
-// CheckpointStore provides an in-memory implementation of workflow.CheckpointStore.
+var _ checkpoint.Store = (*CheckpointStore)(nil)
+
+// CheckpointStore provides an in-memory implementation of [checkpoint.Store].
+//
+// Deprecated: Prefer using [checkpoint/store.Store] directly via [checkpoint/store.New].
 type CheckpointStore struct {
-	mu        sync.RWMutex
-	positions map[string]uint64
+	store checkpoint.Store
 }
 
 // NewCheckpointStore creates a new in-memory checkpoint store for orchestrator positions.
+//
+// Deprecated: Prefer using [checkpoint/store.New].
 func NewCheckpointStore() *CheckpointStore {
 	return &CheckpointStore{
-		positions: make(map[string]uint64),
+		store: checkpointstore.New(),
 	}
 }
 
 // GetPosition returns the stored stream position for the orchestrator ID.
 func (s *CheckpointStore) GetPosition(ctx context.Context, id flux.Identifier) (uint64, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.positions[id.String()], nil
+	return s.store.GetPosition(ctx, id)
 }
 
-// SetPosition stores the stream position for the orchestrator ID.
+// SetPosition stores the stream position for the orchestrator ID using monotonic max semantics.
 func (s *CheckpointStore) SetPosition(ctx context.Context, id flux.Identifier, position uint64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.positions[id.String()] = position
-	return nil
+	return s.store.SetPosition(ctx, id, position)
 }
 
 // New creates a memory-backed Workflow store.
 // It accepts a CommandBus to simulate the background Outbox Relay.
 func New[W workflow.Workflow[W]](cmdBus *command.Bus) *WorkflowStore[W] {
 	return &WorkflowStore[W]{
-		state:     make(map[string]W),
-		outbox:    make([]OutboxMessage, 0),
-		cmdBus:    cmdBus,
-		positions: make(map[string]uint64),
+		state:  make(map[string]W),
+		outbox: make([]OutboxMessage, 0),
+		cmdBus: cmdBus,
 	}
 }
 
@@ -128,21 +128,6 @@ func (s *WorkflowStore[W]) Save(ctx context.Context, workflowInstance W, command
 		})
 	}
 
-	return nil
-}
-
-// GetPosition returns the stored stream position for the orchestrator ID.
-func (s *WorkflowStore[W]) GetPosition(ctx context.Context, id flux.Identifier) (uint64, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.positions[id.String()], nil
-}
-
-// SetPosition stores the stream position for the orchestrator ID.
-func (s *WorkflowStore[W]) SetPosition(ctx context.Context, id flux.Identifier, position uint64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.positions[id.String()] = position
 	return nil
 }
 

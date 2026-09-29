@@ -133,18 +133,34 @@ Handlers mutate an isolated clone returned by `Load`. The store commits mutated 
 
 ### 2. Durable Checkpoint Semantics
 
-The `Orchestrator` tails the `EventStore` and maintains a durable stream position checkpoint through `CheckpointStore`:
+The `Orchestrator` tails the `EventStore` and persists its stream position using `checkpoint.Store` (imported from `github.com/wotek/flux/checkpoint`):
 
 ```go
-type CheckpointStore interface {
+package checkpoint
+
+import (
+	"context"
+
+	"github.com/wotek/flux"
+)
+
+type Store interface {
 	GetPosition(ctx context.Context, id flux.Identifier) (uint64, error)
 	SetPosition(ctx context.Context, id flux.Identifier, position uint64) error
 }
 ```
 
-On startup or recovery, the orchestrator retrieves its last checkpoint position via `GetPosition`. As envelopes are processed, the position is advanced and saved via `SetPosition`. Unhandled events also advance the checkpoint position. If an orchestrator crashes or restarts, processing resumes from the last persisted position. Handlers should remain idempotent to handle at-least-once delivery during restarts.
+::: tip Backwards Compatibility
+`workflow.CheckpointStore` is preserved as an alias for `checkpoint.Store`.
+:::
 
-Passing `nil` for the `CheckpointStore` when creating an `Orchestrator` substitutes an in-memory checkpoint store that is process-local and non-durable (process restarts reprocess the stream from the beginning). This is intended for tests and local prototyping; production environments must pass a durable `CheckpointStore`.
+On startup or recovery, the orchestrator retrieves its last checkpoint position via `GetPosition`. As envelopes are processed, the position is advanced and saved via `SetPosition`. Unhandled events also advance the checkpoint position. If an orchestrator crashes or restarts, processing resumes from the last persisted position.
+
+::: danger Required Checkpoint Store
+Passing `nil` for the checkpoint store when calling `workflow.NewOrchestrator` or `workflow.New` panics immediately (`workflow: checkpoint store is required`). Silently falling back to an in-memory cursor in production creates silent replay loops on process restarts.
+
+For unit tests and prototypes, explicitly pass an in-memory checkpoint store using `checkpointstore.New()` from `github.com/wotek/flux/checkpoint/store`. For production, configure a durable backend such as `checkpoint/store/mysql` or `checkpoint/store/redis`.
+:::
 
 ### 3. Outbox Pattern and Traceability
 
@@ -154,7 +170,7 @@ A background outbox relay polls these records and dispatches them to the `Comman
 - **Ack-After-Success:** Commands are removed from the outbox table only after successful dispatch by the command handler. On failure, the command remains in the outbox and is retried.
 - **Trace Context Propagation:** Causal, correlation, and distributed tracing metadata (`Actor`, `CorrelationIdentifier`, `CausationIdentifier`, `Instrumentation`) from the triggering event is persisted in the outbox message and reconstructed into the `command.Context` seen by command handlers, ensuring distributed traces continue seamlessly across asynchronous outbox boundaries. Pair this with [`fluxotel.CommandMiddleware`](https://github.com/wotek/flux-opentelemetry) for OpenTelemetry remote parenting—see [Instrumentation & Observability](/guide/instrumentation).
 
-### 4. Multi-Workflow Event Routing
+### 4. Multi-Workflow Event Routing & Idempotency Caveat
 
 Multiple distinct workflow types can subscribe to the same domain event name (for example, `OrderPlaced` may initiate both an `OrderFulfillmentWorkflow` and an `AuditLoggingWorkflow`). 
 
@@ -163,4 +179,17 @@ The `Orchestrator` maintains an ordered slice of handlers for each event name. W
 - Execution follows a fail-fast policy: if any handler returns an error, the orchestrator halts immediately and returns the error without advancing the checkpoint position, preventing partial executions or unnoticed state corruptions.
 
 Because the stream checkpoint advances only after **all** registered handlers for an envelope succeed, an error returned by handler *N* halts processing after handlers *1* through *N-1* have already committed their state transitions and enqueued outbox commands. When the orchestrator recovers and restarts, it resumes from the unadvanced checkpoint and re-delivers the envelope to all registered handlers. All workflow handlers must therefore be strictly idempotent to safely accommodate this at-least-once delivery guarantee.
+
+## Choosing a Workflow Runtime: Native vs. Temporal
+
+| Feature | Native `workflow.Orchestrator` | Temporal Workflow |
+|---------|--------------------------------|-------------------|
+| **Checkpoint / Cursor** | `checkpoint.Store` (MySQL, Redis, in-memory) | Workflow execution history + `ContinueAsNew` |
+| **State Persistence** | `workflow.Store` + Outbox pattern | Temporal state engine & history |
+| **Timers & Sleep** | External scheduler / manual timers | Durable `workflow.Sleep`, `workflow.NewTimer` |
+| **Infrastructure** | Zero extra infrastructure (in-process) | Requires Temporal server cluster |
+
+::: danger Anti-Pattern: Dual-Cursor Conflict
+When using Temporal to orchestrate workflows or tail event streams, stream positions are tracked by Temporal's execution history. Never invoke `SetPosition` on a flux `checkpoint.Store` from Temporal activities for the same consumer. Doing so creates split-brain cursor divergence between Temporal's deterministic replay history and flux checkpoint tables.
+:::
 

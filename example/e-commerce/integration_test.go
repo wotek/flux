@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/wotek/flux"
+	checkpointstore "github.com/wotek/flux/checkpoint/store"
 	"github.com/wotek/flux/command"
 	eventstore "github.com/wotek/flux/event/store"
 	pricingagg "github.com/wotek/flux/example/e-commerce/internal/catalog/aggregates/pricing"
@@ -58,7 +59,7 @@ func TestEcommerce_EndToEnd_LifecycleAndCompensation(t *testing.T) {
 	paymentWorkflowStore := workflowstore.New[*paymentwf.PaymentWorkflow](cmdBus)
 	paymentWorkflowStore.StartRelay(ctx)
 	orchID := flux.MustParseIdentifier("urn:flux:ecommerce:shop:default:orchestrator:payment")
-	orchestrator := workflow.NewOrchestrator(orchID, es, paymentWorkflowStore)
+	orchestrator := workflow.NewOrchestrator(orchID, es, checkpointstore.New())
 	paymentwf.RegisterPaymentWorkflow(orchestrator, paymentWorkflowStore)
 	go func() {
 		_ = orchestrator.Start(ctx)
