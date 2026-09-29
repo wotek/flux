@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.0](https://github.com/wotek/flux/compare/v1.3.0...v1.4.0) (2026-09-29)
+
+
+### Features
+
+* **checkpoint:** introduce shared checkpoint store, backends, and orchestrator wiring ([230bb33](https://github.com/wotek/flux/commit/230bb336cd6253eea25b04b58945c6d3acad7715))
+* **projection:** add MySQL store with transactional checkpoint Update ([77db03b](https://github.com/wotek/flux/commit/77db03b85ca421ae40916e616c1e9138491d9519))
+
 ## [1.3.0](https://github.com/wotek/flux/compare/v1.2.0...v1.3.0) (2026-09-28)
 
 
