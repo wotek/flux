@@ -12,11 +12,8 @@
 
 ## Documentation
 
-Full guides, tutorials, and API reference live on the docs site:
-
-**[https://flux.keylight.io/](https://flux.keylight.io/)**
-
-Also see the [Go package reference](https://pkg.go.dev/github.com/wotek/flux).
+Full guides, tutorials, and API reference live on the docs site [Flux Documentation](https://flux.keylight.io/),
+also see the [Go package reference](https://pkg.go.dev/github.com/wotek/flux).
 
 ## Why flux?
 
