@@ -11,11 +11,6 @@ import (
 
 var _ codec.Serializer = (*Serializer)(nil)
 
-// TypeRegistry resolves event names into concrete [flux.Event] instances.
-type TypeRegistry interface {
-	Instantiate(name string) (flux.Event, error)
-}
-
 // envelopeDTO isolates JSON tags and serialization concerns from the core domain.
 type envelopeDTO struct {
 	Identifier            flux.Identifier   `json:"id"`
@@ -34,11 +29,11 @@ type envelopeDTO struct {
 
 // Serializer implements [codec.Serializer] using JSON encoding.
 type Serializer struct {
-	types TypeRegistry
+	types codec.TypeRegistry
 }
 
-// New creates a new JSON [Serializer] backed by the provided [TypeRegistry].
-func New(types TypeRegistry) *Serializer {
+// New creates a new JSON [Serializer] backed by the provided [codec.TypeRegistry].
+func New(types codec.TypeRegistry) *Serializer {
 	return &Serializer{types: types}
 }
 

@@ -22,3 +22,10 @@ type Serializer interface {
 	// Unmarshal decodes a binary representation into a [flux.Envelope].
 	Unmarshal(data []byte) (flux.Envelope, error)
 }
+
+// TypeRegistry resolves event names into concrete [flux.Event] instances
+// suitable for unmarshaling (typically pointers from event.Types.Instantiate).
+type TypeRegistry interface {
+	Instantiate(name string) (flux.Event, error)
+}
+

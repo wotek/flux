@@ -20,18 +20,13 @@ var (
 	ErrNotProtoMessage = errors.New("event does not implement proto.Message")
 )
 
-// TypeRegistry resolves event names into concrete [flux.Event] instances.
-type TypeRegistry interface {
-	Instantiate(name string) (flux.Event, error)
-}
-
 // Serializer implements [codec.Serializer] using Protocol Buffers encoding.
 type Serializer struct {
-	types TypeRegistry
+	types codec.TypeRegistry
 }
 
-// New creates a new Protocol Buffers [Serializer] backed by the provided [TypeRegistry].
-func New(types TypeRegistry) *Serializer {
+// New creates a new Protocol Buffers [Serializer] backed by the provided [codec.TypeRegistry].
+func New(types codec.TypeRegistry) *Serializer {
 	return &Serializer{types: types}
 }
 

@@ -169,6 +169,10 @@ type Serializer interface {
 	Marshal(env flux.Envelope) ([]byte, error)
 	Unmarshal(data []byte) (flux.Envelope, error)
 }
+
+type TypeRegistry interface {
+	Instantiate(name string) (flux.Event, error)
+}
 ```
 
 ### JSON Codec
@@ -176,15 +180,11 @@ type Serializer interface {
 ```go
 // package json ("github.com/wotek/flux/codec/json")
 
-type TypeRegistry interface {
-	Instantiate(name string) (flux.Event, error)
-}
-
 type Serializer struct {
-	types TypeRegistry
+	types codec.TypeRegistry
 }
 
-func New(types TypeRegistry) *Serializer
+func New(types codec.TypeRegistry) *Serializer
 
 func (s *Serializer) Marshal(env flux.Envelope) ([]byte, error)
 
@@ -196,15 +196,11 @@ func (s *Serializer) Unmarshal(data []byte) (flux.Envelope, error)
 ```go
 // package xml ("github.com/wotek/flux/codec/xml")
 
-type TypeRegistry interface {
-	Instantiate(name string) (flux.Event, error)
-}
-
 type Serializer struct {
-	types TypeRegistry
+	types codec.TypeRegistry
 }
 
-func New(types TypeRegistry) *Serializer
+func New(types codec.TypeRegistry) *Serializer
 
 func (s *Serializer) Marshal(env flux.Envelope) ([]byte, error)
 
@@ -218,15 +214,11 @@ func (s *Serializer) Unmarshal(data []byte) (flux.Envelope, error)
 
 var ErrNotProtoMessage = errors.New("event does not implement proto.Message")
 
-type TypeRegistry interface {
-	Instantiate(name string) (flux.Event, error)
-}
-
 type Serializer struct {
-	types TypeRegistry
+	types codec.TypeRegistry
 }
 
-func New(types TypeRegistry) *Serializer
+func New(types codec.TypeRegistry) *Serializer
 
 func (s *Serializer) Marshal(env flux.Envelope) ([]byte, error)
 

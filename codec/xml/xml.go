@@ -13,11 +13,6 @@ import (
 
 var _ codec.Serializer = (*Serializer)(nil)
 
-// TypeRegistry resolves event names into concrete [flux.Event] instances.
-type TypeRegistry interface {
-	Instantiate(name string) (flux.Event, error)
-}
-
 // rawXML encapsulates arbitrary inner XML content without altering tags.
 type rawXML struct {
 	Inner []byte `xml:",innerxml"`
@@ -53,11 +48,11 @@ type envelopeDTO struct {
 
 // Serializer implements [codec.Serializer] using XML encoding.
 type Serializer struct {
-	types TypeRegistry
+	types codec.TypeRegistry
 }
 
-// New creates a new XML [Serializer] backed by the provided [TypeRegistry].
-func New(types TypeRegistry) *Serializer {
+// New creates a new XML [Serializer] backed by the provided [codec.TypeRegistry].
+func New(types codec.TypeRegistry) *Serializer {
 	return &Serializer{types: types}
 }
 
