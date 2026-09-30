@@ -1,101 +1,88 @@
-# Coding Agent Guide: Flux + Temporal Integration
+# Coding Agent Guide: Flux + Temporal
 
-This document provides instructions and code patterns for AI coding agents tasked with building a demo application using the `github.com/wotek/flux` Event Sourcing & CQRS framework, integrated with Temporal.
+Optional patterns for integrating [Temporal](https://temporal.io/) with `github.com/wotek/flux`. Aligns with the website [Workflows & Temporal](https://flux.keylight.io/guide/workflows) guide.
 
-## 1. Core Framework Rules
+## Product stance (do not contradict)
 
-`flux` is a highly-opinionated, generics-based framework. When generating code, you MUST follow these patterns exactly:
+| Concern | Runtime |
+| --- | --- |
+| Workflows (prototypes / PoCs / embedded) | Native `workflow.Orchestrator` + outbox + `checkpoint.Store` |
+| Workflows (optional Temporal) | Temporal activities → `command.Execute` |
+| Embedded read models | Native `projection.Projector` + `checkpoint.Store` |
+| Heavy / durable projection rebuilds | Temporal hybrid tail (optional) |
+| Command dedup store in flux | **Out of scope** — aggregate no-ops; Temporal activity completion when using Temporal; consumer-owned ledgers if needed |
 
-*   **Events:** Must implement `flux.Event` (provide a `Name() string` method).
-*   **Aggregates:** Must embed `flux.AggregateRoot[flux.Event]`. You must define a `New(stream flux.Stream) *MyAggregate` factory and an `apply(event flux.Event) error` state mutator.
-*   **Mutations:** Aggregates mutate their state *only* by calling `a.Changeset().Record(MyEvent{})`. Do NOT directly mutate state inside command handlers.
-*   **Repositories:** Use `flux.NewAggregateRepository[*MyAggregate, flux.Event](eventStore)` to save and load aggregates.
-*   **Buses:** Use `command.New()` and `event.New()` for routing.
+Temporal is **optional**. Prefer native orchestrator for quick proofs of concept. Never dual-write flux `checkpoint.Store` from Temporal for the same logical consumer.
 
-## 2. Implementing Temporal Projections (Read Models)
+There is **no** `flux/temporal` helper package—use docs, conventions, and examples only.
 
-Do NOT use the built-in `flux/projection` package. Instead, implement Projections as continuous Temporal Workflows that use a hybrid tailing/signaling approach:
+## Core flux rules (current APIs)
 
-### The Projection Workflow
-Create a Temporal Workflow that tails the EventStore.
+- **Events:** implement `flux.Event` with `Name() string`.
+- **Aggregates:** embed `flux.AggregateRoot[E]`; provide `New(stream flux.Stream) *T` and infallible `apply(E)`; domain methods call `apply` then `Changeset().Record`.
+- **Repositories:** `flux.NewAggregateRepository[*T, E](eventStore)`.
+- **Buses:** `command.New()`, `event.New()`, `query.New()`.
+- **Typed contexts:** use `command.NewContext` / `event.NewContext` with actor, correlation, causation, and optional `flux.WithInstrumentation`.
+- **Global stream position:** `flux.Envelope.Position` (uint64)—not `GlobalPosition`.
+- **Go:** 1.27+.
+- **Placement:** workflow code under `internal/workflows/<name>/` (native or Temporal)—see `docs/PROJECT_LAYOUT.md`.
 
-```go
-func DashboardProjectionWorkflow(ctx workflow.Context, lastRevision int) error {
-	wakeupChan := workflow.GetSignalChannel(ctx, "WakeUpSignal")
+## Conventions (when using Temporal)
 
-	for {
-		var batch []flux.Envelope
-		var nextRevision int
-		
-		// FetchEventsActivity should wrap eventStore.Read(ctx, flux.Stream{}, lastRevision, batchSize)
-		err := workflow.ExecuteActivity(ctx, FetchEventsActivity, lastRevision).Get(ctx, &batch)
-		if err != nil {
-			return err
-		}
-		
-		for _, env := range batch {
-			// UpdateDashboardActivity executes your SQL INSERTs
-			err := workflow.ExecuteActivity(ctx, UpdateDashboardActivity, env).Get(ctx, nil)
-			if err != nil {
-				return err // Temporal retries automatically
-			}
-			lastRevision = env.GlobalPosition
-		}
-		
-		if workflow.GetInfo(ctx).GetCurrentHistoryLength() > 10000 {
-			return workflow.NewContinueAsNewError(ctx, DashboardProjectionWorkflow, lastRevision)
-		}
-		
-		// If caught up to the live stream, block until the EventBus signals us
-		if len(batch) == 0 {
-			selector := workflow.NewSelector(ctx)
-			selector.AddReceive(wakeupChan, func(c workflow.ReceiveChannel, more bool) {
-				c.Receive(ctx, nil)
-			})
-			
-			// 1-minute fallback polling
-			timerCtx, cancelTimer := workflow.WithCancel(ctx)
-			selector.AddFuture(workflow.NewTimer(timerCtx, 1 * time.Minute), func(f workflow.Future) {})
-			
-			selector.Select(ctx)
-			cancelTimer()
-		}
-	}
-}
-```
+1. **Workflow ID:** `order-fulfillment:{orderID}` (or URN). Reject duplicate starts on redelivery.
+2. **Start vs signal:** `StartWorkflow` on initiating events; `SignalWorkflow("WakeUpSignal")` for projection wakeups.
+3. **Activity → command:** Build `command.Context` from serializable input (actor, correlation, causation, instrumentation DTOs)—not from a live `flux.Event` interface on the Temporal wire.
+4. **Payloads:** DTOs / IDs only across Temporal; decode events via registry/codecs in activities if needed.
+5. **Idempotency:** Temporal + aggregate invariants; no flux command-dedup middleware required.
+6. **Observability:** optional `fluxotel` on the command bus.
 
-### The EventBus Trigger
-In your `main.go`, wire the `flux` EventBus to signal the Temporal Workflow whenever an event is persisted:
+## Workflow pattern (Temporal)
 
 ```go
-event.RegisterGlobal(eventBus, func(ctx event.Context, e flux.Event) error {
-	// Signal the projector to wake up and fetch the new event
-	return temporalClient.SignalWorkflow(
-		context.Background(),
-		"DashboardProjection", // The workflow ID
-		"",
-		"WakeUpSignal",
-		nil,
-	)
+event.Register(bus, func(ctx event.Context, e OrderPlaced) error {
+	_, err := temporalClient.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        "order-fulfillment:" + e.OrderID,
+		TaskQueue: "shop",
+		// Prefer reuse/conflict policies that avoid a second run on redelivery
+	}, OrderFulfillmentWorkflow, OrderFulfillmentInput{
+		OrderID:         e.OrderID,
+		Actor:           ctx.Actor(),
+		CorrelationID:   ctx.CorrelationIdentifier(),
+		CausationID:     ctx.EventIdentifier(),
+		Instrumentation: ctx.Instrumentation(),
+	})
+	return err
 })
 ```
 
-## 3. Implementing Long-Running Process Managers (Sagas)
-
-Do NOT use the built-in `flux/workflow` or `flux/saga` packages. Implement them natively in Temporal.
-
-1.  **Triggering:** When a domain event occurs that starts a process (e.g., `OrderPlaced`), use the `EventBus` to start a new Temporal Workflow execution.
-2.  **Execution:** The Temporal Workflow natively maintains its state and timers (e.g., waiting 10 minutes for payment).
-3.  **Command Dispatch:** When the Temporal Workflow decides to take action, it executes an Activity. That Activity should use the `command` bus to execute a command against a Domain Aggregate.
-
 ```go
-// Temporal Activity dispatching a Flux Command
-func PayOrderActivity(ctx context.Context, orderID string) error {
-    cmdCtx := command.NewContext(ctx, flux.MustParseIdentifier("urn:cmd..."), actor, corrID, causID)
-    return command.Execute(cmdCtx, globalCmdBus, salescmd.PayOrder{OrderID: orderID})
+func PayOrderActivity(ctx context.Context, in PayOrderInput) error {
+	cmdCtx := command.NewContext(
+		ctx,
+		flux.MustParseIdentifier("urn:shop:prod:pay:1:command:"+in.OrderID),
+		in.Actor,
+		in.CorrelationID,
+		in.CausationID,
+		flux.WithInstrumentation(in.Instrumentation),
+	)
+	return command.Execute(cmdCtx, cmdBus, PayOrder{OrderID: in.OrderID})
 }
 ```
 
-## Task
+## Temporal projection tail (optional)
 
-Using the patterns above, set up a minimal demo application (e.g., an Order & Payment flow) that provisions an EventStore, processes an Order through a Temporal Process Manager, and projects the final state using the hybrid Temporal Projection tailing workflow.
+- Activity fetches from `EventStore.Stream(ctx, lastPosition)` (or Read) into **DTOs**.
+- Activity applies read-model updates.
+- Workflow waits on `WakeUpSignal` + fallback timer; `ContinueAsNew` with `lastPosition`.
+- EventBus signals the stable projection workflow ID.
+- Cursor = Temporal args/history only.
+
+## Reference implementation
+
+See `example/temporal-payment` (domain-first layout: `internal/sales/…`, Temporal under `internal/workflows/payment/`) and https://flux.keylight.io/examples/temporal-payment.
+
+Native in-process workflows: `example/e-commerce`.
+
+## Task for agents
+
+When asked to build a Temporal + flux demo, follow this guide and the temporal-payment example. Prefer the native orchestrator for simple PoCs unless the human asks for Temporal. Do **not** add a flux command-dedup package unless the human explicitly requests consumer-side dedup design.

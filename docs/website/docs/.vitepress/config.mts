@@ -48,6 +48,7 @@ export default defineConfig({
           { text: 'Bank Account (Minimal)', link: '/examples/bank' },
           { text: 'Todo CLI (Full Stack CQRS)', link: '/examples/todo' },
           { text: 'E-Commerce (Advanced DDD)', link: '/examples/e-commerce' },
+          { text: 'Temporal Payment', link: '/examples/temporal-payment' },
         ]
       },
       {

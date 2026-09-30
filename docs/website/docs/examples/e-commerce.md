@@ -39,7 +39,7 @@ The `sales` domain handles the shopping cart and checkout process.
 
 ### 4. The Global Workflow (`internal/workflows/payment/`)
 
-How does the order actually get paid? This requires cross-domain coordination, which is the job of a **Saga / Process Manager**.
+How does the order actually get paid? This requires cross-domain coordination, which is the job of a **Workflow**.
 
 *   Look at `internal/workflows/payment/workflow.go`.
 *   This workflow listens to the global `flux.EventBus` for the `salesevents.OrderPlaced` event.

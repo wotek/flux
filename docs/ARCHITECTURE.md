@@ -132,6 +132,13 @@ flowchart TD
 3. **Workflow Outbox Integration:** The `workflow/store` driver imports `command.Bus` to dispatch asynchronous outbox commands. Because `command` has no knowledge of `workflow`, the dependency remains strictly unidirectional (`workflow/store` $\rightarrow$ `command` $\rightarrow$ `flux`).
 4. **Checkpoint Storage Integration:** The shared `checkpoint.Store` contract depends only on `flux`. `projection` and `workflow` depend on `checkpoint`. The dependency flow remains strictly unidirectional (`flux` $\leftarrow$ `checkpoint` $\leftarrow$ `projection` / `workflow`).
 
+### Runtime Choice: Temporal vs Native Workflows
+
+- **Native `workflow.Orchestrator` + outbox + `checkpoint.Store`:** First-class for prototypes, PoCs, and embedded demos. Handlers must be idempotent under at-least-once delivery. Sophisticated dedup / delivery is left to the consumer.
+- **Temporal (optional):** A good production fit when you want durable timers, activity retries, and Temporal ops. Activities call `command.Execute`; progress lives in Temporal history. Do not dual-write flux checkpoints from Temporal for the same consumer.
+- **Native `projection.Projector` + `checkpoint.Store`:** First-class for embedded read models; Temporal hybrid tailing is an optional alternative when you already operate Temporal (see website Workflows / Projections guides).
+- **No `flux/temporal` adapter package** and **no framework command-dedup store**—conventions and examples only.
+
 ---
 
 ## 2. Subpackages Reference
@@ -290,7 +297,7 @@ Provides the shared persistence contract for tracking the last successfully proc
 
 ### Package: `github.com/wotek/flux/workflow`
 
-Orchestration engine coordinating long-running business processes and durable Outbox command dispatching.
+In-process orchestration and durable outbox command dispatch. Suitable for prototypes, PoCs, and embedded demos. Temporal is an optional alternative when you need a dedicated durable workflow engine (see website Workflows guide). This package does not depend on Temporal.
 
 #### Structs & Types
 

@@ -79,7 +79,8 @@ Each domain represents a cohesive business boundary.
 Workflows typically orchestrate complex processes spanning multiple domains (e.g., charging a customer, reserving stock, and updating an order).
 
 - **Why global?** Keeping workflows at the top level prevents circular dependencies. A workflow in the `sales` domain shouldn't tightly couple itself to the internal command structures of the `catalog` domain.
-- **Responsibility:** Workflows listen to domain events via `flux/workflow`, maintain long-running state, and dispatch commands to various domains using `workflow.EnqueueCommand`.
+- **Placement:** Put all workflow-related code under `internal/workflows/<name>/`—native `flux/workflow` handlers and stores, Temporal workflow functions, activities, and serializable inputs. Same dependency rules either way: workflows import domain `events/` and `commands/`, never the reverse.
+- **Responsibility:** Listen to domain events (via `flux/workflow` or an EventBus → Temporal start), maintain long-running process state, and dispatch commands into the relevant domains.
 
 ### Cross-Domain Projections (`internal/projections/`)
 

@@ -137,78 +137,57 @@ When read-model tables and checkpoints reside in the same MySQL database, [`proj
 ## Choosing a Projection Runtime: Native vs. Temporal
 
 | Runtime | Position / Cursor Tracking | State Storage | Best Used For |
-|---------|----------------------------|---------------|---------------|
-| **Native `Projector`** | `checkpoint.Store` (MySQL, Redis, in-memory) | User-defined read store via `projection.Store` | Embedded services, microservices without Temporal infrastructure, high-throughput linear tailing |
-| **Temporal Workflow** | Workflow execution history + `ContinueAsNew` | External database (Postgres, Elasticsearch, Redis) | Complex workflows, distributed replays, robust built-in retry policies, activities with long timeouts |
+| --- | --- | --- | --- |
+| **Native `Projector`** | `checkpoint.Store` (MySQL, Redis, in-memory) | User-defined read store via `projection.Store` | Embedded services, high-throughput linear tailing, same-DB transactional MySQL updates |
+| **Temporal Workflow** | Workflow history + `ContinueAsNew` (`lastPosition`) | External database (Postgres, Elasticsearch, Redis, …) | Durable retries, long rebuilds, shared Temporal ops with workflows |
 
-::: danger Anti-Pattern: Dual-Cursor Split Brain
-Never mix the native `checkpoint.Store` and Temporal cursor tracking for the same logical consumer or read model. Temporal workflows track stream position deterministically in their execution history (`lastRevision`). Temporal activities must **never** call `SetPosition` on a flux `checkpoint.Store` for that same consumer, as external checkpoint mutations will conflict with Temporal history replays.
+Pick **one** runtime per logical read model. Native `Projector` + `checkpoint.Store` is first-class for embedded services. Temporal hybrid tailing is **optional** when you already run Temporal or need durable rebuilds. See [Workflows & Temporal](/guide/workflows) for shared conventions (workflow IDs, WakeUp signals, DTO payloads).
+
+::: danger Anti-pattern: dual-cursor split brain
+Never mix flux `checkpoint.Store` and Temporal cursor tracking for the same logical consumer. Temporal activities must **never** call `SetPosition` on a flux checkpoint for that consumer.
 :::
 
 ## Continuous Tailing Projections with Temporal
 
-For teams operating Temporal, projections can be implemented as long-running, continuous workflows.
-
-### 1. The Tailing Workflow
-Instead of listening to the live `EventBus`, the projection workflow asks the database for batches of historical events.
+Run a Temporal workflow that batches from the event store, applies activities, waits on `WakeUpSignal` when caught up, and `ContinueAsNew`s to bound history. Pass **serializable envelope DTOs** (IDs + payload bytes / typed structs)—not `flux.Envelope` with an interface `Event`—across the Temporal boundary.
 
 ```go
-func CatalogListProjectionWorkflow(ctx workflow.Context, lastRevision int) error {
+func CatalogListProjectionWorkflow(ctx workflow.Context, lastPosition uint64) error {
 	for {
-		var batch []flux.Envelope
-		
-		// 1. Fetch the next batch of events from the database
-		err := workflow.ExecuteActivity(ctx, FetchEventsActivity, lastRevision).Get(ctx, &batch)
+		var batch []EnvelopeDTO
+		err := workflow.ExecuteActivity(ctx, FetchEventsActivity, lastPosition).Get(ctx, &batch)
 		if err != nil {
 			return err
 		}
-		
-		// 2. Project them sequentially
 		for _, env := range batch {
 			err := workflow.ExecuteActivity(ctx, UpdateSQLActivity, env).Get(ctx, nil)
 			if err != nil {
-				return err // Temporal automatically retries on database failures!
+				return err
 			}
-			lastRevision = env.GlobalPosition
+			lastPosition = env.Position
 		}
-		
-		// 3. Sleep until the live EventBus wakes us up
 		if len(batch) == 0 {
-			// (See the Workflows guide for the WakeUp signal implementation)
-			WaitForWakeUpSignal(ctx)
+			WaitForWakeUpSignal(ctx) // see Workflows guide
 		}
 	}
 }
 ```
 
-### 2. The SQL Activity
-The Activity does the exact same switch-statement logic as the synchronous projector, but it is now fully durable and retryable!
+### SQL Activity
 
 ```go
-func UpdateSQLActivity(ctx context.Context, env flux.Envelope) error {
-	db := getDatabaseConnection() // Your dependency injection here
-	
-	switch ev := env.Event.(type) {
-	case *catalogEvents.ProductCreated:
-		_, err := db.ExecContext(ctx, 
-			"INSERT INTO catalog_list (id, name) VALUES (?, ?)", 
-			env.Stream.Identifier.String(), ev.Name,
-		)
-		return err
-	}
+func UpdateSQLActivity(ctx context.Context, env EnvelopeDTO) error {
+	// Decode env into a concrete event via your type registry / codec, then upsert the read model.
 	return nil
 }
 ```
 
 ## Rebuilding Read Models
 
-The absolute greatest superpower of Event Sourcing is **Replayability**. 
+To rebuild a read model:
 
-If you decide your frontend needs a `total_sales` column added to the `catalog_list` table, you don't have to write a massive, complex SQL migration script. 
+1. Add schema columns as needed.
+2. Update the projection activity / handler.
+3. Start a **new** Temporal projection workflow with `lastPosition = 0` (new workflow ID), **or** reset / use a new native projector consumer ID.
 
-You simply:
-1. Add the column to your table schema.
-2. Update your `UpdateSQLActivity` to populate that column.
-3. **Start a brand new Temporal Projection Workflow with `lastRevision = 0`.**
-
-The workflow will instantly rip through your entire `EventStore` history from the dawn of time, completely rebuilding the Read Model from scratch with 100% accuracy in a matter of seconds or minutes!
+Do not dual-write a flux checkpoint while Temporal owns the cursor.

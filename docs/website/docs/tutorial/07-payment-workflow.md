@@ -1,16 +1,16 @@
-# 7. The Payment Workflow (Process Managers)
+# 7. The Payment Workflow
 
 In Chapter 5, we built the `Order` aggregate in the Sales Domain. When an order is placed, we need to charge the customer's credit card. 
 
 However, the Sales Domain should not know how to charge credit cards—that belongs to an external Payment Gateway. Furthermore, charging a card takes time, it can fail, it can time out, and if it fails permanently, we need to tell the Sales Domain to cancel the Order.
 
-This requires a **Workflow** (often called a Saga or Process Manager).
+This requires a **Workflow**.
 
-## The Complexity of Distributed Sagas
+## Durable Workflows
 
-Writing state machines in Go to manage distributed sagas is notoriously difficult. You have to handle database polling, durable timers ("if payment takes longer than 10 minutes, cancel"), and compensating transactions, all while surviving application crashes.
+Writing state machines in Go to manage long-running workflows is notoriously difficult. You have to handle database polling, durable timers ("if payment takes longer than 10 minutes, cancel"), and compensating transactions, all while surviving application crashes.
 
-To solve this, `flux` relies heavily on [Temporal](https://temporal.io/).
+For a quick proof of concept, the native `workflow.Orchestrator` + outbox is enough. When you want a dedicated durable engine, Temporal is an optional fit.
 
 ## The Hybrid Tailing Strategy
 

@@ -37,7 +37,7 @@ e-commerce/
 │   │   ├── aggregates/  # Write models (Order)
 │   │   ├── commands/    
 │   │   └── events/      
-│   └── workflows/       # Cross-domain process managers
+│   └── workflows/       # Cross-domain workflows
 ```
 
 ### CQRS State Isolation

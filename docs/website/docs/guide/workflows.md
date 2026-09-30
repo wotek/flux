@@ -1,125 +1,31 @@
 # Workflows & Temporal
 
-A **Workflow** (or Saga/Process Manager) coordinates long-running business processes that span multiple aggregates (e.g., placing an order, waiting for payment, and instructing shipping).
+A **Workflow** coordinates long-running business processes that span multiple aggregates (for example: place an order, wait for payment, then ship).
 
-Because workflows are inherently stateful and frequently require durable timers ("if payment isn't confirmed in 10 minutes, cancel the order"), they are notoriously complex to build reliably.
+`flux` ships an in-process `workflow.Orchestrator` with a durable **outbox** and `checkpoint.Store` cursor. That path is good enough for prototypes, embedded demos, and quick proof of concepts. Handlers must stay **idempotent** under at-least-once delivery; sophisticated deduplication or delivery guarantees are left to the consumer (see [Beyond the basics](#beyond-the-basics-consumer-responsibility) below).
 
-## The Temporal Integration Strategy
+When you already operate (or want) a dedicated durable workflow engine—timers, retries, visibility UI—**[Temporal](https://temporal.io/) is an optional, production-friendly fit**. `flux` stays the CQRS / event-sourcing core; Temporal owns long-running step durability. There is no `flux/temporal` adapter package: wire Temporal yourself using the conventions below.
 
-`flux` was designed to perfectly integrate with [Temporal](https://temporal.io/) to handle durable executions. 
+Runnable Temporal reference: [Temporal Payment example](/examples/temporal-payment) (`example/temporal-payment`). Native in-process reference: [E-Commerce](/examples/e-commerce).
 
-Rather than reinventing a state machine engine, we highly recommend delegating long-running orchestrations and background Projections to Temporal. 
+## Choosing a Workflow Runtime
 
-The most robust architecture combines **EventStore Tailing** with **EventBus Signals**.
+| Feature | Native `workflow.Orchestrator` | Temporal (optional) |
+| --- | --- | --- |
+| **Role** | Prototypes, PoCs, embedded demos, tests | Durable timers, distributed retries, shared Temporal ops |
+| **Cursor / progress** | `checkpoint.Store` | Workflow history + `ContinueAsNew` |
+| **State** | `workflow.Store` + outbox | Temporal history |
+| **Timers** | Manual / external | Durable `workflow.Sleep` / `NewTimer` |
+| **Command side effects** | Outbox relay → command bus | Activities call `command.Execute` |
+| **Infrastructure** | In-process only | Temporal cluster |
 
-### 1. The Hybrid Tailing Workflow
+Pick **one** cursor owner per logical consumer. Never dual-write flux `checkpoint.Store` from Temporal activities for the same consumer.
 
-If you want to build a continuous Projection (or a global process manager that listens to the entire event stream), the most resilient pattern is a Temporal workflow that runs in an infinite loop:
+## Native runtime: `workflow` package
 
-1. It fetches a batch of events starting from its `lastRevision`.
-2. It executes a Temporal Activity to process the batch transactionally.
-3. If it is caught up to the live stream, it blocks using a `workflow.Selector` waiting for a `WakeUpSignal`.
-4. It includes a fallback timer (e.g., 1 minute) just in case a signal is lost.
+Use this path when you want flux-only orchestration without a Temporal cluster.
 
-```go
-func DashboardProjectionWorkflow(ctx workflow.Context, lastRevision int) error {
-	wakeupChan := workflow.GetSignalChannel(ctx, "WakeUpSignal")
-
-	for {
-		var batch []flux.Envelope
-		var nextRevision int
-		
-		// 1. Fetch historical events from your EventStore
-		err := workflow.ExecuteActivity(ctx, FetchEventsActivity, lastRevision).Get(ctx, &batch)
-		if err != nil {
-			return err
-		}
-		
-		// 2. Process the batch (e.g., update a SQL read model)
-		for _, env := range batch {
-			err := workflow.ExecuteActivity(ctx, UpdateDashboardActivity, env).Get(ctx, nil)
-			if err != nil {
-				return err // Temporal retries automatically!
-			}
-			lastRevision = env.GlobalPosition
-		}
-		
-		// 3. Prevent workflow history bloat
-		if workflow.GetInfo(ctx).GetCurrentHistoryLength() > 10000 {
-			return workflow.NewContinueAsNewError(ctx, DashboardProjectionWorkflow, lastRevision)
-		}
-		
-		// 4. If caught up, go to sleep and wait for a signal
-		if len(batch) == 0 {
-			selector := workflow.NewSelector(ctx)
-			
-			// Listen for WakeUp signals
-			selector.AddReceive(wakeupChan, func(c workflow.ReceiveChannel, more bool) {
-				c.Receive(ctx, nil)
-			})
-			
-			// 1-minute fallback polling
-			timerCtx, cancelTimer := workflow.WithCancel(ctx)
-			selector.AddFuture(workflow.NewTimer(timerCtx, 1 * time.Minute), func(f workflow.Future) {})
-			
-			selector.Select(ctx) // Blocks here!
-			cancelTimer()
-		}
-	}
-}
-```
-
-This completely eliminates database hammering during live operation while maximizing throughput during historical replays!
-
-### 2. The EventBus Trigger
-
-To wake the workflow up the millisecond a new event is saved, wire your `flux.EventBus` in `main.go` to send a Temporal signal:
-
-```go
-eventBus.RegisterGlobal(func(ctx event.Context, e flux.Event) error {
-	// Signal the projector to wake up and fetch the new event
-	return temporalClient.SignalWorkflow(
-		context.Background(),
-		"DashboardProjection", // The stable Workflow ID
-		"",
-		"WakeUpSignal",
-		nil,
-	)
-})
-```
-
-## Implementing Sagas (Process Managers)
-
-For business orchestrations that are triggered by a single event (e.g., "Order Placed"), you don't need a tailing loop.
-
-1. **Triggering:** Use the `flux.EventBus` to start a new Temporal Workflow execution (`OrderFulfillmentWorkflow`).
-2. **Execution:** The Temporal Workflow natively maintains its state and timers (e.g., waiting 10 minutes for payment confirmation).
-3. **Command Dispatch:** When the Temporal Workflow decides to take action across the domain, it executes an Activity. That Activity should use the `flux.CommandBus` to execute a command against a Domain Aggregate.
-
-```go
-// A Temporal Activity dispatching a Flux Command
-func PayOrderActivity(ctx context.Context, orderID string) error {
-    // 1. Build the command context with traceability
-    cmdCtx := command.NewContext(
-		ctx, 
-		flux.MustParseIdentifier("urn:cmd:pay-order:123"), 
-		flux.Actor{}, // System actor
-		flux.Identifier{}, 
-		flux.Identifier{},
-	)
-	
-	// 2. Dispatch the command into the flux ecosystem
-    return command.Execute(cmdCtx, globalCmdBus, salesCmd.PayOrder{OrderID: orderID})
-}
-```
-
-## In-Process Workflow Orchestration
-
-For lightweight or embedded orchestrations that do not require an external Temporal cluster, `flux` provides the `workflow` package.
-
-### 1. Workflow Contract and Clone Semantics
-
-Workflow instances are state machines driven by events from the global stream. To avoid dirty read/write concurrency hazards and partial mutation leaks when handlers fail, all workflow types must implement the `Workflow[W]` generic interface:
+### Workflow contract
 
 ```go
 type Workflow[W Workflow[W]] interface {
@@ -129,67 +35,177 @@ type Workflow[W Workflow[W]] interface {
 }
 ```
 
-Handlers mutate an isolated clone returned by `Load`. The store commits mutated state only after the handler completes successfully without error. If a handler fails mid-flight, the uncommitted in-memory mutations are discarded and the store retains its last durable state.
+Handlers mutate an isolated clone from `Load`. The store commits only after success.
 
-### 2. Durable Checkpoint Semantics
+### Checkpoint + outbox
 
-The `Orchestrator` tails the `EventStore` and persists its stream position using `checkpoint.Store` (imported from `github.com/wotek/flux/checkpoint`):
+The `Orchestrator` tails the event store and persists progress with `checkpoint.Store`. Pass a non-nil store (`checkpoint/store.New()` for prototypes). `nil` panics.
 
 ```go
-package checkpoint
-
-import (
-	"context"
-
-	"github.com/wotek/flux"
+orch := workflow.NewOrchestrator(
+	flux.MustParseIdentifier("urn:shop:demo:workflows:1:orchestrator:payment"),
+	eventStore,
+	checkpointstore.New(),
 )
+workflow.RegisterHandler(orch, paymentStore, func(ctx workflow.Context, wf *PaymentWorkflow, e OrderPlaced) error {
+	workflow.EnqueueCommand(ctx, ReserveStock{OrderID: e.OrderID})
+	workflow.EnqueueCommand(ctx, ChargePayment{OrderID: e.OrderID})
+	return nil
+})
+go orch.Start(ctx)
+```
 
-type Store interface {
-	GetPosition(ctx context.Context, id flux.Identifier) (uint64, error)
-	SetPosition(ctx context.Context, id flux.Identifier, position uint64) error
+Commands are enqueued with `workflow.EnqueueCommand` and stored with workflow state (`Store.Save`). A relay dispatches them with ack-after-success and restores instrumentation onto `command.Context`.
+
+Handlers must be **idempotent**: at-least-once redelivery can re-invoke handlers and enqueue new outbox rows. Aggregate invariants (natural no-ops) are usually enough for PoCs.
+
+See the e-commerce example’s in-process payment workflow under `internal/workflows/payment/`.
+
+## Optional: Temporal integration
+
+Temporal is **not required**. Add it when durable timers, activity retries, or Temporal’s operational tooling matter more than staying in-process.
+
+### Conventions
+
+| Convention | Rule |
+| --- | --- |
+| **Workflow ID** | Derive from a flux URN / correlation ID, e.g. `order-fulfillment:{orderURN}`. Use a reuse policy so a duplicate `OrderPlaced` does not start a second run. |
+| **Start vs signal** | `StartWorkflow` on initiating domain events; `SignalWorkflow` (e.g. `WakeUpSignal`) to wake projection tailers. |
+| **Activity → command** | Build `command.Context` from envelope metadata (actor, correlation, causation, instrumentation) inside the activity. |
+| **Payloads** | Pass serializable DTOs / IDs into Temporal. Never put a `flux.Event` interface value on the Temporal wire; decode via codecs/registries at the edge if needed. |
+| **Idempotency** | Temporal activity completion + aggregate no-ops. No second flux command-dedup ledger. |
+| **Observability** | Optional: [`fluxotel`](https://github.com/wotek/flux-opentelemetry) on buses so envelope-stamped instrumentation continues into command spans. |
+
+### Trigger a Temporal Workflow from the EventBus
+
+```go
+event.Register(eventBus, func(ctx event.Context, e OrderPlaced) error {
+	wfID := "order-fulfillment:" + e.OrderID
+	_, err := temporalClient.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        wfID,
+		TaskQueue: "shop",
+		// Prefer reuse/conflict policies that avoid a second run on redelivery
+	}, OrderFulfillmentWorkflow, OrderFulfillmentInput{
+		OrderID:         e.OrderID,
+		Actor:           ctx.Actor(),
+		CorrelationID:   ctx.CorrelationIdentifier(),
+		CausationID:     ctx.EventIdentifier(),
+		Instrumentation: ctx.Instrumentation(),
+	})
+	return err
+})
+```
+
+### Activity → command
+
+```go
+func PayOrderActivity(ctx context.Context, input PayOrderInput) error {
+	cmdID := flux.MustParseIdentifier("urn:shop:prod:pay:1:command:" + input.OrderID)
+	cmdCtx := command.NewContext(
+		ctx,
+		cmdID,
+		input.Actor,
+		input.CorrelationID,
+		input.CausationID,
+		flux.WithInstrumentation(input.Instrumentation),
+	)
+	return command.Execute(cmdCtx, cmdBus, PayOrder{OrderID: input.OrderID})
 }
 ```
 
-::: tip Backwards Compatibility
-`workflow.CheckpointStore` is preserved as an alias for `checkpoint.Store`.
-:::
+Pass `Actor`, correlation/causation IDs, and `Instrumentation` as fields on a DTO built when the workflow started (from the triggering envelope)—not as a live `flux.Event` interface.
 
-On startup or recovery, the orchestrator retrieves its last checkpoint position via `GetPosition`. As envelopes are processed, the position is advanced and saved via `SetPosition`. Unhandled events also advance the checkpoint position. If an orchestrator crashes or restarts, processing resumes from the last persisted position.
+Steps:
 
-::: danger Required Checkpoint Store
-Passing `nil` for the checkpoint store when calling `workflow.NewOrchestrator` or `workflow.New` panics immediately (`workflow: checkpoint store is required`). Silently falling back to an in-memory cursor in production creates silent replay loops on process restarts.
+1. **Trigger:** EventBus handler calls `StartWorkflow` with a stable workflow ID.
+2. **Run:** Temporal owns state, timers (e.g. “cancel if unpaid in 10 minutes”), and retries.
+3. **Act:** Activities call `command.Execute` against aggregates.
 
-For unit tests and prototypes, explicitly pass an in-memory checkpoint store using `checkpointstore.New()` from `github.com/wotek/flux/checkpoint/store`. For production, configure a durable backend such as `checkpoint/store/mysql` or `checkpoint/store/redis`.
-:::
+### Hybrid tailing projections on Temporal
 
-### 3. Outbox Pattern and Traceability
+For long-running read-model rebuilds with durable retries, you can optionally run a Temporal workflow that:
 
-To ensure atomic state transitions and side effects, workflows enqueue commands via `workflow.EnqueueCommand(ctx, cmd)`. Commands are stored transactionally alongside the workflow state in `Store.Save(ctx, workflow, commands)`.
+1. Fetches a batch from `EventStore.Stream` / `Read` starting at `lastPosition`.
+2. Runs an activity to apply each envelope to the read model.
+3. When caught up, waits on `WakeUpSignal` (plus a short fallback timer).
+4. Uses `ContinueAsNew` periodically to bound history size.
 
-A background outbox relay polls these records and dispatches them to the `CommandBus`:
-- **Ack-After-Success:** Commands are removed from the outbox table only after successful dispatch by the command handler. On failure, the command remains in the outbox and is retried.
-- **Trace Context Propagation:** Causal, correlation, and distributed tracing metadata (`Actor`, `CorrelationIdentifier`, `CausationIdentifier`, `Instrumentation`) from the triggering event is persisted in the outbox message and reconstructed into the `command.Context` seen by command handlers, ensuring distributed traces continue seamlessly across asynchronous outbox boundaries. Pair this with [`fluxotel.CommandMiddleware`](https://github.com/wotek/flux-opentelemetry) for OpenTelemetry remote parenting—see [Instrumentation & Observability](/guide/instrumentation).
+```go
+func DashboardProjectionWorkflow(ctx workflow.Context, lastPosition uint64) error {
+	wakeupChan := workflow.GetSignalChannel(ctx, "WakeUpSignal")
 
-### 4. Multi-Workflow Event Routing & Idempotency Caveat
+	for {
+		var batch []EnvelopeDTO // serializable DTO, not flux.Envelope with interface Event
+		err := workflow.ExecuteActivity(ctx, FetchEventsActivity, lastPosition).Get(ctx, &batch)
+		if err != nil {
+			return err
+		}
 
-Multiple distinct workflow types can subscribe to the same domain event name (for example, `OrderPlaced` may initiate both an `OrderFulfillmentWorkflow` and an `AuditLoggingWorkflow`). 
+		for _, env := range batch {
+			err := workflow.ExecuteActivity(ctx, UpdateDashboardActivity, env).Get(ctx, nil)
+			if err != nil {
+				return err
+			}
+			lastPosition = env.Position
+		}
 
-The `Orchestrator` maintains an ordered slice of handlers for each event name. When processing an event envelope:
-- All matching handlers are invoked in registration order.
-- Execution follows a fail-fast policy: if any handler returns an error, the orchestrator halts immediately and returns the error without advancing the checkpoint position, preventing partial executions or unnoticed state corruptions.
+		if workflow.GetInfo(ctx).GetCurrentHistoryLength() > 10000 {
+			return workflow.NewContinueAsNewError(ctx, DashboardProjectionWorkflow, lastPosition)
+		}
 
-Because the stream checkpoint advances only after **all** registered handlers for an envelope succeed, an error returned by handler *N* halts processing after handlers *1* through *N-1* have already committed their state transitions and enqueued outbox commands. When the orchestrator recovers and restarts, it resumes from the unadvanced checkpoint and re-delivers the envelope to all registered handlers. All workflow handlers must therefore be strictly idempotent to safely accommodate this at-least-once delivery guarantee.
+		if len(batch) == 0 {
+			selector := workflow.NewSelector(ctx)
+			selector.AddReceive(wakeupChan, func(c workflow.ReceiveChannel, more bool) {
+				c.Receive(ctx, nil)
+			})
+			timerCtx, cancelTimer := workflow.WithCancel(ctx)
+			selector.AddFuture(workflow.NewTimer(timerCtx, time.Minute), func(f workflow.Future) {})
+			selector.Select(ctx)
+			cancelTimer()
+		}
+	}
+}
+```
 
-## Choosing a Workflow Runtime: Native vs. Temporal
+Wake the workflow from the EventBus when new events land:
 
-| Feature | Native `workflow.Orchestrator` | Temporal Workflow |
-|---------|--------------------------------|-------------------|
-| **Checkpoint / Cursor** | `checkpoint.Store` (MySQL, Redis, in-memory) | Workflow execution history + `ContinueAsNew` |
-| **State Persistence** | `workflow.Store` + Outbox pattern | Temporal state engine & history |
-| **Timers & Sleep** | External scheduler / manual timers | Durable `workflow.Sleep`, `workflow.NewTimer` |
-| **Infrastructure** | Zero extra infrastructure (in-process) | Requires Temporal server cluster |
+```go
+event.RegisterGlobal(eventBus, func(ctx event.Context, e flux.Event) error {
+	return temporalClient.SignalWorkflow(
+		context.Background(),
+		"DashboardProjection",
+		"",
+		"WakeUpSignal",
+		nil,
+	)
+})
+```
 
-::: danger Anti-Pattern: Dual-Cursor Conflict
-When using Temporal to orchestrate workflows or tail event streams, stream positions are tracked by Temporal's execution history. Never invoke `SetPosition` on a flux `checkpoint.Store` from Temporal activities for the same consumer. Doing so creates split-brain cursor divergence between Temporal's deterministic replay history and flux checkpoint tables.
-:::
+Cursor progress lives in Temporal (`lastPosition` / ContinueAsNew args)—**not** in flux `checkpoint.Store` for that same consumer.
 
+For embedded / no-Temporal services, keep using the native [`Projector`](/guide/projections) with `checkpoint.Store`.
+
+## Beyond the basics (consumer responsibility)
+
+`flux` does **not** ship a framework command-dedup store or `IdempotencyPolicy`. Core outbox + checkpoint + aggregate no-ops cover prototyping.
+
+If you need stronger delivery semantics, build them in your application. A basic sketch:
+
+```go
+// Pseudo-code: consumer-owned processed-commands ledger
+func (h *PayOrderHandler) Handle(ctx command.Context, cmd PayOrder) error {
+	if h.ledger.Seen(ctx.CommandIdentifier()) {
+		return nil // already applied
+	}
+	if err := h.apply(ctx, cmd); err != nil {
+		return err
+	}
+	return h.ledger.Mark(ctx.CommandIdentifier())
+}
+```
+
+Under Temporal, completed activities are not re-executed on replay, so many apps rely on that plus aggregate invariants instead of a ledger. Choose what fits your deployment.
+
+## Placement
+
+Whether you use the native orchestrator or Temporal, put workflow-related code under `internal/workflows/<name>/` (see [Project Layout](/reference/project-layout)).

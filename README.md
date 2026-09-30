@@ -28,7 +28,7 @@ Most Go event-sourcing libraries lean on `reflect` for handler routing, event de
 - **Domain stays pure** — aggregates and events carry no `json` tags, no store types, and no framework persistence APIs in domain methods.
 - **Serialization at the edge** — DTOs, codecs, and type registries live in infrastructure packages, not in the core domain.
 - **Bring your own backend** — in-memory stores for tests; MySQL and Redis drivers for production; clean interfaces if you need another store.
-- **Optional Temporal** — native projectors and orchestrators for embedded workloads; Temporal remains a parallel runtime for durable timers and distributed workflows, not a hard dependency.
+- **Optional Temporal workflows** — Temporal is a good production fit for durable workflows when you want it; native `workflow.Orchestrator` + outbox covers prototypes and PoCs. See [Workflows & Temporal](https://flux.keylight.io/guide/workflows).
 - **Optional OpenTelemetry** — core stays vendor-agnostic; use [`flux-opentelemetry`](https://github.com/wotek/flux-opentelemetry) (`fluxotel`) when you want spans and metrics.
 
 ## Design principles
@@ -45,7 +45,7 @@ Most Go event-sourcing libraries lean on `reflect` for handler routing, event de
 - Type-safe aggregates with changesets, optimistic concurrency, and optional snapshotting
 - Command, query, and event buses with middleware
 - Continuous projectors with checkpointed global-stream cursors
-- Workflow orchestrators with transactional outbox command dispatch
+- Native workflow orchestrator + outbox for prototypes and PoCs; optional Temporal integration for durable workflows
 - Structured URN identifiers and typed contexts (`Actor`, correlation, causation, instrumentation)
 - Built-in in-memory stores; MySQL and Redis backends for events, snapshots, and checkpoints
 - Sentinel errors for `errors.Is` (`ErrConcurrency`, `ErrAggregateNotFound`, and others)
@@ -137,9 +137,10 @@ For a runnable version with a command bus, see [`example/bank`](example/bank). C
 | --- | --- |
 | [Bank Account](example/bank) | Minimal aggregates, repository, and command routing |
 | [Todo](example/todo) | Full CQRS slice: commands, projections, and a TUI client |
-| [E-Commerce](example/e-commerce) | Bounded contexts, cross-aggregate projections, and payment workflows |
+| [E-Commerce](example/e-commerce) | Bounded contexts, cross-aggregate projections, and in-process payment workflow |
+| [Temporal Payment](example/temporal-payment) | Optional Temporal integration: EventBus → Temporal → flux commands |
 
-Docs pages: [Bank](https://flux.keylight.io/examples/bank) · [Todo](https://flux.keylight.io/examples/todo) · [E-Commerce](https://flux.keylight.io/examples/e-commerce)
+Docs pages: [Bank](https://flux.keylight.io/examples/bank) · [Todo](https://flux.keylight.io/examples/todo) · [E-Commerce](https://flux.keylight.io/examples/e-commerce) · [Temporal Payment](https://flux.keylight.io/examples/temporal-payment)
 
 ## Guides
 
