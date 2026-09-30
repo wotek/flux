@@ -77,14 +77,14 @@ export EVENTSTORE_REDIS_ADDR=localhost:6379
 
 go run ./cmd/demo place-order
 # note the printed order_id, then:
-go run ./cmd/demo pay-order --order-id ord-…
-go run ./cmd/demo status --order-id ord-…
+go run ./cmd/demo pay-order --order-id 'urn:shop:demo:orders:1:order:…'
+go run ./cmd/demo status --order-id 'urn:shop:demo:orders:1:order:…'
 ```
 
 Expected status after pay:
 
 ```text
-order ord-… status=paid
+order urn:shop:demo:orders:1:order:… status=paid
 ```
 
 UI: http://localhost:8080 — workflow ID `order-fulfillment:{orderID}`. Frontend gRPC: `localhost:7233`.

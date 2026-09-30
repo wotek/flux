@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/command"
@@ -66,7 +65,9 @@ func placeOrder(ctx context.Context, args []string) error {
 	_ = fs.Parse(args)
 
 	if *orderID == "" {
-		*orderID = fmt.Sprintf("ord-%d", time.Now().UnixNano())
+		*orderID = order.NewID().String()
+	} else if _, err := flux.ParseIdentifier(*orderID); err != nil {
+		return fmt.Errorf("invalid --order-id: %w", err)
 	}
 
 	es, cleanup, err := platform.OpenEventStore(ctx)
@@ -82,9 +83,11 @@ func placeOrder(ctx context.Context, args []string) error {
 	}
 	defer tc.Close()
 
+	streamID := flux.MustParseIdentifier(*orderID)
 	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:shop:demo:iam:1:user:alice")}
-	corr := flux.MustParseIdentifier("urn:shop:demo:corr:1:correlation:" + *orderID)
-	cmdCtx := command.NewContext(ctx, flux.MustParseIdentifier("urn:shop:demo:orders:1:command:place-"+*orderID), actor, corr, flux.Identifier{})
+	corr := flux.NewIdentifier("shop", "demo", "corr", "1", "correlation", streamID.ResourceID(), "")
+	cmdID := flux.NewIdentifier("shop", "demo", "orders", "1", "command", "place-"+streamID.ResourceID(), "")
+	cmdCtx := command.NewContext(ctx, cmdID, actor, corr, flux.Identifier{})
 
 	if err := command.Execute(cmdCtx, cmdBus, commands.PlaceOrder{OrderID: *orderID}); err != nil {
 		return fmt.Errorf("execute PlaceOrder: %w", err)
@@ -115,6 +118,9 @@ func payOrder(ctx context.Context, args []string) error {
 	if *orderID == "" {
 		return fmt.Errorf("--order-id is required")
 	}
+	if _, err := flux.ParseIdentifier(*orderID); err != nil {
+		return fmt.Errorf("invalid --order-id: %w", err)
+	}
 
 	tc, err := dialTemporal()
 	if err != nil {
@@ -137,6 +143,9 @@ func status(ctx context.Context, args []string) error {
 	if *orderID == "" {
 		return fmt.Errorf("--order-id is required")
 	}
+	if _, err := flux.ParseIdentifier(*orderID); err != nil {
+		return fmt.Errorf("invalid --order-id: %w", err)
+	}
 
 	es, cleanup, err := platform.OpenEventStore(ctx)
 	if err != nil {
@@ -145,9 +154,11 @@ func status(ctx context.Context, args []string) error {
 	defer cleanup()
 	repo, _ := platform.NewSalesStack(es)
 
+	streamID := flux.MustParseIdentifier(*orderID)
 	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:shop:demo:iam:1:user:alice")}
-	corr := flux.MustParseIdentifier("urn:shop:demo:corr:1:correlation:" + *orderID)
-	cmdCtx := command.NewContext(ctx, flux.MustParseIdentifier("urn:shop:demo:orders:1:command:status-"+*orderID), actor, corr, flux.Identifier{})
+	corr := flux.NewIdentifier("shop", "demo", "corr", "1", "correlation", streamID.ResourceID(), "")
+	cmdID := flux.NewIdentifier("shop", "demo", "orders", "1", "command", "status-"+streamID.ResourceID(), "")
+	cmdCtx := command.NewContext(ctx, cmdID, actor, corr, flux.Identifier{})
 
 	final, err := repo.Load(cmdCtx, order.StreamFor(*orderID))
 	if err != nil {

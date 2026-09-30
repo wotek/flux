@@ -28,7 +28,7 @@ docker compose up -d
 export EVENTSTORE_REDIS_ADDR=localhost:6379
 go run ./cmd/worker   # terminal 1
 go run ./cmd/demo place-order
-go run ./cmd/demo pay-order --order-id …
+go run ./cmd/demo pay-order --order-id 'urn:shop:demo:orders:1:order:…'
 ```
 
 See the example README for ports, UI, and teardown.

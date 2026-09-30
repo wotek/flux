@@ -3,6 +3,7 @@ package order
 import (
 	"errors"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/example/temporal-payment/internal/sales/events"
 	"github.com/wotek/flux/example/temporal-payment/internal/sales/types"
@@ -29,7 +30,7 @@ func (o *OrderAggregate) New(stream flux.Stream) *OrderAggregate {
 	return newO
 }
 
-// OrderID returns the business order identifier.
+// OrderID returns the order aggregate identifier.
 func (o *OrderAggregate) OrderID() string { return o.orderID }
 
 // Status returns the current lifecycle status.
@@ -86,9 +87,12 @@ func (o *OrderAggregate) Cancel(reason string) error {
 	return nil
 }
 
-// StreamFor returns the event stream for an order ID.
+// NewID creates a new order aggregate identifier.
+func NewID() flux.Identifier {
+	return flux.NewIdentifier("shop", "demo", "orders", "1", "order", ulid.Make().String(), "")
+}
+
+// StreamFor returns the event stream for an order aggregate id (see [NewID]).
 func StreamFor(orderID string) flux.Stream {
-	return flux.Stream{
-		Identifier: flux.MustParseIdentifier("urn:shop:demo:orders:1:order:" + orderID),
-	}
+	return flux.Stream{Identifier: flux.MustParseIdentifier(orderID)}
 }

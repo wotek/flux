@@ -50,9 +50,9 @@ func TestOrderFulfillmentWorkflow_PaysWhenSignaled(t *testing.T) {
 	commands.Register(cmdBus, repo)
 	acts := &payment.Activities{EventStore: es, CmdBus: cmdBus}
 
-	orderID := "ord-test-1"
+	orderID := flux.NewIdentifier("shop", "demo", "orders", "1", "order", "test-1", "").String()
 	actor := flux.MustParseIdentifier("urn:shop:demo:iam:1:user:alice")
-	corr := flux.MustParseIdentifier("urn:shop:demo:corr:1:correlation:" + orderID)
+	corr := flux.NewIdentifier("shop", "demo", "corr", "1", "correlation", "test-1", "")
 	placeCtx := command.NewContext(context.Background(), flux.MustParseIdentifier("urn:shop:demo:orders:1:command:place"), flux.Actor{Identifier: actor}, corr, flux.Identifier{})
 	if err := command.Execute(placeCtx, cmdBus, commands.PlaceOrder{OrderID: orderID}); err != nil {
 		t.Fatalf("place: %v", err)
@@ -97,9 +97,9 @@ func TestOrderFulfillmentWorkflow_CancelsWhenNotPaid(t *testing.T) {
 	commands.Register(cmdBus, repo)
 	acts := &payment.Activities{EventStore: es, CmdBus: cmdBus}
 
-	orderID := "ord-test-2"
+	orderID := flux.NewIdentifier("shop", "demo", "orders", "1", "order", "test-2", "").String()
 	actor := flux.MustParseIdentifier("urn:shop:demo:iam:1:user:bob")
-	corr := flux.MustParseIdentifier("urn:shop:demo:corr:1:correlation:" + orderID)
+	corr := flux.NewIdentifier("shop", "demo", "corr", "1", "correlation", "test-2", "")
 	placeCtx := command.NewContext(context.Background(), flux.MustParseIdentifier("urn:shop:demo:orders:1:command:place2"), flux.Actor{Identifier: actor}, corr, flux.Identifier{})
 	if err := command.Execute(placeCtx, cmdBus, commands.PlaceOrder{OrderID: orderID}); err != nil {
 		t.Fatalf("place: %v", err)

@@ -8,7 +8,6 @@ import (
 	"github.com/wotek/flux/command"
 	"github.com/wotek/flux/event"
 	"github.com/wotek/flux/example/temporal-payment/internal/sales/commands"
-	"github.com/wotek/flux/example/temporal-payment/internal/sales/events"
 )
 
 // Activities holds flux dependencies used from Temporal activities.
@@ -24,11 +23,7 @@ func (a *Activities) PayOrderActivity(ctx context.Context, ref event.EventRefere
 		return fmt.Errorf("finding order placed event: %w", err)
 	}
 
-	orderID, err := extractOrderID(env.Event)
-	if err != nil {
-		return err
-	}
-
+	orderID := env.Stream.Identifier.String()
 	return a.execute(ctx, env, orderID, commands.PayOrder{OrderID: orderID})
 }
 
@@ -39,24 +34,12 @@ func (a *Activities) CancelOrderActivity(ctx context.Context, in CancelOrderInpu
 		return fmt.Errorf("finding order placed event: %w", err)
 	}
 
-	orderID, err := extractOrderID(env.Event)
-	if err != nil {
-		return err
-	}
-
+	orderID := env.Stream.Identifier.String()
 	return a.execute(ctx, env, orderID, commands.CancelOrder{OrderID: orderID, Reason: in.Reason})
 }
 
-func extractOrderID(ev flux.Event) (string, error) {
-	placed, ok := ev.(events.OrderPlaced)
-	if !ok {
-		return "", fmt.Errorf("unexpected event payload %T for OrderPlaced", ev)
-	}
-	return placed.OrderID, nil
-}
-
 func (a *Activities) execute(ctx context.Context, env flux.Envelope, orderID string, cmd any) error {
-	cmdID := flux.MustParseIdentifier("urn:shop:demo:orders:1:command:" + orderID)
+	cmdID := flux.NewIdentifier("shop", "demo", "orders", "1", "command", env.Stream.Identifier.ResourceID(), "")
 	var inst flux.Instrumentation
 	if len(env.Metadata) > 0 {
 		inst = flux.Instrumentation{
