@@ -244,6 +244,7 @@ Provides event distribution to multiple subscribers and access to envelope metad
 #### Structs & Types
 
 - `Bus`: Registry supporting multiple subscriber handlers per domain event name.
+- `EventReference`: Payload-free reference pointing to an event occurrence (`Stream`, `EventID`) for point-reading via `EventStore.Find`.
 
 #### Interfaces
 
