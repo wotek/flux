@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.6.0](https://github.com/wotek/flux/compare/v1.5.0...v1.6.0) (2026-09-30)
+
+
+### Features
+
+* **codec:** add AsValue for domain-facing decode shape ([aa51a30](https://github.com/wotek/flux/commit/aa51a3045501a6cdd16272dade8efb15a024f000))
+
+
+### Bug Fixes
+
+* **codec:** emit domain-facing events via AsValue ([66ee269](https://github.com/wotek/flux/commit/66ee269f718abaf24fa1a0a28b18eacf2fc6e42d))
+
 ## [1.5.0](https://github.com/wotek/flux/compare/v1.4.0...v1.5.0) (2026-09-30)
 
 
