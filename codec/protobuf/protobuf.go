@@ -165,7 +165,7 @@ func (s *Serializer) Unmarshal(data []byte) (flux.Envelope, error) {
 		Stream:                flux.Stream{Identifier: streamIdentifier},
 		Revision:              dto.GetRevision(),
 		Position:              dto.GetGlobalPosition(),
-		Event:                 eventPtr,
+		Event:                 codec.AsValue(eventPtr),
 		Metadata:              metadata,
 		CreatedAt:             createdAt,
 		Actor:                 flux.Actor{Identifier: actorIdentifier},

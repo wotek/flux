@@ -650,7 +650,7 @@ func TestEventStore_Find(t *testing.T) {
 		if env.Identifier != evtID {
 			t.Errorf("Identifier = %s, want %s", env.Identifier, evtID)
 		}
-		if op, ok := env.Event.(*orderPlaced); !ok || op.OrderNumber != "ORD-1" {
+		if op, ok := env.Event.(orderPlaced); !ok || op.OrderNumber != "ORD-1" {
 			t.Errorf("Event payload unexpected: %v", env.Event)
 		}
 		if env.Metadata["foo"] != "bar" {

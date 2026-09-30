@@ -98,6 +98,10 @@ func TestSerializer_RoundTrip(t *testing.T) {
 	if !ok1 || !ok2 || !proto.Equal(origMsg, unmarshMsg) {
 		t.Errorf("Event proto mismatch:\ngot:  %+v\nwant: %+v", unmarshaled.Event, original.Event)
 	}
+
+	if _, ok := unmarshaled.Event.(*testpb.TestProductCreated); !ok {
+		t.Fatalf("expected unmarshaled.Event to be pointer type *testpb.TestProductCreated, got %T", unmarshaled.Event)
+	}
 }
 
 func TestSerializer_Errors(t *testing.T) {

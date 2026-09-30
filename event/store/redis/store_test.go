@@ -398,7 +398,7 @@ func TestEventStore_WithXMLCodec(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
-	gotEvent, ok := events[0].Event.(*itemAdded)
+	gotEvent, ok := events[0].Event.(itemAdded)
 	if !ok || gotEvent.ItemName != "Widget" || gotEvent.Count != 5 {
 		t.Errorf("unexpected event payload: %+v", events[0].Event)
 	}
@@ -523,7 +523,7 @@ func TestEventStore_Find(t *testing.T) {
 		if env.Stream != streamA {
 			t.Errorf("Stream = %v, want %v", env.Stream, streamA)
 		}
-		if item, ok := env.Event.(*itemAdded); !ok || item.ItemName != "Keyboard" {
+		if item, ok := env.Event.(itemAdded); !ok || item.ItemName != "Keyboard" {
 			t.Errorf("Event payload unexpected: %v", env.Event)
 		}
 		if env.Metadata["env"] != "test" {

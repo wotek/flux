@@ -40,7 +40,7 @@ func TestSerializer_RoundTrip(t *testing.T) {
 		},
 		Revision: 3,
 		Position: 42,
-		Event: &productCreated{
+		Event: productCreated{
 			XMLName:     xml.Name{Local: "ProductCreated"},
 			ProductName: "Mechanical Keyboard",
 			Price:       150,
@@ -69,6 +69,45 @@ func TestSerializer_RoundTrip(t *testing.T) {
 
 	if !reflect.DeepEqual(original, unmarshaled) {
 		t.Errorf("roundtrip mismatch:\ngot:  %+v\nwant: %+v", unmarshaled, original)
+	}
+
+	gotEvent, ok := unmarshaled.Event.(productCreated)
+	if !ok {
+		t.Fatalf("expected unmarshaled.Event to be value type productCreated, got %T", unmarshaled.Event)
+	}
+	wantEvent := productCreated{XMLName: xml.Name{Local: "ProductCreated"}, ProductName: "Mechanical Keyboard", Price: 150}
+	if gotEvent != wantEvent {
+		t.Errorf("got event %+v, want %+v", gotEvent, wantEvent)
+	}
+}
+
+func TestSerializer_PointerInValueOut(t *testing.T) {
+	t.Parallel()
+
+	registry := event.NewTypes()
+	event.RegisterType[productCreated](registry)
+	serializer := xmlcodec.New(registry)
+
+	original := flux.Envelope{
+		Event: &productCreated{
+			XMLName:     xml.Name{Local: "ProductCreated"},
+			ProductName: "Mechanical Keyboard",
+			Price:       150,
+		},
+	}
+
+	data, err := serializer.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	unmarshaled, err := serializer.Unmarshal(data)
+	if err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if _, ok := unmarshaled.Event.(productCreated); !ok {
+		t.Fatalf("expected unmarshaled.Event to be value type productCreated, got %T", unmarshaled.Event)
 	}
 }
 
