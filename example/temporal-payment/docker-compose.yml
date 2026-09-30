@@ -1,30 +1,100 @@
+# Local Temporal stack for the payment example.
+# Uses maintained images (temporalio/server + admin-tools); temporalio/auto-setup is deprecated.
+# Pattern aligned with https://github.com/temporalio/samples-server/tree/main/compose
 services:
   postgresql:
     image: postgres:16
     environment:
-      POSTGRES_PASSWORD: temporal
       POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
-  temporal:
-    image: temporalio/auto-setup:1.25.2
+  temporal-schema:
+    image: temporalio/admin-tools:1.29.7-tctl-1.18.4-cli-1.7.2
     depends_on:
-      - postgresql
+      postgresql:
+        condition: service_healthy
     environment:
       DB: postgres12
       DB_PORT: 5432
       POSTGRES_USER: temporal
       POSTGRES_PWD: temporal
       POSTGRES_SEEDS: postgresql
+      SQL_PASSWORD: temporal
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        echo "Waiting for PostgreSQL..."
+        until nc -z -w 2 "$${POSTGRES_SEEDS}" "$${DB_PORT}"; do sleep 1; done
+        echo "Setting up Temporal schemas..."
+        temporal-sql-tool --plugin postgres12 --ep "$${POSTGRES_SEEDS}" -u "$${POSTGRES_USER}" -p "$${DB_PORT}" --db temporal create
+        temporal-sql-tool --plugin postgres12 --ep "$${POSTGRES_SEEDS}" -u "$${POSTGRES_USER}" -p "$${DB_PORT}" --db temporal setup-schema -v 0.0
+        temporal-sql-tool --plugin postgres12 --ep "$${POSTGRES_SEEDS}" -u "$${POSTGRES_USER}" -p "$${DB_PORT}" --db temporal update-schema -d /etc/temporal/schema/postgresql/v12/temporal/versioned
+        temporal-sql-tool --plugin postgres12 --ep "$${POSTGRES_SEEDS}" -u "$${POSTGRES_USER}" -p "$${DB_PORT}" --db temporal_visibility create
+        temporal-sql-tool --plugin postgres12 --ep "$${POSTGRES_SEEDS}" -u "$${POSTGRES_USER}" -p "$${DB_PORT}" --db temporal_visibility setup-schema -v 0.0
+        temporal-sql-tool --plugin postgres12 --ep "$${POSTGRES_SEEDS}" -u "$${POSTGRES_USER}" -p "$${DB_PORT}" --db temporal_visibility update-schema -d /etc/temporal/schema/postgresql/v12/visibility/versioned
+        echo "Schema setup complete"
+
+  temporal:
+    image: temporalio/server:1.29.7
+    depends_on:
+      temporal-schema:
+        condition: service_completed_successfully
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: postgresql
+      BIND_ON_IP: 0.0.0.0
     ports:
       - "7233:7233"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "7233"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
 
-  temporal-ui:
-    image: temporalio/ui:2.31.2
+  temporal-create-namespace:
+    image: temporalio/admin-tools:1.29.7-tctl-1.18.4-cli-1.7.2
     depends_on:
-      - temporal
+      temporal:
+        condition: service_healthy
     environment:
       TEMPORAL_ADDRESS: temporal:7233
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        echo "Waiting for Temporal..."
+        until temporal operator cluster health --address "$${TEMPORAL_ADDRESS}"; do sleep 2; done
+        if temporal operator namespace describe -n default --address "$${TEMPORAL_ADDRESS}" >/dev/null 2>&1; then
+          echo "Namespace default already exists"
+        else
+          temporal operator namespace create -n default --address "$${TEMPORAL_ADDRESS}"
+          echo "Namespace default created"
+        fi
+
+  temporal-ui:
+    image: temporalio/ui:2.54.1
+    depends_on:
+      temporal:
+        condition: service_healthy
+      temporal-create-namespace:
+        condition: service_completed_successfully
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
     ports:
       - "8080:8080"

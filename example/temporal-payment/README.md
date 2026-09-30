@@ -25,9 +25,12 @@ go test ./...
 
 ## Manual run (Temporal stack)
 
+Local compose uses maintained images (`temporalio/server` + `temporalio/admin-tools` + `temporalio/ui:2.54.1`). The older `temporalio/auto-setup` image is deprecated.
+
 ```bash
 cd example/temporal-payment
 docker compose up -d
+# wait until temporal + UI are healthy, then:
 go run ./cmd/demo
 ```
 
@@ -39,7 +42,7 @@ order ord-… status=paid
 
 > **Note:** Payment readiness (`MarkPaymentReady`) simulates an external payment webhook/gateway confirmation before a domain event is recorded, which is why it lives in demo activity state rather than the Event Store.
 
-UI: http://localhost:8080 — workflow ID `order-fulfillment:{orderID}`.
+UI: http://localhost:8080 — workflow ID `order-fulfillment:{orderID}`. Frontend gRPC: `localhost:7233`.
 
 Stop:
 
