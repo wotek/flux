@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.0](https://github.com/wotek/flux/compare/v1.4.0...v1.5.0) (2026-09-30)
+
+
+### Features
+
+* **event:** add EventReference for store point-reads ([d11332d](https://github.com/wotek/flux/commit/d11332d616c09870dcf1bc84fabb9c3cd482e09f))
+* **eventstore:** add Find by stream and event identifier ([ffe09b2](https://github.com/wotek/flux/commit/ffe09b2b116b24ce0cb81c9e42eba16718cc1bef))
+
 ## [1.4.0](https://github.com/wotek/flux/compare/v1.3.0...v1.4.0) (2026-09-29)
 
 
