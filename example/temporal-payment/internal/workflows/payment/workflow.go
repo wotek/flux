@@ -8,9 +8,12 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
-// OrderFulfillmentWorkflow waits briefly for payment, then pays or cancels.
-// It receives a lightweight event.EventReference rather than a duplicated domain payload;
-// individual activities point-read the persisted envelope from the EventStore via Find.
+// PaymentReceivedSignal is sent by the demo `pay-order` command (or a real payment webhook)
+// to unblock the fulfillment workflow.
+const PaymentReceivedSignal = "PaymentReceived"
+
+// OrderFulfillmentWorkflow waits for a payment signal (or times out), then pays or cancels.
+// It receives a lightweight event.EventReference; activities point-read the envelope via Find.
 func OrderFulfillmentWorkflow(ctx workflow.Context, ref event.EventReference) error {
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
@@ -20,15 +23,23 @@ func OrderFulfillmentWorkflow(ctx workflow.Context, ref event.EventReference) er
 	}
 	ctx = workflow.WithActivityOptions(ctx, ao)
 
-	_ = workflow.Sleep(ctx, 500*time.Millisecond)
+	signalChan := workflow.GetSignalChannel(ctx, PaymentReceivedSignal)
+	timerCtx, cancelTimer := workflow.WithCancel(ctx)
+	timer := workflow.NewTimer(timerCtx, 30*time.Second)
+
+	selector := workflow.NewSelector(ctx)
+	paid := false
+	selector.AddReceive(signalChan, func(c workflow.ReceiveChannel, more bool) {
+		c.Receive(ctx, nil)
+		paid = true
+		cancelTimer()
+	})
+	selector.AddFuture(timer, func(f workflow.Future) {
+		_ = f.Get(ctx, nil)
+	})
+	selector.Select(ctx)
 
 	var acts *Activities
-
-	var paid bool
-	if err := workflow.ExecuteActivity(ctx, acts.CheckPaymentReceivedActivity, ref).Get(ctx, &paid); err != nil {
-		return err
-	}
-
 	if paid {
 		return workflow.ExecuteActivity(ctx, acts.PayOrderActivity, ref).Get(ctx, nil)
 	}

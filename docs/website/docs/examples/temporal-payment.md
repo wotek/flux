@@ -6,12 +6,11 @@ Source: [`example/temporal-payment`](https://github.com/wotek/flux/tree/main/exa
 
 ## What it shows
 
+- Split processes: `cmd/worker` and `cmd/demo` (`place-order` / `pay-order` / `status`)
 - Domain-first layout (`internal/sales/…`, `internal/workflows/payment/`) per [Project Layout](/reference/project-layout)
-- EventBus starts a Temporal workflow with a stable ID (`order-fulfillment:{orderID}`)
-- Workflows pass lightweight `event.EventReference` (`stream` + `event_id`) rather than duplicated domain payloads
-- Activities point-read persisted envelopes via `EventStore.Find` and reconstruct `command.Context`
-- Slim activity outputs (return `error` only, keeping Temporal history lightweight)
-- Aggregate no-ops for pay/cancel (no framework command-dedup store)
+- Workflows pass `event.EventReference`; activities use `EventStore.Find`
+- Payment confirmation via Temporal signal (`pay-order`); timeout cancels
+- Shared Redis Event Store across worker and demo
 - `go test` via Temporal `testsuite` without Docker
 
 ## Run tests
@@ -26,7 +25,10 @@ go test ./...
 ```bash
 cd example/temporal-payment
 docker compose up -d
-go run ./cmd/demo
+export EVENTSTORE_REDIS_ADDR=localhost:6379
+go run ./cmd/worker   # terminal 1
+go run ./cmd/demo place-order
+go run ./cmd/demo pay-order --order-id …
 ```
 
 See the example README for ports, UI, and teardown.

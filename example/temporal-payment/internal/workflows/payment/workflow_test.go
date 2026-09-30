@@ -3,6 +3,7 @@ package payment_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/command"
@@ -37,7 +38,7 @@ func findPlacedEventRef(t *testing.T, es flux.EventStore, orderID string) event.
 	return event.EventReference{}
 }
 
-func TestOrderFulfillmentWorkflow_PaysWhenReady(t *testing.T) {
+func TestOrderFulfillmentWorkflow_PaysWhenSignaled(t *testing.T) {
 	t.Parallel()
 
 	var suite testsuite.WorkflowTestSuite
@@ -57,14 +58,16 @@ func TestOrderFulfillmentWorkflow_PaysWhenReady(t *testing.T) {
 		t.Fatalf("place: %v", err)
 	}
 
-	acts.MarkPaymentReady(orderID)
-
 	env.RegisterWorkflow(payment.OrderFulfillmentWorkflow)
-	env.RegisterActivity(acts.CheckPaymentReceivedActivity)
 	env.RegisterActivity(acts.PayOrderActivity)
 	env.RegisterActivity(acts.CancelOrderActivity)
 
 	ref := findPlacedEventRef(t, es, orderID)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(payment.PaymentReceivedSignal, nil)
+	}, time.Millisecond)
+
 	env.ExecuteWorkflow(payment.OrderFulfillmentWorkflow, ref)
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("workflow not completed")
@@ -103,9 +106,11 @@ func TestOrderFulfillmentWorkflow_CancelsWhenNotPaid(t *testing.T) {
 	}
 
 	env.RegisterWorkflow(payment.OrderFulfillmentWorkflow)
-	env.RegisterActivity(acts.CheckPaymentReceivedActivity)
 	env.RegisterActivity(acts.PayOrderActivity)
 	env.RegisterActivity(acts.CancelOrderActivity)
+
+	// Speed up the payment timeout for the test environment.
+	env.SetTestTimeout(2 * time.Minute)
 
 	ref := findPlacedEventRef(t, es, orderID)
 	env.ExecuteWorkflow(payment.OrderFulfillmentWorkflow, ref)

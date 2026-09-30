@@ -8,39 +8,84 @@ Layout follows [`docs/PROJECT_LAYOUT.md`](../../docs/PROJECT_LAYOUT.md): domain-
 
 ## What it demonstrates
 
-1. **Stable Temporal workflow IDs** (`order-fulfillment:{orderID}`) started from an EventBus handler.
-2. **Event Store as source of truth:** Workflows receive `event.EventReference` (`stream` + `event_id`) instead of duplicated domain payloads.
-3. **Point-reading via `EventStore.Find`:** Activities load the persisted envelope by reference on-demand, keeping Temporal history lightweight.
-4. **Context reconstruction:** Activities rebuild `command.Context` from envelope metadata (actor, correlation, causation, instrumentation) and call `command.Execute`.
-5. **Slim activity outputs:** Activities return only `error` or minimal status, never full envelopes.
-6. **Aggregate idempotency** (`Pay` / `Cancel` no-ops)—no framework command-dedup store.
-7. **Automated tests** via Temporal’s `testsuite` (no Docker required for `go test`).
+1. **Split processes:** `cmd/worker` (Temporal worker + flux activities) and `cmd/demo` (CLI: place / pay / status).
+2. **Stable Temporal workflow IDs** (`order-fulfillment:{orderID}`).
+3. **Event Store as source of truth:** Workflows receive `event.EventReference` (`stream` + `event_id`) instead of duplicated domain payloads.
+4. **Point-reading via `EventStore.Find`:** Activities load the persisted envelope by reference on-demand.
+5. **Payment via Temporal signal:** `pay-order` signals `PaymentReceived` (like a payment webhook); timeout cancels.
+6. **Shared Redis Event Store** so worker and demo share persisted events across processes.
+7. **Aggregate idempotency** (`Pay` / `Cancel` no-ops)—no framework command-dedup store.
 
-## Tests (no Temporal server)
+## How the demo works
+
+### Processes
+
+| Process | Role |
+| --- | --- |
+| `cmd/worker` | Long-running Temporal worker; registers the workflow and Pay/Cancel activities against a shared Event Store + command bus. |
+| `cmd/demo place-order` | Executes `PlaceOrder`, reads the persisted `OrderPlaced` reference, starts the fulfillment workflow. |
+| `cmd/demo pay-order` | Signals `PaymentReceived` on the workflow (simulates an external payment confirmation). |
+| `cmd/demo status` | Loads the order aggregate and prints status. |
+
+Worker and demo must share the same Event Store (`EVENTSTORE_REDIS_ADDR`). In-memory store is only for single-process unit tests.
+
+### Workflow: `OrderFulfillmentWorkflow`
+
+1. Wait on signal `PaymentReceived` **or** a 30s timer.
+2. If signaled → `PayOrderActivity`.
+3. If timer fires first → `CancelOrderActivity` with reason `payment_timeout`.
+
+### Activities
+
+| Activity | Role |
+| --- | --- |
+| `PayOrderActivity` | `Find` initiating envelope → rebuild `command.Context` → `command.Execute(PayOrder)`. |
+| `CancelOrderActivity` | Same hydrate → `command.Execute(CancelOrder{Reason})`. |
+
+### End state
+
+- `pay-order` before timeout → status **`paid`**.
+- No signal before timeout → status **`cancelled`**.
+
+## Tests (no Temporal / Redis server)
 
 ```bash
 cd example/temporal-payment
 go test ./...
 ```
 
-## Manual run (Temporal stack)
+## Manual run
 
-Local compose uses maintained images (`temporalio/server` + `temporalio/admin-tools` + `temporalio/ui:2.54.1`). The older `temporalio/auto-setup` image is deprecated.
+Local compose: Temporal (`server` + `admin-tools` + `ui:2.54.1`) and **Redis** for the shared Event Store.
 
 ```bash
 cd example/temporal-payment
 docker compose up -d
-# wait until temporal + UI are healthy, then:
-go run ./cmd/demo
 ```
 
-Expected output (payment marked ready before the workflow’s check):
+Terminal 1 — worker:
+
+```bash
+export EVENTSTORE_REDIS_ADDR=localhost:6379
+go run ./cmd/worker
+```
+
+Terminal 2 — place then pay:
+
+```bash
+export EVENTSTORE_REDIS_ADDR=localhost:6379
+
+go run ./cmd/demo place-order
+# note the printed order_id, then:
+go run ./cmd/demo pay-order --order-id ord-…
+go run ./cmd/demo status --order-id ord-…
+```
+
+Expected status after pay:
 
 ```text
 order ord-… status=paid
 ```
-
-> **Note:** Payment readiness (`MarkPaymentReady`) simulates an external payment webhook/gateway confirmation before a domain event is recorded, which is why it lives in demo activity state rather than the Event Store.
 
 UI: http://localhost:8080 — workflow ID `order-fulfillment:{orderID}`. Frontend gRPC: `localhost:7233`.
 
@@ -53,15 +98,18 @@ docker compose down -v
 ## Layout
 
 ```text
-cmd/demo/                         # Wiring: stores, buses, Temporal worker, demo driver
+cmd/
+├── worker/                       # Temporal worker + activities
+└── demo/                         # CLI: place-order | pay-order | status
 internal/
+├── platform/                     # Shared EventStore / command-bus wiring
 ├── sales/                        # Bounded context: Sales
-│   ├── aggregates/order/         # Order write model
-│   ├── commands/                 # Place / Pay / Cancel handlers
-│   ├── events/                   # OrderPlaced, OrderPaid, OrderCancelled
-│   └── types/                    # OrderStatus value object
+│   ├── aggregates/order/
+│   ├── commands/
+│   ├── events/
+│   └── types/
 └── workflows/
-    └── payment/                  # Temporal DTOs, workflow, activities, tests
+    └── payment/                  # Workflow, activities, tests
 ```
 
 ## Docs
