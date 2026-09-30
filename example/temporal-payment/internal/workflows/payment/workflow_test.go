@@ -6,6 +6,7 @@ import (
 
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/command"
+	"github.com/wotek/flux/event"
 	eventstore "github.com/wotek/flux/event/store"
 	"github.com/wotek/flux/example/temporal-payment/internal/sales/aggregates/order"
 	"github.com/wotek/flux/example/temporal-payment/internal/sales/commands"
@@ -14,6 +15,27 @@ import (
 	"github.com/wotek/flux/example/temporal-payment/internal/workflows/payment"
 	"go.temporal.io/sdk/testsuite"
 )
+
+func findPlacedEventRef(t *testing.T, es flux.EventStore, orderID string) event.EventReference {
+	t.Helper()
+	iter, err := es.Read(context.Background(), order.StreamFor(orderID), 0)
+	if err != nil {
+		t.Fatalf("reading order stream: %v", err)
+	}
+	for env, err := range iter {
+		if err != nil {
+			t.Fatalf("iterating stream: %v", err)
+		}
+		if _, ok := env.Event.(events.OrderPlaced); ok {
+			return event.EventReference{
+				Stream:  env.Stream.Identifier,
+				EventID: env.Identifier,
+			}
+		}
+	}
+	t.Fatalf("OrderPlaced event not found for order %s", orderID)
+	return event.EventReference{}
+}
 
 func TestOrderFulfillmentWorkflow_PaysWhenReady(t *testing.T) {
 	t.Parallel()
@@ -25,7 +47,7 @@ func TestOrderFulfillmentWorkflow_PaysWhenReady(t *testing.T) {
 	repo := flux.NewAggregateRepository[*order.OrderAggregate, events.OrderEvent](es)
 	cmdBus := command.New()
 	commands.Register(cmdBus, repo)
-	acts := &payment.Activities{CmdBus: cmdBus}
+	acts := &payment.Activities{EventStore: es, CmdBus: cmdBus}
 
 	orderID := "ord-test-1"
 	actor := flux.MustParseIdentifier("urn:shop:demo:iam:1:user:alice")
@@ -42,13 +64,8 @@ func TestOrderFulfillmentWorkflow_PaysWhenReady(t *testing.T) {
 	env.RegisterActivity(acts.PayOrderActivity)
 	env.RegisterActivity(acts.CancelOrderActivity)
 
-	in := payment.FulfillmentInput{
-		OrderID:        orderID,
-		ActorURN:       actor.String(),
-		CorrelationURN: corr.String(),
-		CausationURN:   corr.String(),
-	}
-	env.ExecuteWorkflow(payment.OrderFulfillmentWorkflow, in)
+	ref := findPlacedEventRef(t, es, orderID)
+	env.ExecuteWorkflow(payment.OrderFulfillmentWorkflow, ref)
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("workflow not completed")
 	}
@@ -75,7 +92,7 @@ func TestOrderFulfillmentWorkflow_CancelsWhenNotPaid(t *testing.T) {
 	repo := flux.NewAggregateRepository[*order.OrderAggregate, events.OrderEvent](es)
 	cmdBus := command.New()
 	commands.Register(cmdBus, repo)
-	acts := &payment.Activities{CmdBus: cmdBus}
+	acts := &payment.Activities{EventStore: es, CmdBus: cmdBus}
 
 	orderID := "ord-test-2"
 	actor := flux.MustParseIdentifier("urn:shop:demo:iam:1:user:bob")
@@ -90,13 +107,8 @@ func TestOrderFulfillmentWorkflow_CancelsWhenNotPaid(t *testing.T) {
 	env.RegisterActivity(acts.PayOrderActivity)
 	env.RegisterActivity(acts.CancelOrderActivity)
 
-	in := payment.FulfillmentInput{
-		OrderID:        orderID,
-		ActorURN:       actor.String(),
-		CorrelationURN: corr.String(),
-		CausationURN:   corr.String(),
-	}
-	env.ExecuteWorkflow(payment.OrderFulfillmentWorkflow, in)
+	ref := findPlacedEventRef(t, es, orderID)
+	env.ExecuteWorkflow(payment.OrderFulfillmentWorkflow, ref)
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("workflow not completed")
 	}

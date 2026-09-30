@@ -8,13 +8,11 @@ Source: [`example/temporal-payment`](https://github.com/wotek/flux/tree/main/exa
 
 - Domain-first layout (`internal/sales/…`, `internal/workflows/payment/`) per [Project Layout](/reference/project-layout)
 - EventBus starts a Temporal workflow with a stable ID (`order-fulfillment:{orderID}`)
-- Serializable DTOs (URNs / trace fields) across Temporal—not `flux.Event` interfaces
-- Activities call `command.Execute` with context rebuilt from the DTO
+- Workflows pass lightweight `event.EventReference` (`stream` + `event_id`) rather than duplicated domain payloads
+- Activities point-read persisted envelopes via `EventStore.Find` and reconstruct `command.Context`
+- Slim activity outputs (return `error` only, keeping Temporal history lightweight)
 - Aggregate no-ops for pay/cancel (no framework command-dedup store)
 - `go test` via Temporal `testsuite` without Docker
-
-> [!NOTE]
-> The example currently passes a fulfillment DTO; migrating to `event.EventReference` + `EventStore.Find` is the next step.
 
 ## Run tests
 

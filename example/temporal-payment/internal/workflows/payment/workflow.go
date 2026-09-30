@@ -3,13 +3,15 @@ package payment
 import (
 	"time"
 
+	"github.com/wotek/flux/event"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
 // OrderFulfillmentWorkflow waits briefly for payment, then pays or cancels.
-// Production apps would typically wait on a Signal; this demo uses a short timer.
-func OrderFulfillmentWorkflow(ctx workflow.Context, in FulfillmentInput) error {
+// It receives a lightweight event.EventReference rather than a duplicated domain payload;
+// individual activities point-read the persisted envelope from the EventStore via Find.
+func OrderFulfillmentWorkflow(ctx workflow.Context, ref event.EventReference) error {
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 10 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
@@ -23,15 +25,15 @@ func OrderFulfillmentWorkflow(ctx workflow.Context, in FulfillmentInput) error {
 	var acts *Activities
 
 	var paid bool
-	if err := workflow.ExecuteActivity(ctx, acts.CheckPaymentReceivedActivity, in.OrderID).Get(ctx, &paid); err != nil {
+	if err := workflow.ExecuteActivity(ctx, acts.CheckPaymentReceivedActivity, ref).Get(ctx, &paid); err != nil {
 		return err
 	}
 
 	if paid {
-		return workflow.ExecuteActivity(ctx, acts.PayOrderActivity, in).Get(ctx, nil)
+		return workflow.ExecuteActivity(ctx, acts.PayOrderActivity, ref).Get(ctx, nil)
 	}
 	return workflow.ExecuteActivity(ctx, acts.CancelOrderActivity, CancelOrderInput{
-		FulfillmentInput: in,
-		Reason:           "payment_timeout",
+		Reference: ref,
+		Reason:    "payment_timeout",
 	}).Get(ctx, nil)
 }

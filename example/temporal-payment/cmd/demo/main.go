@@ -35,24 +35,19 @@ func main() {
 	eventBus := event.New()
 
 	commands.Register(cmdBus, repo)
-	acts := &payment.Activities{CmdBus: cmdBus}
+	acts := &payment.Activities{EventStore: es, CmdBus: cmdBus}
 
-	// EventBus → Temporal StartWorkflow (stable ID; duplicate OrderPlaced should not fork a second saga).
+	// EventBus → Temporal StartWorkflow (using event.EventReference).
 	event.Register(eventBus, func(ctx event.Context, e events.OrderPlaced) error {
-		in := payment.FulfillmentInput{
-			OrderID:        e.OrderID,
-			ActorURN:       ctx.Actor().Identifier.String(),
-			CorrelationURN: ctx.CorrelationIdentifier().String(),
-			CausationURN:   ctx.EventIdentifier().String(),
-			TraceID:        ctx.Instrumentation().TraceID,
-			SpanID:         ctx.Instrumentation().SpanID,
-			TraceFlags:     ctx.Instrumentation().TraceFlags,
+		ref := event.EventReference{
+			Stream:  ctx.Stream().Identifier,
+			EventID: ctx.EventIdentifier(),
 		}
 		wfID := payment.WorkflowID(e.OrderID)
 		_, err := tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 			ID:        wfID,
 			TaskQueue: payment.TaskQueue,
-		}, payment.OrderFulfillmentWorkflow, in)
+		}, payment.OrderFulfillmentWorkflow, ref)
 		if err != nil {
 			log.Printf("start workflow %s: %v", wfID, err)
 		}
@@ -76,22 +71,36 @@ func main() {
 	corr := flux.MustParseIdentifier("urn:shop:demo:corr:1:correlation:" + orderID)
 	cmdCtx := command.NewContext(ctx, flux.MustParseIdentifier("urn:shop:demo:orders:1:command:place-"+orderID), actor, corr, flux.Identifier{})
 
+	// 1. Place the order via command bus. AggregateRepository.Save appends OrderPlaced to the EventStore.
 	if err := command.Execute(cmdCtx, cmdBus, commands.PlaceOrder{OrderID: orderID}); err != nil {
 		log.Fatalf("place order: %v", err)
 	}
 
-	env := flux.Envelope{
-		Identifier:            flux.MustParseIdentifier("urn:shop:demo:orders:1:event:placed-" + orderID),
-		Stream:                order.StreamFor(orderID),
-		Event:                 events.OrderPlaced{OrderID: orderID},
-		Actor:                 actor,
-		CorrelationIdentifier: corr,
-		Position:              1,
+	// 2. Read the persisted stream to obtain the stored envelope coordinates (simulating an outbox relay).
+	iter, err := es.Read(cmdCtx, order.StreamFor(orderID), 0)
+	if err != nil {
+		log.Fatalf("reading order stream: %v", err)
 	}
-	if err := event.PublishEnvelope(event.NewContext(ctx, env), eventBus, env); err != nil {
+	var placedEnv flux.Envelope
+	for env, err := range iter {
+		if err != nil {
+			log.Fatalf("iterating order stream: %v", err)
+		}
+		if _, ok := env.Event.(events.OrderPlaced); ok {
+			placedEnv = env
+		}
+	}
+	if placedEnv.Identifier.IsEmpty() {
+		log.Fatalf("OrderPlaced event not found in stream")
+	}
+
+	// 3. Publish the persisted envelope so the EventBus handler starts Temporal
+	// with the persisted event's EventReference.
+	if err := event.PublishEnvelope(event.NewContext(ctx, placedEnv), eventBus, placedEnv); err != nil {
 		log.Fatalf("publish: %v", err)
 	}
 
+	// 4. Mark payment ready in the activity state (simulates external payment webhook).
 	acts.MarkPaymentReady(orderID)
 
 	run := tc.GetWorkflow(ctx, payment.WorkflowID(orderID), "")

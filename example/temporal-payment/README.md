@@ -9,10 +9,12 @@ Layout follows [`docs/PROJECT_LAYOUT.md`](../../docs/PROJECT_LAYOUT.md): domain-
 ## What it demonstrates
 
 1. **Stable Temporal workflow IDs** (`order-fulfillment:{orderID}`) started from an EventBus handler.
-2. **Serializable DTOs** across the Temporal boundary (URN strings + trace fields—not `flux.Event` interfaces).
-3. **Activities → `command.Execute`** with `command.Context` rebuilt from DTO metadata (actor, correlation, causation, instrumentation).
-4. **Aggregate idempotency** (`Pay` / `Cancel` no-ops)—no framework command-dedup store.
-5. **Automated tests** via Temporal’s `testsuite` (no Docker required for `go test`).
+2. **Event Store as source of truth:** Workflows receive `event.EventReference` (`stream` + `event_id`) instead of duplicated domain payloads.
+3. **Point-reading via `EventStore.Find`:** Activities load the persisted envelope by reference on-demand, keeping Temporal history lightweight.
+4. **Context reconstruction:** Activities rebuild `command.Context` from envelope metadata (actor, correlation, causation, instrumentation) and call `command.Execute`.
+5. **Slim activity outputs:** Activities return only `error` or minimal status, never full envelopes.
+6. **Aggregate idempotency** (`Pay` / `Cancel` no-ops)—no framework command-dedup store.
+7. **Automated tests** via Temporal’s `testsuite` (no Docker required for `go test`).
 
 ## Tests (no Temporal server)
 
@@ -34,6 +36,8 @@ Expected output (payment marked ready before the workflow’s check):
 ```text
 order ord-… status=paid
 ```
+
+> **Note:** Payment readiness (`MarkPaymentReady`) simulates an external payment webhook/gateway confirmation before a domain event is recorded, which is why it lives in demo activity state rather than the Event Store.
 
 UI: http://localhost:8080 — workflow ID `order-fulfillment:{orderID}`.
 

@@ -87,7 +87,7 @@ func PayOrderActivity(ctx context.Context, ref event.EventReference) error {
 
 ## Reference implementation
 
-See `example/temporal-payment` (domain-first layout: `internal/sales/…`, Temporal under `internal/workflows/payment/`; still uses a fulfillment DTO; `EventReference` migration is forthcoming) and https://flux.keylight.io/examples/temporal-payment.
+See `example/temporal-payment` (domain-first layout: `internal/sales/…`, Temporal under `internal/workflows/payment/`; uses `event.EventReference` and `EventStore.Find`) and https://flux.keylight.io/examples/temporal-payment.
 
 Native in-process workflows: `example/e-commerce`.
 
