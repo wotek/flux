@@ -31,8 +31,8 @@ There is **no** `flux/temporal` helper package—use docs, conventions, and exam
 
 1. **Workflow ID:** `order-fulfillment:{orderID}` (or URN). Reject duplicate starts on redelivery.
 2. **Start vs signal:** `StartWorkflow` on initiating events; `SignalWorkflow("WakeUpSignal")` for projection wakeups.
-3. **Activity → command:** Build `command.Context` from serializable input (actor, correlation, causation, instrumentation DTOs)—not from a live `flux.Event` interface on the Temporal wire.
-4. **Payloads:** DTOs / IDs only across Temporal; decode events via registry/codecs in activities if needed.
+3. **Activity → command:** Build `command.Context` from envelope metadata retrieved via `Find` (actor, correlation, causation, instrumentation)—not from a live `flux.Event` interface on the Temporal wire.
+4. **Payloads & EventReference:** Prefer passing `event.EventReference` (`stream` + `event_id`) over fat fulfillment DTOs when the initiating fact is a stored event. Activities point-read the envelope via `EventStore.Find`. Custom activity DTOs are reserved for external inputs not present in the stored event.
 5. **Idempotency:** Temporal + aggregate invariants; no flux command-dedup middleware required.
 6. **Observability:** optional `fluxotel` on the command bus.
 
@@ -40,32 +40,40 @@ There is **no** `flux/temporal` helper package—use docs, conventions, and exam
 
 ```go
 event.Register(bus, func(ctx event.Context, e OrderPlaced) error {
+	ref := event.EventReference{
+		Stream:  ctx.Stream().Identifier,
+		EventID: ctx.EventIdentifier(),
+	}
 	_, err := temporalClient.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID:        "order-fulfillment:" + e.OrderID,
 		TaskQueue: "shop",
 		// Prefer reuse/conflict policies that avoid a second run on redelivery
-	}, OrderFulfillmentWorkflow, OrderFulfillmentInput{
-		OrderID:         e.OrderID,
-		Actor:           ctx.Actor(),
-		CorrelationID:   ctx.CorrelationIdentifier(),
-		CausationID:     ctx.EventIdentifier(),
-		Instrumentation: ctx.Instrumentation(),
-	})
+	}, OrderFulfillmentWorkflow, ref)
 	return err
 })
 ```
 
 ```go
-func PayOrderActivity(ctx context.Context, in PayOrderInput) error {
+func PayOrderActivity(ctx context.Context, ref event.EventReference) error {
+	env, err := eventStore.Find(ctx, flux.Stream{Identifier: ref.Stream}, ref.EventID)
+	if err != nil {
+		return err // Temporal automatically retries on transient errors / outbox lag
+	}
+
+	placed, ok := env.Event.(OrderPlaced)
+	if !ok {
+		return fmt.Errorf("unexpected event %T", env.Event)
+	}
+
 	cmdCtx := command.NewContext(
 		ctx,
-		flux.MustParseIdentifier("urn:shop:prod:pay:1:command:"+in.OrderID),
-		in.Actor,
-		in.CorrelationID,
-		in.CausationID,
-		flux.WithInstrumentation(in.Instrumentation),
+		flux.MustParseIdentifier("urn:shop:prod:pay:1:command:"+placed.OrderID),
+		env.Actor,
+		env.CorrelationIdentifier,
+		env.Identifier, // causation = triggering event ID
+		flux.WithInstrumentation(/* restored from env.Metadata if used */),
 	)
-	return command.Execute(cmdCtx, cmdBus, PayOrder{OrderID: in.OrderID})
+	return command.Execute(cmdCtx, cmdBus, PayOrder{OrderID: placed.OrderID})
 }
 ```
 
@@ -79,7 +87,7 @@ func PayOrderActivity(ctx context.Context, in PayOrderInput) error {
 
 ## Reference implementation
 
-See `example/temporal-payment` (domain-first layout: `internal/sales/…`, Temporal under `internal/workflows/payment/`) and https://flux.keylight.io/examples/temporal-payment.
+See `example/temporal-payment` (domain-first layout: `internal/sales/…`, Temporal under `internal/workflows/payment/`; still uses a fulfillment DTO; `EventReference` migration is forthcoming) and https://flux.keylight.io/examples/temporal-payment.
 
 Native in-process workflows: `example/e-commerce`.
 

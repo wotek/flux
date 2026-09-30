@@ -13,6 +13,9 @@ Source: [`example/temporal-payment`](https://github.com/wotek/flux/tree/main/exa
 - Aggregate no-ops for pay/cancel (no framework command-dedup store)
 - `go test` via Temporal `testsuite` without Docker
 
+> [!NOTE]
+> The example currently passes a fulfillment DTO; migrating to `event.EventReference` + `EventStore.Find` is the next step.
+
 ## Run tests
 
 ```bash

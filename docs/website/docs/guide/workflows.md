@@ -96,6 +96,9 @@ event.Register(eventBus, func(ctx event.Context, e OrderPlaced) error {
 })
 ```
 
+> [!TIP]
+> While passing custom DTOs (like `OrderFulfillmentInput` above) works when conveying external parameters, prefer passing an [`event.EventReference`](#optional-eventreference--eventstorefind) whenever the initiating fact is already persisted in the Event Store.
+
 ### Activity → command
 
 ```go
@@ -120,6 +123,68 @@ Steps:
 1. **Trigger:** EventBus handler calls `StartWorkflow` with a stable workflow ID.
 2. **Run:** Temporal owns state, timers (e.g. “cancel if unpaid in 10 minutes”), and retries.
 3. **Act:** Activities call `command.Execute` against aggregates.
+
+### Optional: EventReference + EventStore.Find
+
+When an initiating domain event has already been appended to the Event Store, copying all of its payload and metadata fields into custom Temporal input DTOs duplicates state across systems and bloats Temporal execution history.
+
+Instead, workflows can pass a lightweight, payload-free reference—`event.EventReference` (`stream` + `event_id`)—and have individual activities load the full envelope on-demand using `EventStore.Find`. The Event Store remains the single source of truth, while Temporal coordinates step execution.
+
+#### Starting a Workflow with EventReference
+
+When triggering a workflow from an EventBus subscriber (or transactional outbox relay), construct an `event.EventReference` from the persisted envelope coordinates:
+
+```go
+event.Register(eventBus, func(ctx event.Context, e OrderPlaced) error {
+	ref := event.EventReference{
+		Stream:  ctx.Stream().Identifier,
+		EventID: ctx.EventIdentifier(),
+	}
+
+	_, err := temporalClient.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        "order-fulfillment:" + e.OrderID,
+		TaskQueue: "shop",
+	}, OrderFulfillmentWorkflow, ref)
+	return err
+})
+```
+
+> [!NOTE]
+> `ctx.EventIdentifier()` is only resolvable via `EventStore.Find` if that envelope was already persisted to the store. Always align EventBus dispatch with store commits (such as after `repository.Save` or via an outbox relay).
+
+#### Loading the Envelope Inside Activities
+
+Activities receive the `event.EventReference`, load the envelope directly from the `EventStore`, reconstruct the command context from the stored envelope metadata, and execute the domain command:
+
+```go
+func PayOrderActivity(ctx context.Context, ref event.EventReference) error {
+	env, err := eventStore.Find(ctx, flux.Stream{Identifier: ref.Stream}, ref.EventID)
+	if err != nil {
+		// Transient errors or outbox replication lag are retried automatically by Temporal
+		return err
+	}
+
+	placed, ok := env.Event.(OrderPlaced)
+	if !ok {
+		return fmt.Errorf("unexpected event %T", env.Event)
+	}
+
+	cmdCtx := command.NewContext(
+		ctx,
+		flux.MustParseIdentifier("urn:shop:prod:pay:1:command:"+placed.OrderID),
+		env.Actor,
+		env.CorrelationIdentifier,
+		env.Identifier, // causation = triggering event ID
+		flux.WithInstrumentation(/* restored from env.Metadata if tracing is configured */),
+	)
+	return command.Execute(cmdCtx, cmdBus, PayOrder{OrderID: placed.OrderID})
+}
+```
+
+#### Best Practices for EventReference in Temporal
+
+- **Keep Activity Outputs Slim:** Activities should return only `error` or a minimal status struct. Never return a `flux.Envelope` or domain event from an activity back to the workflow, as doing so would serialize full payloads into Temporal history.
+- **Custom DTOs When Appropriate:** Use custom activity input structs only when transmitting external data not present in the stored domain event (such as a third-party payment gateway transaction token). When facts already exist in the event log, pass `EventReference` and let the activity retrieve them with `Find`.
 
 ### Hybrid tailing projections on Temporal
 
