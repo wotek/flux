@@ -467,4 +467,119 @@ func TestEventStore_ReadPositionMatchesStream(t *testing.T) {
 	}
 }
 
+func TestEventStore_Find(t *testing.T) {
+	t.Parallel()
+
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	streamA := flux.Stream{Identifier: flux.MustParseIdentifier("urn:acme:prod:catalog:tenant-1:product:find-a")}
+	streamB := flux.Stream{Identifier: flux.MustParseIdentifier("urn:acme:prod:catalog:tenant-1:product:find-b")}
+
+	evtID1 := flux.MustParseIdentifier("urn:acme:prod:catalog:tenant-1:event:evt-f1")
+	evtID2 := flux.MustParseIdentifier("urn:acme:prod:catalog:tenant-1:event:evt-f2")
+	evtID3 := flux.MustParseIdentifier("urn:acme:prod:catalog:tenant-1:event:evt-f3")
+	unknownID := flux.MustParseIdentifier("urn:acme:prod:catalog:tenant-1:event:unknown")
+
+	eventsA := []flux.Envelope{
+		{
+			Identifier: evtID1,
+			Event:      &itemAdded{ItemName: "Keyboard", Count: 1},
+			Metadata:   map[string]string{"env": "test"},
+		},
+		{
+			Identifier: evtID2,
+			Event:      &itemAdded{ItemName: "Mouse", Count: 2},
+		},
+	}
+	eventsB := []flux.Envelope{
+		{
+			Identifier: evtID3,
+			Event:      &itemAdded{ItemName: "Monitor", Count: 1},
+		},
+	}
+
+	if err := store.Append(ctx, streamA, 0, eventsA); err != nil {
+		t.Fatalf("Append streamA failed: %v", err)
+	}
+	if err := store.Append(ctx, streamB, 0, eventsB); err != nil {
+		t.Fatalf("Append streamB failed: %v", err)
+	}
+
+	t.Run("hit on stream A", func(t *testing.T) {
+		env, err := store.Find(ctx, streamA, evtID1)
+		if err != nil {
+			t.Fatalf("Find failed: %v", err)
+		}
+		if env.Identifier != evtID1 {
+			t.Errorf("Identifier = %s, want %s", env.Identifier, evtID1)
+		}
+		if env.Revision != 1 {
+			t.Errorf("Revision = %d, want 1", env.Revision)
+		}
+		if env.Position == 0 {
+			t.Errorf("Position is 0, want non-zero")
+		}
+		if env.Stream != streamA {
+			t.Errorf("Stream = %v, want %v", env.Stream, streamA)
+		}
+		if item, ok := env.Event.(*itemAdded); !ok || item.ItemName != "Keyboard" {
+			t.Errorf("Event payload unexpected: %v", env.Event)
+		}
+		if env.Metadata["env"] != "test" {
+			t.Errorf("Metadata['env'] = %q, want 'test'", env.Metadata["env"])
+		}
+	})
+
+	t.Run("hit second event on stream A", func(t *testing.T) {
+		env, err := store.Find(ctx, streamA, evtID2)
+		if err != nil {
+			t.Fatalf("Find failed: %v", err)
+		}
+		if env.Revision != 2 {
+			t.Errorf("Revision = %d, want 2", env.Revision)
+		}
+	})
+
+	t.Run("miss on stream A", func(t *testing.T) {
+		_, err := store.Find(ctx, streamA, unknownID)
+		if !errors.Is(err, flux.ErrEventNotFound) {
+			t.Errorf("expected ErrEventNotFound for unknown event, got %v", err)
+		}
+	})
+
+	t.Run("wrong stream returns ErrEventNotFound", func(t *testing.T) {
+		_, err := store.Find(ctx, streamA, evtID3)
+		if !errors.Is(err, flux.ErrEventNotFound) {
+			t.Errorf("expected ErrEventNotFound for event from streamB searched in streamA, got %v", err)
+		}
+	})
+
+	t.Run("nonexistent stream returns ErrEventNotFound", func(t *testing.T) {
+		nonexistentStream := flux.Stream{Identifier: flux.MustParseIdentifier("urn:acme:prod:catalog:tenant-1:product:nonexistent")}
+		_, err := store.Find(ctx, nonexistentStream, evtID1)
+		if !errors.Is(err, flux.ErrEventNotFound) {
+			t.Errorf("expected ErrEventNotFound for nonexistent stream, got %v", err)
+		}
+	})
+
+	t.Run("empty eventID returns ErrEventNotFound", func(t *testing.T) {
+		_, err := store.Find(ctx, streamA, flux.Identifier{})
+		if !errors.Is(err, flux.ErrEventNotFound) {
+			t.Errorf("expected ErrEventNotFound for empty eventID, got %v", err)
+		}
+	})
+
+	t.Run("cancelled context returns context error", func(t *testing.T) {
+		canceledCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := store.Find(canceledCtx, streamA, evtID1)
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("expected context.Canceled, got %v", err)
+		}
+	})
+}
+
+
 

@@ -18,4 +18,8 @@ type EventStore interface {
 	// Stream retrieves events from the global event log starting from the given position.
 	// This is used by Projectors and Workflows to tail the entire system's events.
 	Stream(ctx context.Context, position uint64) (StreamIterator, error)
+
+	// Find returns the envelope for the given stream and event identifier.
+	// If no matching event exists in that stream, return an error wrapping ErrEventNotFound.
+	Find(ctx context.Context, stream Stream, eventID Identifier) (Envelope, error)
 }

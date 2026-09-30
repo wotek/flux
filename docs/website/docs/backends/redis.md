@@ -8,7 +8,7 @@ Redis provides high-performance, in-memory storage suitable for fast prototyping
 
 ## Event Store
 
-The Redis Event Store uses native Redis Streams (`XADD` / `XREAD`) with atomic Lua script execution for append operations. It guarantees optimistic concurrency control using contiguous sequence counters.
+The Redis Event Store uses native Redis Streams (`XADD` / `XREAD`) with atomic Lua script execution for append operations. It guarantees optimistic concurrency control using contiguous sequence counters. Point-read retrieval of a single event envelope by stream and event identifier is provided via `Find(ctx, stream, eventID)`.
 
 > [!WARNING]
 > **Deployment Constraint: Standalone Redis Only**

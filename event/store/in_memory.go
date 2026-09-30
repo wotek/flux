@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -118,4 +119,37 @@ func (s *EventStore) Stream(ctx context.Context, position uint64) (flux.StreamIt
 			}
 		}
 	}, nil
+}
+
+// Find returns the envelope for the given stream and event identifier.
+// If no matching event exists in that stream, it returns an error wrapping [flux.ErrEventNotFound].
+func (s *EventStore) Find(ctx context.Context, stream flux.Stream, eventID flux.Identifier) (flux.Envelope, error) {
+	if err := ctx.Err(); err != nil {
+		return flux.Envelope{}, err
+	}
+
+	if eventID.IsEmpty() {
+		return flux.Envelope{}, fmt.Errorf("%w: empty event identifier", flux.ErrEventNotFound)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	streamID := stream.Identifier.String()
+	events, exists := s.streams[streamID]
+	if !exists {
+		return flux.Envelope{}, fmt.Errorf("%w: stream %q not found", flux.ErrEventNotFound, streamID)
+	}
+
+	for _, env := range events {
+		if env.Identifier == eventID {
+			copied := env
+			if env.Metadata != nil {
+				copied.Metadata = maps.Clone(env.Metadata)
+			}
+			return copied, nil
+		}
+	}
+
+	return flux.Envelope{}, fmt.Errorf("%w: event %q not found in stream %q", flux.ErrEventNotFound, eventID.String(), streamID)
 }

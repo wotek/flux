@@ -261,6 +261,36 @@ func (s *EventStore) Stream(ctx context.Context, position uint64) (flux.StreamIt
 	}, nil
 }
 
+// Find returns the envelope for the given stream and event identifier.
+// Redis Streams are append-only logs without secondary indexing by event URN,
+// so Find scans the stream entries via Read until a matching event identifier is found.
+// If no matching event exists in that stream, it returns an error wrapping [flux.ErrEventNotFound].
+func (s *EventStore) Find(ctx context.Context, stream flux.Stream, eventID flux.Identifier) (flux.Envelope, error) {
+	if err := ctx.Err(); err != nil {
+		return flux.Envelope{}, err
+	}
+
+	if eventID.IsEmpty() {
+		return flux.Envelope{}, fmt.Errorf("%w: empty event identifier", flux.ErrEventNotFound)
+	}
+
+	iter, err := s.Read(ctx, stream, 0)
+	if err != nil {
+		return flux.Envelope{}, fmt.Errorf("reading stream %q: %w", stream.Identifier.String(), err)
+	}
+
+	for env, err := range iter {
+		if err != nil {
+			return flux.Envelope{}, err
+		}
+		if env.Identifier == eventID {
+			return env, nil
+		}
+	}
+
+	return flux.Envelope{}, fmt.Errorf("%w: event %q not found in stream %q", flux.ErrEventNotFound, eventID.String(), stream.Identifier.String())
+}
+
 func (s *EventStore) revisionKey(streamURN string) string {
 	if s.config.keyPrefix != "" {
 		return s.config.keyPrefix + ":revision:" + streamURN

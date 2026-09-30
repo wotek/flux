@@ -309,6 +309,44 @@ func (s *EventStore) Stream(ctx context.Context, position uint64) (flux.StreamIt
 	}, nil
 }
 
+// Find returns the envelope for the given stream and event identifier.
+// If no matching event exists in that stream, it returns an error wrapping [flux.ErrEventNotFound].
+func (s *EventStore) Find(ctx context.Context, stream flux.Stream, eventID flux.Identifier) (flux.Envelope, error) {
+	if err := ctx.Err(); err != nil {
+		return flux.Envelope{}, err
+	}
+
+	if eventID.IsEmpty() {
+		return flux.Envelope{}, fmt.Errorf("%w: empty event identifier", flux.ErrEventNotFound)
+	}
+
+	streamID := stream.Identifier.String()
+	query := fmt.Sprintf("SELECT position, revision, event_data FROM %s WHERE stream_id = ? AND event_id = ?", s.config.tableName)
+
+	var position uint64
+	var revision uint64
+	var eventData []byte
+
+	err := s.db.QueryRowContext(ctx, query, streamID, eventID.String()).Scan(&position, &revision, &eventData)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return flux.Envelope{}, fmt.Errorf("%w: event %q not found in stream %q", flux.ErrEventNotFound, eventID.String(), streamID)
+		}
+		return flux.Envelope{}, fmt.Errorf("finding event %q in stream %q: %w", eventID.String(), streamID, err)
+	}
+
+	env, err := s.serializer.Unmarshal(eventData)
+	if err != nil {
+		return flux.Envelope{}, fmt.Errorf("unmarshaling event payload: %w", err)
+	}
+
+	env.Position = position
+	env.Revision = revision
+	env.Stream = stream
+
+	return env, nil
+}
+
 func isDuplicateKeyError(err error) bool {
 	if err == nil {
 		return false

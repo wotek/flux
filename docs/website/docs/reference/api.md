@@ -11,6 +11,9 @@ var (
 	// ErrAggregateNotFound is returned when an aggregate cannot be loaded from the EventStore or SnapshotStore.
 	ErrAggregateNotFound = errors.New("aggregate not found")
 
+	// ErrEventNotFound is returned when an event cannot be found in a stream.
+	ErrEventNotFound = errors.New("event not found")
+
 	// ErrSnapshotNotFound is returned by a SnapshotStore when no snapshot exists for a stream.
 	ErrSnapshotNotFound = errors.New("snapshot not found")
 
@@ -250,6 +253,8 @@ func (s *EventStore) Append(ctx context.Context, stream flux.Stream, expectedRev
 func (s *EventStore) Read(ctx context.Context, stream flux.Stream, fromRevision uint64) (flux.StreamIterator, error)
 
 func (s *EventStore) Stream(ctx context.Context, position uint64) (flux.StreamIterator, error)
+
+func (s *EventStore) Find(ctx context.Context, stream flux.Stream, eventID flux.Identifier) (flux.Envelope, error)
 ```
 
 ### In-Memory Snapshot Store
@@ -298,6 +303,8 @@ func (s *EventStore) Append(ctx context.Context, stream flux.Stream, expectedRev
 func (s *EventStore) Read(ctx context.Context, stream flux.Stream, fromRevision uint64) (flux.StreamIterator, error)
 
 func (s *EventStore) Stream(ctx context.Context, position uint64) (flux.StreamIterator, error)
+
+func (s *EventStore) Find(ctx context.Context, stream flux.Stream, eventID flux.Identifier) (flux.Envelope, error)
 ```
 
 ### Redis Snapshot Store
@@ -347,6 +354,8 @@ func (s *EventStore) Append(ctx context.Context, stream flux.Stream, expectedRev
 func (s *EventStore) Read(ctx context.Context, stream flux.Stream, fromRevision uint64) (flux.StreamIterator, error)
 
 func (s *EventStore) Stream(ctx context.Context, position uint64) (flux.StreamIterator, error)
+
+func (s *EventStore) Find(ctx context.Context, stream flux.Stream, eventID flux.Identifier) (flux.Envelope, error)
 ```
 
 ### MySQL Snapshot Store

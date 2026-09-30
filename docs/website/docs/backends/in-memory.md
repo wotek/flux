@@ -8,7 +8,7 @@ The in-memory drivers are available in:
 
 ## Event Store
 
-The in-memory Event Store provides thread-safe append and stream operations protected by a reader-writer lock (`sync.RWMutex`), enforcing optimistic concurrency control matching the behavior of durable backends.
+The in-memory Event Store provides thread-safe append and stream operations protected by a reader-writer lock (`sync.RWMutex`), enforcing optimistic concurrency control matching the behavior of durable backends. Point-read retrieval of a single event envelope by stream and event identifier is provided via `Find(ctx, stream, eventID)`.
 
 ```go
 package main

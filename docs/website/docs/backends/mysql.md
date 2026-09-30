@@ -8,7 +8,7 @@ The MySQL backend provides ACID-compliant event storage and snapshot persistence
 
 ## Event Store
 
-The MySQL Event Store persists events into a relational schema with decomposed columns for indexing, observability, and auditability. Appends are executed within a database transaction, guaranteeing atomic batch writes and strict optimistic concurrency control.
+The MySQL Event Store persists events into a relational schema with decomposed columns for indexing, observability, and auditability. Appends are executed within a database transaction, guaranteeing atomic batch writes and strict optimistic concurrency control. Point-read retrieval of a single event envelope by stream and event identifier is provided via `Find(ctx, stream, eventID)`.
 
 ### Relational Schema
 
@@ -26,12 +26,13 @@ CREATE TABLE IF NOT EXISTS events (
     timestamp TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6) NOT NULL,
     application_metadata JSON NULL,
     UNIQUE KEY uk_stream_revision (stream_id, revision),
+    UNIQUE KEY uk_stream_event (stream_id, event_id),
     INDEX idx_stream_id (stream_id),
     INDEX idx_correlation_id (correlation_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 ```
 
-Raw SQL schema definitions are provided alongside the package in `event/store/mysql/schema.sql` (and `snapshot/store/mysql/schema.sql`). Schema creation is decoupled from application runtime, allowing DBAs and migration tools (e.g., `golang-migrate` or `goose`) full control over database initialization and indexes.
+Raw SQL schema definitions are provided alongside the package in `event/store/mysql/schema.sql` (and `snapshot/store/mysql/schema.sql`). Schema creation is decoupled from application runtime, allowing DBAs and migration tools (e.g., `golang-migrate` or `goose`) full control over database initialization and indexes. The `UNIQUE KEY uk_stream_event (stream_id, event_id)` constraint ensures that event IDs are unique within a stream and provides $O(1)$ index lookups for point-reads using `Find(ctx, stream, eventID)`.
 
 ### Optimistic Concurrency Control
 

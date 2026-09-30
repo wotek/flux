@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS events (
     -- Optimistic Concurrency Constraint
     UNIQUE KEY uk_stream_revision (stream_id, revision),
 
+    -- Point Lookup and Idempotency Constraint
+    UNIQUE KEY uk_stream_event (stream_id, event_id),
+
     -- Observability Indexes
     INDEX idx_event_type (event_type),
     INDEX idx_correlation (correlation_id)

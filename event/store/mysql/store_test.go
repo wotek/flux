@@ -606,3 +606,151 @@ func TestEventStore_Pagination(t *testing.T) {
 		}
 	})
 }
+
+func TestEventStore_Find(t *testing.T) {
+	t.Parallel()
+
+	stream := flux.Stream{Identifier: flux.MustParseIdentifier("urn:test::stream:1:order:ord-1")}
+	evtID := flux.MustParseIdentifier("urn:test::event:1:order:evt-1")
+
+	t.Run("hit returns envelope", func(t *testing.T) {
+		t.Parallel()
+		store, mock, _, serializer := setupTestStore(t)
+		ctx := context.Background()
+
+		expectedEnv := flux.Envelope{
+			Identifier: evtID,
+			Event:      &orderPlaced{OrderNumber: "ORD-1", Amount: 100},
+			Metadata:   map[string]string{"foo": "bar"},
+		}
+		data, err := serializer.Marshal(expectedEnv)
+		if err != nil {
+			t.Fatalf("failed to marshal: %v", err)
+		}
+
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = ? AND event_id = ?")).
+			WithArgs(stream.Identifier.String(), evtID.String()).
+			WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}).
+				AddRow(uint64(42), uint64(5), data))
+
+		env, err := store.Find(ctx, stream, evtID)
+		if err != nil {
+			t.Fatalf("Find failed: %v", err)
+		}
+
+		if env.Position != 42 {
+			t.Errorf("Position = %d, want 42", env.Position)
+		}
+		if env.Revision != 5 {
+			t.Errorf("Revision = %d, want 5", env.Revision)
+		}
+		if env.Stream != stream {
+			t.Errorf("Stream = %v, want %v", env.Stream, stream)
+		}
+		if env.Identifier != evtID {
+			t.Errorf("Identifier = %s, want %s", env.Identifier, evtID)
+		}
+		if op, ok := env.Event.(*orderPlaced); !ok || op.OrderNumber != "ORD-1" {
+			t.Errorf("Event payload unexpected: %v", env.Event)
+		}
+		if env.Metadata["foo"] != "bar" {
+			t.Errorf("Metadata['foo'] = %q, want 'bar'", env.Metadata["foo"])
+		}
+
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unfulfilled sql expectations: %v", err)
+		}
+	})
+
+	t.Run("miss returns ErrEventNotFound", func(t *testing.T) {
+		t.Parallel()
+		store, mock, _, _ := setupTestStore(t)
+		ctx := context.Background()
+
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = ? AND event_id = ?")).
+			WithArgs(stream.Identifier.String(), evtID.String()).
+			WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}))
+
+		_, err := store.Find(ctx, stream, evtID)
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !errors.Is(err, flux.ErrEventNotFound) {
+			t.Errorf("expected ErrEventNotFound, got %v", err)
+		}
+
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unfulfilled sql expectations: %v", err)
+		}
+	})
+
+	t.Run("empty eventID returns ErrEventNotFound", func(t *testing.T) {
+		t.Parallel()
+		store, _, _, _ := setupTestStore(t)
+		ctx := context.Background()
+
+		_, err := store.Find(ctx, stream, flux.Identifier{})
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !errors.Is(err, flux.ErrEventNotFound) {
+			t.Errorf("expected ErrEventNotFound, got %v", err)
+		}
+	})
+
+	t.Run("query error returns wrapped error", func(t *testing.T) {
+		t.Parallel()
+		store, mock, _, _ := setupTestStore(t)
+		ctx := context.Background()
+
+		dbErr := errors.New("connection reset")
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = ? AND event_id = ?")).
+			WithArgs(stream.Identifier.String(), evtID.String()).
+			WillReturnError(dbErr)
+
+		_, err := store.Find(ctx, stream, evtID)
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !errors.Is(err, dbErr) {
+			t.Errorf("expected db error, got %v", err)
+		}
+
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unfulfilled sql expectations: %v", err)
+		}
+	})
+
+	t.Run("unmarshal error returns error", func(t *testing.T) {
+		t.Parallel()
+		store, mock, _, _ := setupTestStore(t)
+		ctx := context.Background()
+
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = ? AND event_id = ?")).
+			WithArgs(stream.Identifier.String(), evtID.String()).
+			WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}).
+				AddRow(uint64(1), uint64(1), []byte("invalid json payload")))
+
+		_, err := store.Find(ctx, stream, evtID)
+		if err == nil {
+			t.Fatalf("expected error on invalid payload, got nil")
+		}
+
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unfulfilled sql expectations: %v", err)
+		}
+	})
+
+	t.Run("context cancelled returns context error", func(t *testing.T) {
+		t.Parallel()
+		store, _, _, _ := setupTestStore(t)
+		canceledCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := store.Find(canceledCtx, stream, evtID)
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("expected context.Canceled, got %v", err)
+		}
+	})
+}
+
