@@ -173,6 +173,8 @@ type Serializer interface {
 type TypeRegistry interface {
 	Instantiate(name string) (flux.Event, error)
 }
+
+func AsValue(e flux.Event) flux.Event
 ```
 
 ### JSON Codec

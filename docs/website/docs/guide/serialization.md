@@ -22,9 +22,7 @@ To solve this, a framework must provide a **Type Registry** that converts a stri
 
 ## 1. The Generic Type Registry (`event.Types`)
 
-`flux` solves the interface deserialization problem natively, **without using Go's slow `reflect` package**. 
-
-Instead, it relies on Go Generics to provide a blazing-fast, type-safe registry in the `flux/event` package.
+`flux` solves the interface deserialization problem natively, relying on Go Generics to provide a blazing-fast, type-safe registry in the `flux/event` package where lookup is a map of factories.
 
 ### Registering Events
 During your application's startup, you register your events with the generic `Types` registry. This tells the framework how to instantiate empty pointers of your events.
@@ -73,7 +71,7 @@ event.RegisterPointerType[events.ProductCreated](registry)
 ```
 
 ### Instantiating Events (For Backend Drivers)
-If you are writing a custom database driver, you simply ask the registry for an empty pointer using the event's name.
+If you are writing a custom database driver, you ask the registry for an empty pointer using the event's name.
 
 ```go
 // 1. Get an empty *events.ProductCreated pointer wrapped in the Event interface
@@ -83,9 +81,19 @@ eventPtr, err := registry.Instantiate("ProductCreated")
 // Go is smart enough to unpack the interface and populate the underlying pointer.
 json.Unmarshal(rawBytes, eventPtr)
 
-// 3. Assign it safely back to the Envelope
-envelope.Event = eventPtr
+// 3. Shape into domain-facing form and assign to the Envelope
+envelope.Event = codec.AsValue(eventPtr)
 ```
+
+### Domain-Facing Event Shape (`codec.AsValue`)
+
+To decode bytes safely, unmarshalers require an addressable pointer (`*T`), which `Instantiate()` allocates. However, domain aggregates and handlers should not have to guess whether an incoming event was received in memory or read from a persistent store:
+
+1. **`Instantiate` returns a pointer** (`*T`) so unmarshalers (`json.Unmarshal`, `xml.Unmarshal`, `proto.Unmarshal`) can populate struct fields.
+2. **Batteries-included codecs call `codec.AsValue`** before returning `Envelope.Event`, dereferencing value-receiver events automatically.
+3. **Domain code type-switches on values** for events registered via `event.RegisterType[T]`. Only pointer-receiver events registered via `event.RegisterPointerType[T]` (such as Protobuf generated types) remain pointers.
+4. **Never dual-case `case T:` and `case *T:` in aggregates.** With `codec.AsValue`, the decoded event shape always matches how it was registered.
+5. **Custom drivers that bypass `codec.Serializer`** should call `codec.AsValue` themselves after unmarshaling into `Instantiate()`'s result.
 
 ---
 
@@ -107,7 +115,7 @@ type Serializer interface {
 
 ### Supported Codecs
 
-`flux` currently ships with two natively supported codecs: **JSON** and **XML**.
+`flux` currently ships with three natively supported codecs: **JSON**, **XML**, and **Protocol Buffers**.
 
 #### Using the JSON Codec
 The JSON codec provides standard, human-readable serialization. It is perfect for logging, REST APIs, or document databases like MongoDB and PostgreSQL JSONB columns.

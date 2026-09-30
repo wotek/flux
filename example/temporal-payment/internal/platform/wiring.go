@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"reflect"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/wotek/flux"
@@ -43,9 +42,7 @@ func OpenEventStore(ctx context.Context) (flux.EventStore, func(), error) {
 	}
 
 	serializer := jsoncodec.New(EventTypes())
-	// JSON codecs instantiate event pointers for unmarshaling; wrap so the domain
-	// always sees value-typed events (same shape as in-memory append).
-	es := valueEvents{inner: redisstore.New(client, serializer)}
+	es := redisstore.New(client, serializer)
 	cleanup := func() { _ = client.Close() }
 	return es, cleanup, nil
 }
@@ -66,62 +63,3 @@ func Env(key, def string) string {
 	return def
 }
 
-// valueEvents adapts a codec-backed store so Read/Find/Stream yield value-typed events.
-type valueEvents struct {
-	inner flux.EventStore
-}
-
-func (s valueEvents) Append(ctx context.Context, stream flux.Stream, expectedRevision uint64, events []flux.Envelope) error {
-	return s.inner.Append(ctx, stream, expectedRevision, events)
-}
-
-func (s valueEvents) Read(ctx context.Context, stream flux.Stream, fromRevision uint64) (flux.StreamIterator, error) {
-	iter, err := s.inner.Read(ctx, stream, fromRevision)
-	if err != nil {
-		return nil, err
-	}
-	return mapEnvelopes(iter), nil
-}
-
-func (s valueEvents) Stream(ctx context.Context, position uint64) (flux.StreamIterator, error) {
-	iter, err := s.inner.Stream(ctx, position)
-	if err != nil {
-		return nil, err
-	}
-	return mapEnvelopes(iter), nil
-}
-
-func (s valueEvents) Find(ctx context.Context, stream flux.Stream, eventID flux.Identifier) (flux.Envelope, error) {
-	env, err := s.inner.Find(ctx, stream, eventID)
-	if err != nil {
-		return flux.Envelope{}, err
-	}
-	env.Event = valueEvent(env.Event)
-	return env, nil
-}
-
-func mapEnvelopes(iter flux.StreamIterator) flux.StreamIterator {
-	return func(yield func(flux.Envelope, error) bool) {
-		for env, err := range iter {
-			if err != nil {
-				yield(flux.Envelope{}, err)
-				return
-			}
-			env.Event = valueEvent(env.Event)
-			if !yield(env, nil) {
-				return
-			}
-		}
-	}
-}
-
-func valueEvent(e flux.Event) flux.Event {
-	if e == nil {
-		return nil
-	}
-	v := reflect.ValueOf(e)
-	if v.Kind() == reflect.Pointer && !v.IsNil() {
-		return v.Elem().Interface().(flux.Event)
-	}
-	return e
-}
