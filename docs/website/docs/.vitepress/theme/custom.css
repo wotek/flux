@@ -83,3 +83,36 @@ h6,
 .VPDocAsideOutline .outline-link {
   font-family: var(--font-monolisa);
 }
+
+/* Introduction page banner (logo on left, tagline on right below # Flux) */
+.flux-intro-banner {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin: 16px 0 32px 0;
+}
+
+.flux-logo {
+  width: 72px;
+  height: auto;
+  flex-shrink: 0;
+}
+
+.flux-tagline {
+  margin: 0 !important;
+  font-size: 1.125rem;
+  line-height: 1.6;
+  color: var(--vp-c-text-2);
+}
+
+@media (max-width: 640px) {
+  .flux-intro-banner {
+    gap: 16px;
+  }
+  .flux-logo {
+    width: 56px;
+  }
+  .flux-tagline {
+    font-size: 1rem;
+  }
+}

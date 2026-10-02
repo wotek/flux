@@ -13,6 +13,9 @@ export default defineConfig({
   title: "flux",
   description: "Event-Sourcing Framework for Go",
   head: [
+    ['link', { rel: 'icon', type: 'image/png', href: '/favicon.png' }],
+    ['link', { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' }],
+    ['link', { rel: 'apple-touch-icon', href: '/apple-touch-icon.png' }],
     ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],
     ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],
     ['link', {
@@ -24,7 +27,7 @@ export default defineConfig({
     logo: '/logo.png',
     nav: [
       { text: version, link: 'https://github.com/wotek/flux/releases' },
-      { text: 'Getting Started', link: '/getting-started/introduction' },
+      { text: 'Getting Started', link: '/' },
       { text: 'Tutorial', link: '/tutorial/01-project-setup' },
       { text: 'GitHub', link: 'https://github.com/wotek/flux' }
     ],
@@ -32,7 +35,7 @@ export default defineConfig({
       {
         text: 'Getting Started',
         items: [
-          { text: 'Introduction', link: '/getting-started/introduction' },
+          { text: 'Introduction', link: '/' },
           { text: 'Installation', link: '/getting-started/installation' },
           { text: 'Quick Start', link: '/getting-started/quick-start' },
         ]
