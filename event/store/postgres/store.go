@@ -1,10 +1,21 @@
 package postgres
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/wotek/flux"
 	"github.com/wotek/flux/codec"
 )
+
+var _ flux.EventStore = (*EventStore)(nil)
 
 // EventStore is a PostgreSQL-backed implementation of [flux.EventStore].
 type EventStore struct {
@@ -30,4 +41,325 @@ func New(db *sql.DB, serializer codec.Serializer, opts ...Option) *EventStore {
 // NewEventStore is an alias for [New] to maintain explicit constructor naming.
 func NewEventStore(db *sql.DB, serializer codec.Serializer, opts ...Option) *EventStore {
 	return New(db, serializer, opts...)
+}
+
+// Append adds new events to a specific stream, enforcing optimistic concurrency.
+func (s *EventStore) Append(ctx context.Context, stream flux.Stream, expectedRevision uint64, events []flux.Envelope) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if len(events) == 0 {
+		return nil
+	}
+
+	streamID := stream.Identifier.String()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("starting append transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	checkQuery := fmt.Sprintf("SELECT revision FROM %s WHERE stream_id = $1 ORDER BY revision DESC LIMIT 1 FOR UPDATE", s.config.tableName)
+	var currentRevision uint64
+	if err := tx.QueryRowContext(ctx, checkQuery, streamID).Scan(&currentRevision); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			currentRevision = 0
+		} else {
+			return fmt.Errorf("checking stream revision for %q: %w", streamID, err)
+		}
+	}
+
+	if currentRevision != expectedRevision {
+		return fmt.Errorf("%w: expected revision %d, got %d", flux.ErrConcurrency, expectedRevision, currentRevision)
+	}
+
+	insertQuery := fmt.Sprintf(`INSERT INTO %s (
+    stream_id, stream_type, event_id, event_type, revision,
+    event_data, causation_id, correlation_id, timestamp, application_metadata
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, s.config.tableName)
+
+	stmt, err := tx.PrepareContext(ctx, insertQuery)
+	if err != nil {
+		return fmt.Errorf("preparing insert statement: %w", err)
+	}
+	defer func() {
+		_ = stmt.Close()
+	}()
+
+	for i, env := range events {
+		if env.CreatedAt.IsZero() {
+			env.CreatedAt = time.Now().UTC()
+		}
+		env.Stream = stream
+		env.Revision = expectedRevision + uint64(i) + 1
+
+		payload, err := s.serializer.Marshal(env)
+		if err != nil {
+			return fmt.Errorf("marshaling envelope: %w", err)
+		}
+
+		var streamType *string
+		if resType := stream.Identifier.ResourceType(); resType != "" {
+			streamType = &resType
+		}
+
+		var causationID *string
+		if !env.CausationIdentifier.IsEmpty() {
+			s := env.CausationIdentifier.String()
+			causationID = &s
+		}
+
+		var correlationID *string
+		if !env.CorrelationIdentifier.IsEmpty() {
+			s := env.CorrelationIdentifier.String()
+			correlationID = &s
+		}
+
+		var appMetadata *string
+		if len(env.Metadata) > 0 {
+			metaBytes, err := json.Marshal(env.Metadata)
+			if err != nil {
+				return fmt.Errorf("marshaling application metadata: %w", err)
+			}
+			s := string(metaBytes)
+			appMetadata = &s
+		}
+
+		_, err = stmt.ExecContext(ctx,
+			streamID,
+			streamType,
+			env.Identifier.String(),
+			env.Event.Name(),
+			env.Revision,
+			payload,
+			causationID,
+			correlationID,
+			env.CreatedAt,
+			appMetadata,
+		)
+		if err != nil {
+			if isUniqueViolation(err) {
+				return fmt.Errorf("%w: %s", flux.ErrConcurrency, err.Error())
+			}
+			return fmt.Errorf("inserting event %d into stream %q: %w", env.Revision, streamID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		if isUniqueViolation(err) {
+			return fmt.Errorf("%w: %s", flux.ErrConcurrency, err.Error())
+		}
+		return fmt.Errorf("committing append transaction for %q: %w", streamID, err)
+	}
+
+	return nil
+}
+
+// Read retrieves events for a specific stream starting after the given fromRevision.
+// Passing 0 reads the entire stream from the beginning.
+// Keyset pagination is used to prevent holding database connections open during extended consumption.
+func (s *EventStore) Read(ctx context.Context, stream flux.Stream, fromRevision uint64) (flux.StreamIterator, error) {
+	streamID := stream.Identifier.String()
+	batchSize := s.config.batchSize
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+	query := fmt.Sprintf("SELECT position, revision, event_data FROM %s WHERE stream_id = $1 AND revision > $2 ORDER BY revision ASC LIMIT $3", s.config.tableName)
+
+	return func(yield func(flux.Envelope, error) bool) {
+		lastRevision := fromRevision
+
+		for {
+			if err := ctx.Err(); err != nil {
+				yield(flux.Envelope{}, err)
+				return
+			}
+
+			rows, err := s.db.QueryContext(ctx, query, streamID, lastRevision, batchSize)
+			if err != nil {
+				yield(flux.Envelope{}, fmt.Errorf("querying events for stream %q: %w", streamID, err))
+				return
+			}
+
+			type rowData struct {
+				position  uint64
+				revision  uint64
+				eventData []byte
+			}
+			var batch []rowData
+
+			for rows.Next() {
+				var r rowData
+				if err := rows.Scan(&r.position, &r.revision, &r.eventData); err != nil {
+					_ = rows.Close()
+					yield(flux.Envelope{}, fmt.Errorf("scanning event row: %w", err))
+					return
+				}
+				batch = append(batch, r)
+			}
+
+			if err := rows.Err(); err != nil {
+				_ = rows.Close()
+				yield(flux.Envelope{}, fmt.Errorf("iterating event rows: %w", err))
+				return
+			}
+			_ = rows.Close()
+
+			if len(batch) == 0 {
+				return
+			}
+
+			for _, r := range batch {
+				lastRevision = r.revision
+
+				env, err := s.serializer.Unmarshal(r.eventData)
+				if err != nil {
+					yield(flux.Envelope{}, fmt.Errorf("unmarshaling event payload: %w", err))
+					return
+				}
+
+				env.Position = r.position
+				env.Revision = r.revision
+				env.Stream = stream
+
+				if !yield(env, nil) {
+					return
+				}
+			}
+
+			if len(batch) < batchSize {
+				return
+			}
+		}
+	}, nil
+}
+
+// Stream retrieves events from the global event log starting after the given position.
+// Keyset pagination is used to prevent holding database connections open during extended consumption.
+func (s *EventStore) Stream(ctx context.Context, position uint64) (flux.StreamIterator, error) {
+	batchSize := s.config.batchSize
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+	query := fmt.Sprintf("SELECT position, revision, event_data FROM %s WHERE position > $1 ORDER BY position ASC LIMIT $2", s.config.tableName)
+
+	return func(yield func(flux.Envelope, error) bool) {
+		lastPosition := position
+
+		for {
+			if err := ctx.Err(); err != nil {
+				yield(flux.Envelope{}, err)
+				return
+			}
+
+			rows, err := s.db.QueryContext(ctx, query, lastPosition, batchSize)
+			if err != nil {
+				yield(flux.Envelope{}, fmt.Errorf("querying global event stream: %w", err))
+				return
+			}
+
+			type rowData struct {
+				position  uint64
+				revision  uint64
+				eventData []byte
+			}
+			var batch []rowData
+
+			for rows.Next() {
+				var r rowData
+				if err := rows.Scan(&r.position, &r.revision, &r.eventData); err != nil {
+					_ = rows.Close()
+					yield(flux.Envelope{}, fmt.Errorf("scanning global event row: %w", err))
+					return
+				}
+				batch = append(batch, r)
+			}
+
+			if err := rows.Err(); err != nil {
+				_ = rows.Close()
+				yield(flux.Envelope{}, fmt.Errorf("iterating global event rows: %w", err))
+				return
+			}
+			_ = rows.Close()
+
+			if len(batch) == 0 {
+				return
+			}
+
+			for _, r := range batch {
+				lastPosition = r.position
+
+				env, err := s.serializer.Unmarshal(r.eventData)
+				if err != nil {
+					yield(flux.Envelope{}, fmt.Errorf("unmarshaling event payload: %w", err))
+					return
+				}
+
+				env.Position = r.position
+				env.Revision = r.revision
+
+				if !yield(env, nil) {
+					return
+				}
+			}
+
+			if len(batch) < batchSize {
+				return
+			}
+		}
+	}, nil
+}
+
+// Find returns the envelope for the given stream and event identifier.
+// If no matching event exists in that stream, it returns an error wrapping [flux.ErrEventNotFound].
+func (s *EventStore) Find(ctx context.Context, stream flux.Stream, eventID flux.Identifier) (flux.Envelope, error) {
+	if err := ctx.Err(); err != nil {
+		return flux.Envelope{}, err
+	}
+
+	if eventID.IsEmpty() {
+		return flux.Envelope{}, fmt.Errorf("%w: empty event identifier", flux.ErrEventNotFound)
+	}
+
+	streamID := stream.Identifier.String()
+	query := fmt.Sprintf("SELECT position, revision, event_data FROM %s WHERE stream_id = $1 AND event_id = $2", s.config.tableName)
+
+	var position uint64
+	var revision uint64
+	var eventData []byte
+
+	err := s.db.QueryRowContext(ctx, query, streamID, eventID.String()).Scan(&position, &revision, &eventData)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return flux.Envelope{}, fmt.Errorf("%w: event %q not found in stream %q", flux.ErrEventNotFound, eventID.String(), streamID)
+		}
+		return flux.Envelope{}, fmt.Errorf("finding event %q in stream %q: %w", eventID.String(), streamID, err)
+	}
+
+	env, err := s.serializer.Unmarshal(eventData)
+	if err != nil {
+		return flux.Envelope{}, fmt.Errorf("unmarshaling event payload: %w", err)
+	}
+
+	env.Position = position
+	env.Revision = revision
+	env.Stream = stream
+
+	return env, nil
+}
+
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return true
+	}
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "23505") || strings.Contains(errMsg, "unique constraint") || strings.Contains(errMsg, "duplicate key")
 }
