@@ -1,0 +1,823 @@
+package postgres_test
+
+import (
+	"context"
+	_ "embed"
+	"errors"
+	"regexp"
+	"testing"
+	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/wotek/flux"
+	jsoncodec "github.com/wotek/flux/codec/json"
+	"github.com/wotek/flux/event"
+	postgresstore "github.com/wotek/flux/event/store/postgres"
+)
+
+//go:embed schema.sql
+var schemaSQL string
+
+type orderPlaced struct {
+	OrderNumber string `json:"order_number"`
+	Amount      int    `json:"amount"`
+}
+
+func (orderPlaced) Name() string {
+	return "OrderPlaced"
+}
+
+func setupTestStore(t *testing.T, opts ...postgresstore.Option) (*postgresstore.EventStore, sqlmock.Sqlmock, *event.Types, *jsoncodec.Serializer) {
+	t.Helper()
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open sqlmock database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	mock.ExpectExec(regexp.QuoteMeta(schemaSQL)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	if _, err := db.ExecContext(context.Background(), schemaSQL); err != nil {
+		t.Fatalf("failed to initialize schema: %v", err)
+	}
+
+	registry := event.NewTypes()
+	event.RegisterType[orderPlaced](registry)
+	serializer := jsoncodec.New(registry)
+
+	store := postgresstore.New(db, serializer, opts...)
+	return store, mock, registry, serializer
+}
+
+func TestSchemaInitialization(t *testing.T) {
+	t.Parallel()
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open sqlmock database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	ctx := context.Background()
+	mock.ExpectExec(regexp.QuoteMeta(schemaSQL)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	if _, err := db.ExecContext(ctx, schemaSQL); err != nil {
+		t.Fatalf("executing schema failed: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled sql expectations: %v", err)
+	}
+}
+
+func TestEventStore_AppendAndRead(t *testing.T) {
+	t.Parallel()
+
+	store, mock, _, serializer := setupTestStore(t)
+	ctx := context.Background()
+
+	stream := flux.Stream{
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:order:ord-101"),
+	}
+
+	env1 := flux.Envelope{
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:event:evt-1"),
+		Event: &orderPlaced{
+			OrderNumber: "ORD-1",
+			Amount:      100,
+		},
+		Actor: flux.Actor{
+			Identifier: flux.MustParseIdentifier("urn:acme:prod:iam:tenant-1:user:usr-1"),
+		},
+		CorrelationIdentifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:cmd:c-1"),
+		CausationIdentifier:   flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:cmd:c-0"),
+		Metadata: map[string]string{
+			"trace": "123",
+		},
+	}
+
+	// 1. Mock Append on empty stream (ErrNoRows -> currentRevision 0)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT revision FROM events WHERE stream_id = $1 ORDER BY revision DESC LIMIT 1 FOR UPDATE")).
+		WithArgs(stream.Identifier.String()).
+		WillReturnRows(sqlmock.NewRows([]string{"revision"}))
+
+	mock.ExpectPrepare(regexp.QuoteMeta("INSERT INTO events"))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO events")).
+		WithArgs(
+			stream.Identifier.String(),
+			"order",
+			env1.Identifier.String(),
+			"OrderPlaced",
+			uint64(1),
+			sqlmock.AnyArg(), // event_data bytes
+			env1.CausationIdentifier.String(),
+			env1.CorrelationIdentifier.String(),
+			sqlmock.AnyArg(), // timestamp
+			sqlmock.AnyArg(), // application_metadata JSON
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	if err := store.Append(ctx, stream, 0, []flux.Envelope{env1}); err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+
+	// Prepare serialized payload for Read mock
+	env1.Stream = stream
+	env1.Revision = 1
+	env1.CreatedAt = time.Date(2026, 9, 23, 14, 0, 0, 0, time.UTC)
+	payloadBytes, err := serializer.Marshal(env1)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	// 2. Mock Read
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = $1 AND revision > $2 ORDER BY revision ASC LIMIT $3")).
+		WithArgs(stream.Identifier.String(), uint64(0), 100).
+		WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}).
+			AddRow(uint64(42), uint64(1), payloadBytes))
+
+	iter, err := store.Read(ctx, stream, 0)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	var readEvents []flux.Envelope
+	for env, iterErr := range iter {
+		if iterErr != nil {
+			t.Fatalf("iteration error: %v", iterErr)
+		}
+		readEvents = append(readEvents, env)
+	}
+
+	if len(readEvents) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(readEvents))
+	}
+	if readEvents[0].Position != 42 {
+		t.Errorf("Position = %d, want 42", readEvents[0].Position)
+	}
+	if readEvents[0].Revision != 1 {
+		t.Errorf("Revision = %d, want 1", readEvents[0].Revision)
+	}
+	if readEvents[0].Stream != stream {
+		t.Errorf("Stream = %v, want %v", readEvents[0].Stream, stream)
+	}
+	if op, ok := readEvents[0].Event.(orderPlaced); !ok || op.OrderNumber != "ORD-1" || op.Amount != 100 {
+		t.Errorf("Event payload unexpected: %v", readEvents[0].Event)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled sql expectations: %v", err)
+	}
+}
+
+func TestEventStore_OptimisticConcurrency(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		expectedRevision uint64
+		setupMock        func(sqlmock.Sqlmock, string)
+		wantTarget       error
+	}{
+		{
+			name:             "revision mismatch in SELECT check with existing rows",
+			expectedRevision: 0,
+			setupMock: func(mock sqlmock.Sqlmock, streamID string) {
+				mock.ExpectBegin()
+				mock.ExpectQuery(regexp.QuoteMeta("SELECT revision FROM events WHERE stream_id = $1 ORDER BY revision DESC LIMIT 1 FOR UPDATE")).
+					WithArgs(streamID).
+					WillReturnRows(sqlmock.NewRows([]string{"revision"}).AddRow(5))
+				mock.ExpectRollback()
+			},
+			wantTarget: flux.ErrConcurrency,
+		},
+		{
+			name:             "revision mismatch on empty stream expecting non-zero revision",
+			expectedRevision: 5,
+			setupMock: func(mock sqlmock.Sqlmock, streamID string) {
+				mock.ExpectBegin()
+				mock.ExpectQuery(regexp.QuoteMeta("SELECT revision FROM events WHERE stream_id = $1 ORDER BY revision DESC LIMIT 1 FOR UPDATE")).
+					WithArgs(streamID).
+					WillReturnRows(sqlmock.NewRows([]string{"revision"}))
+				mock.ExpectRollback()
+			},
+			wantTarget: flux.ErrConcurrency,
+		},
+		{
+			name:             "pgconn unique violation 23505 on insert",
+			expectedRevision: 0,
+			setupMock: func(mock sqlmock.Sqlmock, streamID string) {
+				mock.ExpectBegin()
+				mock.ExpectQuery(regexp.QuoteMeta("SELECT revision FROM events WHERE stream_id = $1 ORDER BY revision DESC LIMIT 1 FOR UPDATE")).
+					WithArgs(streamID).
+					WillReturnRows(sqlmock.NewRows([]string{"revision"}))
+				mock.ExpectPrepare(regexp.QuoteMeta("INSERT INTO events"))
+				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO events")).
+					WillReturnError(&pgconn.PgError{
+						Code:    "23505",
+						Message: "duplicate key value violates unique constraint \"uk_stream_revision\"",
+					})
+				mock.ExpectRollback()
+			},
+			wantTarget: flux.ErrConcurrency,
+		},
+		{
+			name:             "pgconn unique violation 23505 on commit",
+			expectedRevision: 0,
+			setupMock: func(mock sqlmock.Sqlmock, streamID string) {
+				mock.ExpectBegin()
+				mock.ExpectQuery(regexp.QuoteMeta("SELECT revision FROM events WHERE stream_id = $1 ORDER BY revision DESC LIMIT 1 FOR UPDATE")).
+					WithArgs(streamID).
+					WillReturnRows(sqlmock.NewRows([]string{"revision"}))
+				mock.ExpectPrepare(regexp.QuoteMeta("INSERT INTO events"))
+				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO events")).
+					WillReturnResult(sqlmock.NewResult(1, 1))
+				mock.ExpectCommit().
+					WillReturnError(&pgconn.PgError{
+						Code:    "23505",
+						Message: "duplicate key value violates unique constraint \"uk_stream_revision\"",
+					})
+				// Note: database/sql marks tx done on Commit() even on error, so deferred tx.Rollback() is a no-op (ErrTxDone) and does not hit the driver.
+			},
+			wantTarget: flux.ErrConcurrency,
+		},
+		{
+			name:             "fallback string matching duplicate key error",
+			expectedRevision: 0,
+			setupMock: func(mock sqlmock.Sqlmock, streamID string) {
+				mock.ExpectBegin()
+				mock.ExpectQuery(regexp.QuoteMeta("SELECT revision FROM events WHERE stream_id = $1 ORDER BY revision DESC LIMIT 1 FOR UPDATE")).
+					WithArgs(streamID).
+					WillReturnRows(sqlmock.NewRows([]string{"revision"}))
+				mock.ExpectPrepare(regexp.QuoteMeta("INSERT INTO events"))
+				mock.ExpectExec(regexp.QuoteMeta("INSERT INTO events")).
+					WillReturnError(errors.New("ERROR: duplicate key value violates unique constraint (SQLSTATE 23505)"))
+				mock.ExpectRollback()
+			},
+			wantTarget: flux.ErrConcurrency,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store, mock, _, _ := setupTestStore(t)
+			ctx := context.Background()
+
+			stream := flux.Stream{
+				Identifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:order:ord-concur"),
+			}
+			env := flux.Envelope{
+				Identifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:event:evt-1"),
+				Event:      &orderPlaced{OrderNumber: "ORD-C", Amount: 50},
+			}
+
+			tt.setupMock(mock, stream.Identifier.String())
+
+			err := store.Append(ctx, stream, tt.expectedRevision, []flux.Envelope{env})
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if !errors.Is(err, tt.wantTarget) {
+				t.Fatalf("expected error wrapping %v, got: %v", tt.wantTarget, err)
+			}
+
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unfulfilled sql expectations: %v", err)
+			}
+		})
+	}
+}
+
+func TestEventStore_StreamGlobal(t *testing.T) {
+	t.Parallel()
+
+	store, mock, _, serializer := setupTestStore(t)
+	ctx := context.Background()
+
+	stream := flux.Stream{
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:order:ord-glob"),
+	}
+	env := flux.Envelope{
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:event:evt-g1"),
+		Stream:     stream,
+		Event:      &orderPlaced{OrderNumber: "ORD-G", Amount: 200},
+		Revision:   1,
+	}
+	payloadBytes, err := serializer.Marshal(env)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE position > $1 ORDER BY position ASC LIMIT $2")).
+		WithArgs(uint64(10), 100).
+		WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}).
+			AddRow(uint64(11), uint64(1), payloadBytes))
+
+	iter, err := store.Stream(ctx, 10)
+	if err != nil {
+		t.Fatalf("Stream failed: %v", err)
+	}
+
+	var results []flux.Envelope
+	for e, iterErr := range iter {
+		if iterErr != nil {
+			t.Fatalf("iteration error: %v", iterErr)
+		}
+		results = append(results, e)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Position != 11 {
+		t.Errorf("Position = %d, want 11", results[0].Position)
+	}
+	if op, ok := results[0].Event.(orderPlaced); !ok || op.OrderNumber != "ORD-G" || op.Amount != 200 {
+		t.Errorf("Event payload unexpected: %v", results[0].Event)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled sql expectations: %v", err)
+	}
+}
+
+func TestEventStore_EmptyStream(t *testing.T) {
+	t.Parallel()
+
+	store, mock, _, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	stream := flux.Stream{
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:order:ord-empty"),
+	}
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = $1 AND revision > $2 ORDER BY revision ASC LIMIT $3")).
+		WithArgs(stream.Identifier.String(), uint64(0), 100).
+		WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}))
+
+	iter, err := store.Read(ctx, stream, 0)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	count := 0
+	for _, iterErr := range iter {
+		if iterErr != nil {
+			t.Fatalf("unexpected iteration error: %v", iterErr)
+		}
+		count++
+	}
+
+	if count != 0 {
+		t.Errorf("expected 0 events, got %d", count)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled sql expectations: %v", err)
+	}
+}
+
+func TestEventStore_WithCustomTableName(t *testing.T) {
+	t.Parallel()
+
+	store, mock, _, _ := setupTestStore(t, postgresstore.WithTableName("custom_events"))
+	ctx := context.Background()
+
+	stream := flux.Stream{
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:order:ord-101"),
+	}
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM custom_events WHERE stream_id = $1 AND revision > $2 ORDER BY revision ASC LIMIT $3")).
+		WithArgs("urn:acme:prod:sales:tenant-1:order:ord-101", uint64(0), 100).
+		WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}))
+
+	iter, err := store.Read(ctx, stream, 0)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	for range iter {
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled sql expectations: %v", err)
+	}
+}
+
+func TestEventStore_EmptyAppend(t *testing.T) {
+	t.Parallel()
+
+	store, mock, _, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	stream := flux.Stream{
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:order:ord-empty"),
+	}
+
+	if err := store.Append(ctx, stream, 0, nil); err != nil {
+		t.Fatalf("Append(nil) failed: %v", err)
+	}
+	if err := store.Append(ctx, stream, 0, []flux.Envelope{}); err != nil {
+		t.Fatalf("Append([]) failed: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled sql expectations: %v", err)
+	}
+}
+
+func TestEventStore_ContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	store, _, _, _ := setupTestStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	stream := flux.Stream{
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:order:ord-canc"),
+	}
+	env := flux.Envelope{
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:event:evt-c1"),
+		Event:      &orderPlaced{OrderNumber: "ORD-C", Amount: 10},
+	}
+
+	if err := store.Append(ctx, stream, 0, []flux.Envelope{env}); !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestEventStore_ReadDeferredQuery(t *testing.T) {
+	t.Parallel()
+
+	store, mock, _, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	stream := flux.Stream{
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:sales:tenant-1:order:ord-lazy"),
+	}
+
+	// 1. Obtaining iterator without iterating does not query the DB.
+	iter, err := store.Read(ctx, stream, 0)
+	if err != nil {
+		t.Fatalf("Read returned error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("expected no SQL calls before iterator invocation: %v", err)
+	}
+
+	// 2. When iterator is invoked, query error is yielded.
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = $1 AND revision > $2 ORDER BY revision ASC LIMIT $3")).
+		WithArgs("urn:acme:prod:sales:tenant-1:order:ord-lazy", uint64(0), 100).
+		WillReturnError(errors.New("db connection failure"))
+
+	var yieldedErr error
+	for _, itErr := range iter {
+		if itErr != nil {
+			yieldedErr = itErr
+			break
+		}
+	}
+	if yieldedErr == nil || yieldedErr.Error() != "querying events for stream \"urn:acme:prod:sales:tenant-1:order:ord-lazy\": db connection failure" {
+		t.Errorf("expected query error yielded, got %v", yieldedErr)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled sql expectations: %v", err)
+	}
+}
+
+func TestEventStore_StreamDeferredQuery(t *testing.T) {
+	t.Parallel()
+
+	store, mock, _, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	// 1. Obtaining iterator without iterating does not query the DB.
+	iter, err := store.Stream(ctx, 10)
+	if err != nil {
+		t.Fatalf("Stream returned error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("expected no SQL calls before iterator invocation: %v", err)
+	}
+
+	// 2. When iterator is invoked, query error is yielded.
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE position > $1 ORDER BY position ASC LIMIT $2")).
+		WithArgs(uint64(10), 100).
+		WillReturnError(errors.New("db stream failure"))
+
+	var yieldedErr error
+	for _, itErr := range iter {
+		if itErr != nil {
+			yieldedErr = itErr
+			break
+		}
+	}
+	if yieldedErr == nil || yieldedErr.Error() != "querying global event stream: db stream failure" {
+		t.Errorf("expected query error yielded, got %v", yieldedErr)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled sql expectations: %v", err)
+	}
+}
+
+func TestValidateTableName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		tableName string
+		wantErr   bool
+	}{
+		{name: "standard identifier", tableName: "events", wantErr: false},
+		{name: "with underscores and numbers", tableName: "my_events_v2", wantErr: false},
+		{name: "starting with underscore", tableName: "_events", wantErr: false},
+		{name: "schema qualified", tableName: "public.events", wantErr: false},
+		{name: "schema qualified with underscores", tableName: "my_schema.my_events", wantErr: false},
+		{name: "double quoted", tableName: `"events"`, wantErr: false},
+		{name: "schema qualified double quotes", tableName: `"my_schema"."events"`, wantErr: false},
+
+		// Invalid cases (SQL injection vectors and invalid syntax)
+		{name: "empty string", tableName: "", wantErr: true},
+		{name: "semicolon injection", tableName: "events; DROP TABLE users; --", wantErr: true},
+		{name: "dash comment injection", tableName: "events--", wantErr: true},
+		{name: "inline space", tableName: "events table", wantErr: true},
+		{name: "quote injection", tableName: "events' OR '1'='1", wantErr: true},
+		{name: "starts with number", tableName: "1events", wantErr: true},
+		{name: "invalid characters", tableName: "events$name", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := postgresstore.ValidateTableName(tt.tableName)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateTableName(%q) error = %v, wantErr %v", tt.tableName, err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil && !errors.Is(err, postgresstore.ErrInvalidTableName) {
+				t.Errorf("ValidateTableName(%q) error = %v, want ErrInvalidTableName", tt.tableName, err)
+			}
+		})
+	}
+}
+
+func TestWithTableName_PanicsOnInvalid(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Errorf("expected WithTableName to panic on invalid table name")
+		}
+	}()
+
+	_ = postgresstore.WithTableName("events; DROP TABLE students;--")
+}
+
+func TestEventStore_Pagination(t *testing.T) {
+	t.Parallel()
+
+	store, mock, _, serializer := setupTestStore(t, postgresstore.WithBatchSize(2))
+	ctx := context.Background()
+
+	stream := flux.Stream{Identifier: flux.MustParseIdentifier("urn:test::stream:1:order:page")}
+
+	e1 := flux.Envelope{Event: orderPlaced{OrderNumber: "1", Amount: 10}}
+	e2 := flux.Envelope{Event: orderPlaced{OrderNumber: "2", Amount: 20}}
+	e3 := flux.Envelope{Event: orderPlaced{OrderNumber: "3", Amount: 30}}
+	p1, _ := serializer.Marshal(e1)
+	p2, _ := serializer.Marshal(e2)
+	p3, _ := serializer.Marshal(e3)
+
+	t.Run("Read keyset pagination", func(t *testing.T) {
+		// Batch 1 (limit 2): returns 2 rows -> triggers next page
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = $1 AND revision > $2 ORDER BY revision ASC LIMIT $3")).
+			WithArgs(stream.Identifier.String(), uint64(0), 2).
+			WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}).
+				AddRow(uint64(10), uint64(1), p1).
+				AddRow(uint64(11), uint64(2), p2))
+
+		// Batch 2 (limit 2): starts after revision 2, returns 1 row (< batchSize, stops)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = $1 AND revision > $2 ORDER BY revision ASC LIMIT $3")).
+			WithArgs(stream.Identifier.String(), uint64(2), 2).
+			WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}).
+				AddRow(uint64(12), uint64(3), p3))
+
+		iter, err := store.Read(ctx, stream, 0)
+		if err != nil {
+			t.Fatalf("Read failed: %v", err)
+		}
+
+		var count int
+		for _, err := range iter {
+			if err != nil {
+				t.Fatalf("unexpected iteration error: %v", err)
+			}
+			count++
+		}
+
+		if count != 3 {
+			t.Errorf("expected 3 events read across pages, got %d", count)
+		}
+
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unfulfilled sql expectations: %v", err)
+		}
+	})
+
+	t.Run("Stream keyset pagination", func(t *testing.T) {
+		// Batch 1 (limit 2): returns 2 rows -> triggers next page
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE position > $1 ORDER BY position ASC LIMIT $2")).
+			WithArgs(uint64(0), 2).
+			WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}).
+				AddRow(uint64(10), uint64(1), p1).
+				AddRow(uint64(11), uint64(2), p2))
+
+		// Batch 2 (limit 2): starts after position 11, returns 1 row (< batchSize, stops)
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE position > $1 ORDER BY position ASC LIMIT $2")).
+			WithArgs(uint64(11), 2).
+			WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}).
+				AddRow(uint64(12), uint64(3), p3))
+
+		iter, err := store.Stream(ctx, 0)
+		if err != nil {
+			t.Fatalf("Stream failed: %v", err)
+		}
+
+		var count int
+		for _, err := range iter {
+			if err != nil {
+				t.Fatalf("unexpected stream error: %v", err)
+			}
+			count++
+		}
+
+		if count != 3 {
+			t.Errorf("expected 3 stream events across pages, got %d", count)
+		}
+
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unfulfilled sql expectations: %v", err)
+		}
+	})
+}
+
+func TestEventStore_Find(t *testing.T) {
+	t.Parallel()
+
+	stream := flux.Stream{Identifier: flux.MustParseIdentifier("urn:test::stream:1:order:ord-1")}
+	evtID := flux.MustParseIdentifier("urn:test::event:1:order:evt-1")
+
+	t.Run("hit returns envelope", func(t *testing.T) {
+		t.Parallel()
+		store, mock, _, serializer := setupTestStore(t)
+		ctx := context.Background()
+
+		expectedEnv := flux.Envelope{
+			Identifier: evtID,
+			Event:      &orderPlaced{OrderNumber: "ORD-1", Amount: 100},
+			Metadata:   map[string]string{"foo": "bar"},
+		}
+		data, err := serializer.Marshal(expectedEnv)
+		if err != nil {
+			t.Fatalf("failed to marshal: %v", err)
+		}
+
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = $1 AND event_id = $2")).
+			WithArgs(stream.Identifier.String(), evtID.String()).
+			WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}).
+				AddRow(uint64(42), uint64(5), data))
+
+		env, err := store.Find(ctx, stream, evtID)
+		if err != nil {
+			t.Fatalf("Find failed: %v", err)
+		}
+
+		if env.Position != 42 {
+			t.Errorf("Position = %d, want 42", env.Position)
+		}
+		if env.Revision != 5 {
+			t.Errorf("Revision = %d, want 5", env.Revision)
+		}
+		if env.Stream != stream {
+			t.Errorf("Stream = %v, want %v", env.Stream, stream)
+		}
+		if env.Identifier != evtID {
+			t.Errorf("Identifier = %s, want %s", env.Identifier, evtID)
+		}
+		if op, ok := env.Event.(orderPlaced); !ok || op.OrderNumber != "ORD-1" {
+			t.Errorf("Event payload unexpected: %v", env.Event)
+		}
+		if env.Metadata["foo"] != "bar" {
+			t.Errorf("Metadata['foo'] = %q, want 'bar'", env.Metadata["foo"])
+		}
+
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unfulfilled sql expectations: %v", err)
+		}
+	})
+
+	t.Run("miss returns ErrEventNotFound", func(t *testing.T) {
+		t.Parallel()
+		store, mock, _, _ := setupTestStore(t)
+		ctx := context.Background()
+
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = $1 AND event_id = $2")).
+			WithArgs(stream.Identifier.String(), evtID.String()).
+			WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}))
+
+		_, err := store.Find(ctx, stream, evtID)
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !errors.Is(err, flux.ErrEventNotFound) {
+			t.Errorf("expected ErrEventNotFound, got %v", err)
+		}
+
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unfulfilled sql expectations: %v", err)
+		}
+	})
+
+	t.Run("empty eventID returns ErrEventNotFound", func(t *testing.T) {
+		t.Parallel()
+		store, _, _, _ := setupTestStore(t)
+		ctx := context.Background()
+
+		_, err := store.Find(ctx, stream, flux.Identifier{})
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !errors.Is(err, flux.ErrEventNotFound) {
+			t.Errorf("expected ErrEventNotFound, got %v", err)
+		}
+	})
+
+	t.Run("query error returns wrapped error", func(t *testing.T) {
+		t.Parallel()
+		store, mock, _, _ := setupTestStore(t)
+		ctx := context.Background()
+
+		dbErr := errors.New("connection reset")
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = $1 AND event_id = $2")).
+			WithArgs(stream.Identifier.String(), evtID.String()).
+			WillReturnError(dbErr)
+
+		_, err := store.Find(ctx, stream, evtID)
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+		if !errors.Is(err, dbErr) {
+			t.Errorf("expected db error, got %v", err)
+		}
+
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unfulfilled sql expectations: %v", err)
+		}
+	})
+
+	t.Run("unmarshal error returns error", func(t *testing.T) {
+		t.Parallel()
+		store, mock, _, _ := setupTestStore(t)
+		ctx := context.Background()
+
+		mock.ExpectQuery(regexp.QuoteMeta("SELECT position, revision, event_data FROM events WHERE stream_id = $1 AND event_id = $2")).
+			WithArgs(stream.Identifier.String(), evtID.String()).
+			WillReturnRows(sqlmock.NewRows([]string{"position", "revision", "event_data"}).
+				AddRow(uint64(1), uint64(1), []byte("invalid json payload")))
+
+		_, err := store.Find(ctx, stream, evtID)
+		if err == nil {
+			t.Fatalf("expected error on invalid payload, got nil")
+		}
+
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unfulfilled sql expectations: %v", err)
+		}
+	})
+
+	t.Run("context cancelled returns context error", func(t *testing.T) {
+		t.Parallel()
+		store, _, _, _ := setupTestStore(t)
+		canceledCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := store.Find(canceledCtx, stream, evtID)
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("expected context.Canceled, got %v", err)
+		}
+	})
+}
