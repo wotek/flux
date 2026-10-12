@@ -81,6 +81,7 @@ export default defineConfig({
         items: [
           { text: 'In-Memory (Built-in)', link: '/backends/in-memory' },
           { text: 'MySQL', link: '/backends/mysql' },
+          { text: 'PostgreSQL', link: '/backends/postgresql' },
           { text: 'Redis', link: '/backends/redis' },
         ]
       },

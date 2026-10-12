@@ -27,7 +27,7 @@ Most Go event-sourcing libraries rely heavily on `reflect` to decode events, map
 - **Domain Purity (Serialization Agnostic):** The core domain is entirely free of infrastructure pollution. You will never write a single `json:` or `xml:` struct tag on your core Domain Events. Serialization is handled at the edges via private DTOs, generic Type Registries, and "Batteries-Included" Codecs.
 - **Projection Toolkit:** Build scalable read models with continuous stream tailing. Decouple your write-path from your read-path entirely.
 - **Durable Workflows:** Coordinate long-running business processes across services with first-class Temporal integration—featuring durable commands, timeouts, and explicit compensation.
-- **Batteries-Included Storage:** Ships with a fast In-Memory engine for unit testing and out-of-the-box drivers for MySQL and Redis via a clean `EventStore` interface.
+- **Batteries-Included Storage:** Ships with a fast In-Memory engine for unit testing and out-of-the-box drivers for MySQL, PostgreSQL, and Redis via a clean `EventStore` interface.
 
 ## Next Steps
 

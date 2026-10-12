@@ -352,6 +352,42 @@ func (s *EventStore) Stream(ctx context.Context, position uint64) (flux.StreamIt
 func (s *EventStore) Find(ctx context.Context, stream flux.Stream, eventID flux.Identifier) (flux.Envelope, error)
 ```
 
+### PostgreSQL Event Store
+
+Operates on standard `*sql.DB` connections using the `jackc/pgx` driver (`_ "github.com/jackc/pgx/v5/stdlib"`) via `sql.Open("pgx", …)`.
+
+```go
+// package postgres ("github.com/wotek/flux/event/store/postgres")
+
+type Option func(*config)
+
+func WithTableName(name string) Option
+
+func WithBatchSize(size int) Option
+
+func ValidateTableName(name string) error
+
+var ErrInvalidTableName = errors.New("invalid table name")
+
+type EventStore struct {
+	db         *sql.DB
+	serializer codec.Serializer
+	config     config
+}
+
+func New(db *sql.DB, serializer codec.Serializer, opts ...Option) *EventStore
+
+func NewEventStore(db *sql.DB, serializer codec.Serializer, opts ...Option) *EventStore
+
+func (s *EventStore) Append(ctx context.Context, stream flux.Stream, expectedRevision uint64, events []flux.Envelope) error
+
+func (s *EventStore) Read(ctx context.Context, stream flux.Stream, fromRevision uint64) (flux.StreamIterator, error)
+
+func (s *EventStore) Stream(ctx context.Context, position uint64) (flux.StreamIterator, error)
+
+func (s *EventStore) Find(ctx context.Context, stream flux.Stream, eventID flux.Identifier) (flux.Envelope, error)
+```
+
 ### MySQL Snapshot Store
 
 ```go

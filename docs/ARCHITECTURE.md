@@ -337,6 +337,15 @@ Subpackages providing concrete storage implementations:
 - **`github.com/wotek/flux/event/store`**:
   - `EventStore`: Implementation of `flux.EventStore` with optimistic concurrency validation.
   - `New()`: Constructor.
+- **`github.com/wotek/flux/event/store/mysql`**:
+  - `EventStore`: MySQL-backed implementation of `flux.EventStore` with optimistic concurrency validation.
+  - `New(db *sql.DB, serializer codec.Serializer, opts ...Option)`: Constructor.
+- **`github.com/wotek/flux/event/store/postgres`**:
+  - `EventStore`: PostgreSQL-backed implementation of `flux.EventStore` with optimistic concurrency validation.
+  - `New(db *sql.DB, serializer codec.Serializer, opts ...Option)`: Constructor.
+- **`github.com/wotek/flux/event/store/redis`**:
+  - `EventStore`: Redis-backed implementation of `flux.EventStore` with optimistic concurrency validation.
+  - `New(client redis.UniversalClient, serializer codec.Serializer, opts ...Option)`: Constructor.
 - **`github.com/wotek/flux/projection/store`**:
   - `ProjectionStore`: Implementation of `projection.Store` that composes `checkpoint.Store`.
   - `New(opts ...Option)`: Constructor.

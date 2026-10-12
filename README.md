@@ -24,7 +24,7 @@ Most Go event-sourcing libraries lean on `reflect` for handler routing, event de
 - **Generics instead of reflection** — command, query, and event routing use type-safe registration and constant-time dispatch.
 - **Domain stays pure** — aggregates and events carry no `json` tags, no store types, and no framework persistence APIs in domain methods.
 - **Serialization at the edge** — DTOs, codecs, and type registries live in infrastructure packages, not in the core domain.
-- **Bring your own backend** — in-memory stores for tests; MySQL and Redis drivers for production; clean interfaces if you need another store.
+- **Bring your own backend** — in-memory stores for tests; MySQL, PostgreSQL, and Redis drivers for production; clean interfaces if you need another store.
 - **Optional Temporal workflows** — Temporal is a good production fit for durable workflows when you want it; native `workflow.Orchestrator` + outbox covers prototypes and PoCs. See [Workflows & Temporal](https://flux.keylight.io/guide/workflows).
 - **Optional OpenTelemetry** — core stays vendor-agnostic; use [`flux-opentelemetry`](https://github.com/wotek/flux-opentelemetry) (`fluxotel`) when you want spans and metrics.
 
@@ -44,7 +44,7 @@ Most Go event-sourcing libraries lean on `reflect` for handler routing, event de
 - Continuous projectors with checkpointed global-stream cursors
 - Native workflow orchestrator + outbox for prototypes and PoCs; optional Temporal integration for durable workflows
 - Structured URN identifiers and typed contexts (`Actor`, correlation, causation, instrumentation)
-- Built-in in-memory stores; MySQL and Redis backends for events, snapshots, and checkpoints
+- Built-in in-memory stores; MySQL and Redis backends for events, snapshots, and checkpoints; PostgreSQL for events (Event Store)
 - Sentinel errors for `errors.Is` (`ErrConcurrency`, `ErrAggregateNotFound`, and others)
 
 ## Install
@@ -150,7 +150,7 @@ Docs pages: [Bank](https://flux.keylight.io/examples/bank) · [Todo](https://flu
 - [Instrumentation & Observability](https://flux.keylight.io/guide/instrumentation)
 - [Structured Identifiers](https://flux.keylight.io/guide/identifiers)
 - [Serialization & Codecs](https://flux.keylight.io/guide/serialization)
-- [Backends: In-Memory](https://flux.keylight.io/backends/in-memory) · [MySQL](https://flux.keylight.io/backends/mysql) · [Redis](https://flux.keylight.io/backends/redis)
+- [Backends: In-Memory](https://flux.keylight.io/backends/in-memory) · [MySQL](https://flux.keylight.io/backends/mysql) · [PostgreSQL](https://flux.keylight.io/backends/postgresql) · [Redis](https://flux.keylight.io/backends/redis)
 
 ## License
 
