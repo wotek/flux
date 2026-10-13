@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.7.0](https://github.com/wotek/flux/compare/v1.6.0...v1.7.0) (2026-10-13)
+
+
+### Features
+
+* **checkpoint:** implement PostgreSQL GetPosition/SetPosition ([0a7a01f](https://github.com/wotek/flux/commit/0a7a01f655bd3f05a090af771b225966c35ffbb1))
+* **checkpoint:** scaffold PostgreSQL package and schema ([a93b817](https://github.com/wotek/flux/commit/a93b817ffa68b84911cdd64839312148594c8592))
+* **eventstore:** implement PostgreSQL Append/Read/Stream/Find ([38bf18a](https://github.com/wotek/flux/commit/38bf18a35bfc3dc84ec44557105d5c253e1d7547))
+* **eventstore:** scaffold PostgreSQL package and schema ([02783eb](https://github.com/wotek/flux/commit/02783eb9b9f5044fdac6f8d89cc3080eda778950))
+* **projection:** implement PostgreSQL GetPosition/Update ([de8572c](https://github.com/wotek/flux/commit/de8572c6d94538b902941fc0d5ff776b9ab7d92b))
+* **projection:** scaffold PostgreSQL package ([2fca45f](https://github.com/wotek/flux/commit/2fca45fa0e07053ab30f4dd1421f2694f0b52b17))
+* **snapshot:** implement PostgreSQL Load/Save ([cc4d2e2](https://github.com/wotek/flux/commit/cc4d2e2a2f0875ebb85581f16e647471aebf2087))
+* **snapshot:** scaffold PostgreSQL package and schema ([3e99816](https://github.com/wotek/flux/commit/3e998161019e893ead071d8fc0549054ab97c71f))
+
 ## [1.6.0](https://github.com/wotek/flux/compare/v1.5.0...v1.6.0) (2026-09-30)
 
 
