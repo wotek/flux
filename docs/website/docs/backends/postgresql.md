@@ -1,14 +1,15 @@
 # PostgreSQL Backend
 
-The PostgreSQL backend provides ACID-compliant event storage and stream position tracking using relational tables in PostgreSQL.
+The PostgreSQL backend provides ACID-compliant event storage, aggregate snapshotting, stream checkpointing, and transactional projection updates using relational tables in PostgreSQL.
 
 `flux` includes native PostgreSQL drivers for:
 - **Event Store:** `github.com/wotek/flux/event/store/postgres`
+- **Snapshot Store:** `github.com/wotek/flux/snapshot/store/postgres`
 - **Checkpoint Store:** `github.com/wotek/flux/checkpoint/store/postgres`
 - **Projection Store:** `github.com/wotek/flux/projection/store/postgres`
 
 ::: info Backend Scope
-The PostgreSQL backend currently provides the **Event Store**, **Checkpoint Store**, and **Projection Store**. Snapshot stores can continue using MySQL, Redis, or in-memory implementations as applicable.
+The PostgreSQL backend provides complete, production-ready storage implementations for the **Event Store**, **Snapshot Store**, **Checkpoint Store**, and **Projection Store**.
 :::
 
 ## Event Store
@@ -130,6 +131,96 @@ func main() {
 	if err := store.Append(ctx, stream, 0, []flux.Envelope{env}); err != nil {
 		panic(err)
 	}
+}
+```
+
+## Snapshot Store
+
+The PostgreSQL Snapshot Store provides state caching by persisting serialized aggregate state along with revision metadata:
+
+- **Package:** `github.com/wotek/flux/snapshot/store/postgres`
+
+### Snapshot Schema
+
+```sql
+CREATE TABLE IF NOT EXISTS snapshots (
+    stream_id TEXT PRIMARY KEY,
+    revision BIGINT NOT NULL, -- non-negative invariant: revision >= 0
+    snapshot BYTEA NOT NULL,
+    timestamp TIMESTAMPTZ(6) NOT NULL DEFAULT now()
+);
+```
+
+Raw SQL schema definitions are provided alongside the package in `snapshot/store/postgres/schema.sql`.
+
+### Monotonic Upsert Semantics
+
+Snapshots are saved using an `INSERT ... ON CONFLICT (stream_id) DO UPDATE SET` query that enforces monotonic revision semantics:
+
+```sql
+INSERT INTO snapshots AS s (stream_id, revision, snapshot, timestamp)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (stream_id) DO UPDATE SET
+  revision = EXCLUDED.revision,
+  snapshot = EXCLUDED.snapshot,
+  timestamp = EXCLUDED.timestamp
+WHERE EXCLUDED.revision >= s.revision;
+```
+
+Older revisions are silently ignored and do not overwrite newer cached snapshots.
+
+### Usage
+
+```go
+package main
+
+import (
+	"context"
+	"database/sql"
+	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/wotek/flux"
+	postgressnapshot "github.com/wotek/flux/snapshot/store/postgres"
+)
+
+type AccountState struct {
+	Balance int `json:"balance"`
+}
+
+func main() {
+	db, err := sql.Open("pgx", "postgres://user:password@localhost:5432/flux?sslmode=disable")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+
+	snapshotStore := postgressnapshot.New[AccountState](
+		db,
+		postgressnapshot.WithTableName("snapshots"),
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream := flux.Stream{
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:banking:tenant-1:account:acc-123"),
+	}
+
+	snap := flux.Snapshot[AccountState]{
+		Revision: 10,
+		State:    AccountState{Balance: 500},
+	}
+
+	if err := snapshotStore.Save(ctx, stream, snap); err != nil {
+		panic(err)
+	}
+
+	loaded, err := snapshotStore.Load(ctx, stream)
+	if err != nil {
+		panic(err)
+	}
+	_ = loaded
 }
 ```
 

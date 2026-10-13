@@ -360,6 +360,18 @@ Subpackages providing concrete storage implementations:
   - `Store`: PostgreSQL-backed implementation of `projection.Store` executing mutations and checkpoint position updates in a single atomic database transaction.
   - `New(db *sql.DB, opts ...Option)`: Constructor.
   - `TxFromContext(ctx context.Context) (*sql.Tx, bool)`: Helper extracting the active transaction from context inside `mutate`.
+- **`github.com/wotek/flux/snapshot/store`**:
+  - `SnapshotStore[S any]`: In-memory thread-safe implementation of `flux.SnapshotStore`.
+  - `New[S any]()`: Constructor.
+- **`github.com/wotek/flux/snapshot/store/mysql`**:
+  - `SnapshotStore[S any]`: MySQL-backed implementation of `flux.SnapshotStore` with monotonic upsert.
+  - `New[S any](db *sql.DB, opts ...Option)`: Constructor.
+- **`github.com/wotek/flux/snapshot/store/postgres`**:
+  - `SnapshotStore[S any]`: PostgreSQL-backed implementation of `flux.SnapshotStore` with monotonic upsert.
+  - `New[S any](db *sql.DB, opts ...Option)`: Constructor.
+- **`github.com/wotek/flux/snapshot/store/redis`**:
+  - `SnapshotStore[S any]`: Redis-backed implementation of `flux.SnapshotStore`.
+  - `New[S any](client redis.UniversalClient, opts ...Option)`: Constructor.
 - **`github.com/wotek/flux/workflow/store`**:
   - `WorkflowStore[W workflow.Workflow[W]]`: Implementation of `workflow.Store` with an Outbox Relay worker (`StartRelay(ctx)`) that propagates stored `Instrumentation` to dispatched commands.
   - `CheckpointStore`: In-memory implementation of `checkpoint.Store` (deprecated in favor of `checkpoint/store`).

@@ -410,3 +410,32 @@ func (s *SnapshotStore[S]) Load(ctx context.Context, stream flux.Stream) (flux.S
 
 func (s *SnapshotStore[S]) Save(ctx context.Context, stream flux.Stream, snap flux.Snapshot[S]) error
 ```
+
+### PostgreSQL Snapshot Store
+
+Operates on standard `*sql.DB` connections using the `jackc/pgx` driver (`_ "github.com/jackc/pgx/v5/stdlib"`) via `sql.Open("pgx", …)`.
+
+```go
+// package postgres ("github.com/wotek/flux/snapshot/store/postgres")
+
+type Option func(*config)
+
+func WithTableName(name string) Option
+
+func ValidateTableName(name string) error
+
+var ErrInvalidTableName = errors.New("invalid table name")
+
+type SnapshotStore[S any] struct {
+	db     *sql.DB
+	config config
+}
+
+func New[S any](db *sql.DB, opts ...Option) *SnapshotStore[S]
+
+func NewSnapshotStore[S any](db *sql.DB, opts ...Option) *SnapshotStore[S]
+
+func (s *SnapshotStore[S]) Load(ctx context.Context, stream flux.Stream) (flux.Snapshot[S], error)
+
+func (s *SnapshotStore[S]) Save(ctx context.Context, stream flux.Stream, snap flux.Snapshot[S]) error
+```

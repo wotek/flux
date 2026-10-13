@@ -44,7 +44,7 @@ Most Go event-sourcing libraries lean on `reflect` for handler routing, event de
 - Continuous projectors with checkpointed global-stream cursors
 - Native workflow orchestrator + outbox for prototypes and PoCs; optional Temporal integration for durable workflows
 - Structured URN identifiers and typed contexts (`Actor`, correlation, causation, instrumentation)
-- Built-in in-memory stores; MySQL and Redis backends for events, snapshots, and checkpoints; PostgreSQL for events, checkpoints, and transactional projections (snapshots still MySQL/Redis/in-memory)
+- Built-in in-memory stores; PostgreSQL, MySQL, and Redis backends for events, snapshots, and checkpoints; PostgreSQL and MySQL for transactional projections
 - Sentinel errors for `errors.Is` (`ErrConcurrency`, `ErrAggregateNotFound`, and others)
 
 ## Install
