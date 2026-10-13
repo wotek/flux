@@ -331,6 +331,9 @@ Subpackages providing concrete storage implementations:
 - **`github.com/wotek/flux/checkpoint/store/mysql`**:
   - `Store`: MySQL-backed implementation of `checkpoint.Store` with `INSERT ... ON DUPLICATE KEY UPDATE` CAS max.
   - `New(db *sql.DB, opts ...Option)`: Constructor.
+- **`github.com/wotek/flux/checkpoint/store/postgres`**:
+  - `Store`: PostgreSQL-backed implementation of `checkpoint.Store` with `INSERT ... ON CONFLICT DO UPDATE` CAS max.
+  - `New(db *sql.DB, opts ...Option)`: Constructor.
 - **`github.com/wotek/flux/checkpoint/store/redis`**:
   - `Store`: Redis-backed implementation of `checkpoint.Store` using single-key Lua CAS max script.
   - `New(client redis.UniversalClient, opts ...Option)`: Constructor.

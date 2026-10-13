@@ -1,12 +1,13 @@
 # PostgreSQL Backend
 
-The PostgreSQL backend provides ACID-compliant event storage using relational tables in PostgreSQL.
+The PostgreSQL backend provides ACID-compliant event storage and stream position tracking using relational tables in PostgreSQL.
 
-`flux` includes a native PostgreSQL driver for the Event Store:
+`flux` includes native PostgreSQL drivers for:
 - **Event Store:** `github.com/wotek/flux/event/store/postgres`
+- **Checkpoint Store:** `github.com/wotek/flux/checkpoint/store/postgres`
 
-::: info Event Store Scope
-The PostgreSQL backend currently provides the **Event Store**. Snapshot, checkpoint, and projection stores can continue using MySQL, Redis, or in-memory implementations as applicable.
+::: info Backend Scope
+The PostgreSQL backend currently provides the **Event Store** and **Checkpoint Store**. Snapshot and projection stores can continue using MySQL, Redis, or in-memory implementations as applicable.
 :::
 
 ## Event Store
@@ -130,3 +131,87 @@ func main() {
 	}
 }
 ```
+
+## Checkpoint Store
+
+The PostgreSQL Checkpoint Store persists the last successfully processed global event-stream position for tailing consumers such as `projection.Projector` and `workflow.Orchestrator`.
+
+- **Package:** `github.com/wotek/flux/checkpoint/store/postgres`
+
+### Relational Schema
+
+```sql
+CREATE TABLE IF NOT EXISTS checkpoints (
+    consumer_id TEXT NOT NULL,
+    position BIGINT NOT NULL, -- non-negative invariant: position >= 0
+    updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT now(),
+    PRIMARY KEY (consumer_id)
+);
+```
+
+The `consumer_id` column stores the full string representation of the consumer's `flux.Identifier` (e.g. `urn:acme:prod:projector:1:worker:lists`). Raw SQL schema definitions are provided alongside the package in `checkpoint/store/postgres/schema.sql`.
+
+### Monotonic Max Semantics
+
+Checkpoints are updated using an `INSERT ... ON CONFLICT (consumer_id) DO UPDATE SET` query that enforces monotonic max semantics:
+
+```sql
+INSERT INTO checkpoints AS c (consumer_id, position)
+VALUES ($1, $2)
+ON CONFLICT (consumer_id) DO UPDATE SET
+  position = CASE
+    WHEN EXCLUDED.position >= c.position THEN EXCLUDED.position
+    ELSE c.position
+  END,
+  updated_at = CASE
+    WHEN EXCLUDED.position >= c.position THEN now()
+    ELSE c.updated_at
+  END;
+```
+
+If an at-least-once retry or delayed worker attempts to commit an older position, PostgreSQL leaves the existing higher position intact. Equal or higher positions advance or refresh `updated_at`. Using the table alias `AS c` ensures unambiguous column qualification for both standard and schema-qualified table names.
+
+### Usage
+
+```go
+package main
+
+import (
+	"context"
+	"database/sql"
+	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/wotek/flux"
+	checkpointpostgres "github.com/wotek/flux/checkpoint/store/postgres"
+)
+
+func main() {
+	db, err := sql.Open("pgx", "postgres://user:password@localhost:5432/flux?sslmode=disable")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+
+	checkpointStore := checkpointpostgres.New(
+		db,
+		checkpointpostgres.WithTableName("checkpoints"),
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	consumerID := flux.MustParseIdentifier("urn:acme:prod:workflow:1:orchestrator:payment")
+
+	if err := checkpointStore.SetPosition(ctx, consumerID, 1200); err != nil {
+		panic(err)
+	}
+
+	position, err := checkpointStore.GetPosition(ctx, consumerID)
+	if err != nil {
+		panic(err)
+	}
+	_ = position
+}
+```
+
