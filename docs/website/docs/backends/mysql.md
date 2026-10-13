@@ -64,7 +64,7 @@ type AccountCreated struct {
 	Owner     string `json:"owner"`
 }
 
-func (e AccountCreated) EventName() string {
+func (e AccountCreated) Name() string {
 	return "AccountCreated"
 }
 
@@ -83,25 +83,24 @@ func main() {
 		db,
 		serializer,
 		mysqlstore.WithTableName("events"),
+		mysqlstore.WithBatchSize(100),
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	stream := flux.Stream{
-		ID:   "account-123",
-		Type: "Account",
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:banking:tenant-1:account:acc-123"),
 	}
 
 	env := flux.Envelope{
-		EventID:       "evt-001",
-		EventType:     "AccountCreated",
-		Event:         AccountCreated{AccountID: "account-123", Owner: "Alice"},
-		Revision:      1,
-		Timestamp:     time.Now().UTC(),
-		CorrelationID: "corr-001",
-		CausationID:   "caus-001",
-		Metadata:      map[string]any{"source": "web"},
+		Identifier:            flux.MustParseIdentifier("urn:acme:prod:banking:tenant-1:event:evt-001"),
+		Event:                 AccountCreated{AccountID: "acc-123", Owner: "Alice"},
+		Revision:              1,
+		CreatedAt:             time.Now().UTC(),
+		CorrelationIdentifier: flux.MustParseIdentifier("urn:acme:prod:banking:tenant-1:cmd:cmd-001"),
+		CausationIdentifier:   flux.MustParseIdentifier("urn:acme:prod:banking:tenant-1:cmd:cmd-001"),
+		Metadata:              map[string]string{"source": "web"},
 	}
 
 	if err := store.Append(ctx, stream, 0, []flux.Envelope{env}); err != nil {
@@ -160,14 +159,12 @@ func main() {
 	defer cancel()
 
 	stream := flux.Stream{
-		ID:   "account-123",
-		Type: "Account",
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:banking:tenant-1:account:acc-123"),
 	}
 
 	snap := flux.Snapshot[AccountState]{
-		Revision:  10,
-		State:     AccountState{Balance: 500},
-		Timestamp: time.Now().UTC(),
+		Revision: 10,
+		State:    AccountState{Balance: 500},
 	}
 
 	if err := snapshotStore.Save(ctx, stream, snap); err != nil {
