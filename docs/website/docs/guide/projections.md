@@ -87,7 +87,7 @@ func main() {
 	ctx := context.Background()
 	consumerID := flux.MustParseIdentifier("urn:ecommerce:prod:catalog:global:projector:catalog-list")
 
-	// 1. Configure checkpoint store (in-memory for tests/prototypes, MySQL/Redis for production)
+	// 1. Configure checkpoint store (in-memory for tests/prototypes, PostgreSQL/MySQL/Redis for production)
 	checkpointStore := checkpointstore.New()
 
 	// 2. Instantiate projection store composed with checkpoint persistence
@@ -130,15 +130,15 @@ The native `Projector` processes stream envelopes sequentially. When a handler f
 
 Because replaying from a checkpoint may re-deliver envelopes that were partially handled before a crash, handlers must be designed to be strictly idempotent.
 
-### Durable Transactional Projections (MySQL)
+### Durable Transactional Projections (PostgreSQL & MySQL)
 
-When read-model tables and checkpoints reside in the same MySQL database, [`projection/store/mysql`](/backends/mysql#projection-store-transactional-update) guarantees that read-model mutations and checkpoint position updates commit atomically in a single database transaction. If a process crashes before commit, the transaction rolls back cleanly without advancing the cursor. On recovery, the uncommitted envelope is replayed, so handlers must remain strictly idempotent.
+When read-model tables and checkpoints reside in the same relational database instance, [`projection/store/postgres`](/backends/postgresql#projection-store-transactional-update) and [`projection/store/mysql`](/backends/mysql#projection-store-transactional-update) guarantee that read-model mutations and checkpoint position updates commit atomically in a single database transaction. If a process crashes before commit, the transaction rolls back cleanly without advancing the cursor. On recovery, the uncommitted envelope is replayed, so handlers must remain strictly idempotent.
 
 ## Choosing a Projection Runtime: Native vs. Temporal
 
 | Runtime | Position / Cursor Tracking | State Storage | Best Used For |
 | --- | --- | --- | --- |
-| **Native `Projector`** | `checkpoint.Store` (MySQL, Redis, in-memory) | User-defined read store via `projection.Store` | Embedded services, high-throughput linear tailing, same-DB transactional MySQL updates |
+| **Native `Projector`** | `checkpoint.Store` (PostgreSQL, MySQL, Redis, in-memory) | User-defined read store via `projection.Store` | Embedded services, high-throughput linear tailing, same-DB transactional PostgreSQL / MySQL updates |
 | **Temporal Workflow** | Workflow history + `ContinueAsNew` (`lastPosition`) | External database (Postgres, Elasticsearch, Redis, …) | Durable retries, long rebuilds, shared Temporal ops with workflows |
 
 Pick **one** runtime per logical read model. Native `Projector` + `checkpoint.Store` is first-class for embedded services. Temporal hybrid tailing is **optional** when you already run Temporal or need durable rebuilds. See [Workflows & Temporal](/guide/workflows) for shared conventions (workflow IDs, WakeUp signals, DTO payloads).

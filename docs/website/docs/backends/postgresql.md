@@ -5,9 +5,10 @@ The PostgreSQL backend provides ACID-compliant event storage and stream position
 `flux` includes native PostgreSQL drivers for:
 - **Event Store:** `github.com/wotek/flux/event/store/postgres`
 - **Checkpoint Store:** `github.com/wotek/flux/checkpoint/store/postgres`
+- **Projection Store:** `github.com/wotek/flux/projection/store/postgres`
 
 ::: info Backend Scope
-The PostgreSQL backend currently provides the **Event Store** and **Checkpoint Store**. Snapshot and projection stores can continue using MySQL, Redis, or in-memory implementations as applicable.
+The PostgreSQL backend currently provides the **Event Store**, **Checkpoint Store**, and **Projection Store**. Snapshot stores can continue using MySQL, Redis, or in-memory implementations as applicable.
 :::
 
 ## Event Store
@@ -214,4 +215,105 @@ func main() {
 	_ = position
 }
 ```
+
+## Projection Store (Transactional Update)
+
+The PostgreSQL Projection Store runs read-model SQL mutations and consumer checkpoint position updates in a **single atomic database transaction**.
+
+- **Package:** `github.com/wotek/flux/projection/store/postgres`
+
+### Transactional Atomicity vs. Best-Effort
+
+| Approach | Architecture | Atomicity Guarantee |
+|----------|--------------|---------------------|
+| **Same-Database PostgreSQL Store** (`projection/store/postgres`) | Read-model tables and checkpoints table live in the **same** PostgreSQL database instance | **ACID Transactional:** Mutation and checkpoint commit together in one transaction. If mutation fails, rollback prevents checkpoint advance. |
+| **Cross-Database / Composed Store** | Read-model in Redis / Elasticsearch / other DB; checkpoint in PostgreSQL / Redis | **Best-Effort:** Application mutates external read model, then calls `checkpoint.Store.SetPosition`. Crash between mutation and position save causes at-least-once redelivery. |
+
+### Schema Requirement
+
+The projection store uses the standard `checkpoints` table. Refer to [`checkpoint/store/postgres/schema.sql`](https://github.com/wotek/flux/blob/main/checkpoint/store/postgres/schema.sql) for the table DDL definition.
+
+### Usage with `TxFromContext`
+
+When `Projector` processes an envelope, `Store.Update` begins a PostgreSQL transaction and injects it into the context passed to registered event handlers. Retrieve the transaction using `postgresproj.TxFromContext(ctx)`:
+
+```go
+package main
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/wotek/flux"
+	"github.com/wotek/flux/projection"
+	postgresproj "github.com/wotek/flux/projection/store/postgres"
+)
+
+type ProductCreated struct {
+	ProductID string
+	Name      string
+	Price     int
+}
+
+func (e ProductCreated) Name() string { return "ProductCreated" }
+
+func main() {
+	db, err := sql.Open("pgx", "postgres://user:password@localhost:5432/flux?sslmode=disable")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+
+	projStore := postgresproj.New(
+		db,
+		postgresproj.WithCheckpointsTable("checkpoints"),
+	)
+
+	consumerID := flux.MustParseIdentifier("urn:acme:prod:projector:1:worker:products")
+	projector := projection.New(consumerID, eventStore, projStore)
+
+	projection.RegisterHandler(projector, func(ctx projection.Context, ev ProductCreated) error {
+		tx, ok := postgresproj.TxFromContext(ctx)
+		if !ok {
+			return fmt.Errorf("active transaction missing from context")
+		}
+
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO catalog_products (id, name, price)
+			 VALUES ($1, $2, $3)
+			 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, price = EXCLUDED.price`,
+			ev.ProductID, ev.Name, ev.Price,
+		)
+		return err
+	})
+}
+```
+
+::: warning Same-Database Requirement
+Atomicity is only achieved when the application SQL executed inside the handler operates through the transaction extracted via `postgresproj.TxFromContext(ctx)`. If the handler accesses a different database connection or skips `tx`, atomicity between the read model and checkpoint cursor is lost.
+:::
+
+### Direct `Update` (without `Projector`)
+
+If your application updates a read model manually outside the background `Projector` engine, call `Store.Update` directly and retrieve the transaction from `txCtx` inside the `mutate` closure:
+
+```go
+err := projStore.Update(ctx, consumerID, env, func(txCtx context.Context) error {
+	tx, ok := postgresproj.TxFromContext(txCtx)
+	if !ok {
+		return fmt.Errorf("active transaction missing from context")
+	}
+
+	_, err := tx.ExecContext(txCtx,
+		`INSERT INTO catalog_products (id, name, price)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, price = EXCLUDED.price`,
+		ev.ProductID, ev.Name, ev.Price,
+	)
+	return err
+})
+```
+
 
