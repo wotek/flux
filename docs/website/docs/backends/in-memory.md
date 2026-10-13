@@ -1,10 +1,11 @@
 # In-Memory Backend
 
-`flux` provides blazing-fast, thread-safe in-memory implementations for both the Event Store and Snapshot Store. These are ideal for local prototyping, unit testing, and fast-path CI execution without external database dependencies.
+`flux` provides blazing-fast, thread-safe in-memory implementations for the Event Store, Snapshot Store, and Checkpoint Store. These are ideal for local prototyping, unit testing, and fast-path CI execution without external database dependencies.
 
 The in-memory drivers are available in:
 - **Event Store:** `github.com/wotek/flux/event/store`
 - **Snapshot Store:** `github.com/wotek/flux/snapshot/store`
+- **Checkpoint Store:** `github.com/wotek/flux/checkpoint/store`
 
 ## Event Store
 
@@ -26,7 +27,7 @@ type AccountCreated struct {
 	Owner     string
 }
 
-func (e AccountCreated) EventName() string {
+func (e AccountCreated) Name() string {
 	return "AccountCreated"
 }
 
@@ -35,18 +36,17 @@ func main() {
 	ctx := context.Background()
 
 	stream := flux.Stream{
-		ID:   "account-101",
-		Type: "Account",
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:banking:tenant-1:account:acc-101"),
 	}
 
 	env := flux.Envelope{
-		EventID:       "evt-001",
-		EventType:     "AccountCreated",
-		Event:         AccountCreated{AccountID: "account-101", Owner: "Alice"},
-		Revision:      1,
-		Timestamp:     time.Now().UTC(),
-		CorrelationID: "corr-001",
-		CausationID:   "caus-001",
+		Identifier:            flux.MustParseIdentifier("urn:acme:prod:banking:tenant-1:event:evt-001"),
+		Event:                 AccountCreated{AccountID: "acc-101", Owner: "Alice"},
+		Revision:              1,
+		CreatedAt:             time.Now().UTC(),
+		CorrelationIdentifier: flux.MustParseIdentifier("urn:acme:prod:banking:tenant-1:cmd:cmd-001"),
+		CausationIdentifier:   flux.MustParseIdentifier("urn:acme:prod:banking:tenant-1:cmd:cmd-001"),
+		Metadata:              map[string]string{"source": "web"},
 	}
 
 	if err := store.Append(ctx, stream, 0, []flux.Envelope{env}); err != nil {
@@ -76,7 +76,6 @@ package main
 
 import (
 	"context"
-	"time"
 
 	"github.com/wotek/flux"
 	snapstore "github.com/wotek/flux/snapshot/store"
@@ -92,8 +91,7 @@ func main() {
 	ctx := context.Background()
 
 	stream := flux.Stream{
-		ID:   "account-101",
-		Type: "Account",
+		Identifier: flux.MustParseIdentifier("urn:acme:prod:banking:tenant-1:account:acc-101"),
 	}
 
 	snap := flux.Snapshot[AccountState]{

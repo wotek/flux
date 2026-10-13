@@ -1,10 +1,11 @@
 # Redis Backend
 
-Redis provides high-performance, in-memory storage suitable for fast prototyping, ephemeral caching, and fast-path event and snapshot persistence.
+Redis provides high-performance, in-memory storage suitable for fast prototyping, ephemeral caching, and fast-path event, snapshot, and checkpoint persistence.
 
-`flux` includes native Redis drivers for both the Event Store and Snapshot Store:
+`flux` includes native Redis drivers for:
 - **Event Store:** `github.com/wotek/flux/event/store/redis`
 - **Snapshot Store:** `github.com/wotek/flux/snapshot/store/redis`
+- **Checkpoint Store:** `github.com/wotek/flux/checkpoint/store/redis`
 
 ## Event Store
 
