@@ -71,3 +71,26 @@ jobs:
       - name: Build all packages & test binaries
         working-directory: ${{ matrix.module }}
         run: go build ./... && go test -run=^$ ./...
+
+  integration:
+    name: Test SQL (integration)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.x'
+          cache: true
+
+      - name: Run SQL store live integration tests
+        run: |
+          go test -tags=integration -count=1 -race \
+            ./event/store/... \
+            ./checkpoint/store/... \
+            ./projection/store/... \
+            ./snapshot/store/... \
+            ./internal/sqllive/
+

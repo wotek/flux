@@ -152,6 +152,21 @@ Docs pages: [Bank](https://flux.keylight.io/examples/bank) · [Todo](https://flu
 - [Serialization & Codecs](https://flux.keylight.io/guide/serialization)
 - [Backends: In-Memory](https://flux.keylight.io/backends/in-memory) · [MySQL](https://flux.keylight.io/backends/mysql) · [PostgreSQL](https://flux.keylight.io/backends/postgresql) · [Redis](https://flux.keylight.io/backends/redis)
 
+## Testing
+
+Run unit tests (no external dependencies required):
+
+```bash
+go test ./...
+```
+
+Run live SQL integration tests against PostgreSQL and MySQL via testcontainers (requires Docker):
+
+```bash
+go test -tags=integration -count=1 ./internal/sqllive/ ./event/store/... ./checkpoint/store/... ./projection/store/... ./snapshot/store/...
+```
+
 ## License
 
 Distributed under the [MIT License](LICENSE).
+
