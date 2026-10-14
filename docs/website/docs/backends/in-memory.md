@@ -7,6 +7,17 @@ The in-memory drivers are available in:
 - **Snapshot Store:** `github.com/wotek/flux/snapshot/store`
 - **Checkpoint Store:** `github.com/wotek/flux/checkpoint/store`
 
+## Backend Comparison
+
+| Capability | In-Memory | [MySQL](/backends/mysql) | [PostgreSQL](/backends/postgresql) | [Redis](/backends/redis) |
+| --- | --- | --- | --- | --- |
+| **Event Store** | yes | yes | yes | yes (standalone / non-Cluster) |
+| **Snapshot Store** | yes | yes | yes | yes |
+| **Checkpoint Store** | yes | yes | yes | yes (Cluster-OK) |
+| **Transactional Projection Store** | composed / mutex* | yes | yes | no |
+
+\* The in-memory projection store composes `checkpoint.Store` with a process-local mutex across handler execution and checkpointing. It does not provide cross-system ACID guarantees. For ACID transactional projections, use the same-database [PostgreSQL](/backends/postgresql#projection-store-transactional-update) or [MySQL](/backends/mysql#projection-store-transactional-update) projection stores.
+
 ## Event Store
 
 The in-memory Event Store provides thread-safe append and stream operations protected by a reader-writer lock (`sync.RWMutex`), enforcing optimistic concurrency control matching the behavior of durable backends. Point-read retrieval of a single event envelope by stream and event identifier is provided via `Find(ctx, stream, eventID)`.
