@@ -57,7 +57,7 @@ go test ./...
 
 ## Manual run
 
-Local compose: Temporal (`server` + `admin-tools` + `ui`), **Redis** for the shared Event Store, and **Jaeger** for OpenTelemetry traces.
+Local compose: Temporal (CLI dev server + Web UI), **Redis** for the shared Event Store, and **Jaeger** for OpenTelemetry traces.
 
 ```bash
 cd example/temporal-payment
