@@ -6,7 +6,7 @@ require (
 	github.com/oklog/ulid/v2 v2.1.2
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/wotek/flux v1.7.0
-	github.com/wotek/flux-opentelemetry v1.0.1-0.20261015190701-3ddab7abb58d
+	github.com/wotek/flux-opentelemetry v1.1.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0
 	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.47.0
