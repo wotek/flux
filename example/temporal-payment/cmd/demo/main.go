@@ -25,6 +25,13 @@ func main() {
 	}
 
 	ctx := context.Background()
+
+	shutdown, err := platform.InitTracing(ctx, "temporal-payment-demo")
+	if err != nil {
+		log.Fatalf("init tracing: %v", err)
+	}
+	defer func() { _ = shutdown(context.Background()) }()
+
 	switch os.Args[1] {
 	case "place-order":
 		if err := placeOrder(ctx, os.Args[2:]); err != nil {

@@ -13,6 +13,12 @@ import (
 func main() {
 	ctx := context.Background()
 
+	shutdown, err := platform.InitTracing(ctx, "temporal-payment-worker")
+	if err != nil {
+		log.Fatalf("init tracing: %v", err)
+	}
+	defer func() { _ = shutdown(context.Background()) }()
+
 	es, cleanup, err := platform.OpenEventStore(ctx)
 	if err != nil {
 		log.Fatalf("event store: %v", err)
