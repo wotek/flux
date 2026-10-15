@@ -176,8 +176,18 @@ func status(ctx context.Context, args []string) error {
 }
 
 func dialTemporal() (client.Client, error) {
+	var plugins []client.Plugin
+	if p, err := platform.TemporalOTelPlugin(); err != nil {
+		return nil, fmt.Errorf("temporal otel plugin: %w", err)
+	} else if p != nil {
+		plugins = append(plugins, p)
+	}
+
 	host := platform.Env("TEMPORAL_HOST_PORT", "localhost:7233")
-	tc, err := client.Dial(client.Options{HostPort: host})
+	tc, err := client.Dial(client.Options{
+		HostPort: host,
+		Plugins:  plugins,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("temporal client at %s: %w (start stack with: docker compose up -d)", host, err)
 	}

@@ -28,8 +28,18 @@ func main() {
 	_, cmdBus := platform.NewSalesStack(es)
 	acts := &payment.Activities{EventStore: es, CmdBus: cmdBus}
 
+	var plugins []client.Plugin
+	if p, err := platform.TemporalOTelPlugin(); err != nil {
+		log.Fatalf("temporal otel plugin: %v", err)
+	} else if p != nil {
+		plugins = append(plugins, p)
+	}
+
 	host := platform.Env("TEMPORAL_HOST_PORT", "localhost:7233")
-	tc, err := client.Dial(client.Options{HostPort: host})
+	tc, err := client.Dial(client.Options{
+		HostPort: host,
+		Plugins:  plugins,
+	})
 	if err != nil {
 		log.Fatalf("temporal client: %v (start stack with: docker compose up -d)", err)
 	}

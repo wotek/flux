@@ -12,7 +12,15 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.temporal.io/sdk/client"
+	temporalotel "go.temporal.io/sdk/contrib/opentelemetry-v2"
+	"go.temporal.io/sdk/interceptor/tracing"
 )
+
+// TracingEnabled reports whether OpenTelemetry tracing is enabled by environment.
+func TracingEnabled() bool {
+	return os.Getenv("OTEL_TRACES_EXPORTER") == "stdout" || os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != ""
+}
 
 // InitTracing configures the global TracerProvider when tracing env is set.
 // Tracing is enabled when:
@@ -62,7 +70,9 @@ func InitTracing(ctx context.Context, serviceName string) (func(context.Context)
 		return noopShutdown, fmt.Errorf("build otel resource: %w", err)
 	}
 
-	tp := sdktrace.NewTracerProvider(
+	// Temporal's opentelemetry-v2 plugin requires a ReplaySafeTracerProvider
+	// to ensure workflow replay determinism.
+	tp := temporalotel.NewReplaySafeTracerProvider(
 		sdktrace.WithBatcher(exp),
 		sdktrace.WithResource(res),
 	)
@@ -78,4 +88,22 @@ func InitTracing(ctx context.Context, serviceName string) (func(context.Context)
 	}
 
 	return shutdown, nil
+}
+
+// TemporalOTelPlugin returns Temporal's opentelemetry-v2 client plugin with Temporal spans enabled.
+// When tracing is disabled, it returns nil to skip registration, as NewPlugin requires
+// the global provider to be a live ReplaySafeTracerProvider.
+func TemporalOTelPlugin() (client.Plugin, error) {
+	if !TracingEnabled() {
+		// Tracing is disabled; skip plugin registration to avoid requiring a live ReplaySafeTracerProvider.
+		return nil, nil
+	}
+	if _, ok := otel.GetTracerProvider().(*temporalotel.ReplaySafeTracerProvider); !ok {
+		return nil, fmt.Errorf("tracing is enabled but global TracerProvider is not a *ReplaySafeTracerProvider (call InitTracing first)")
+	}
+	return temporalotel.NewPlugin(temporalotel.PluginOptions{
+		TracerOptions: tracing.TracerOptions{
+			AddTemporalSpans: true,
+		},
+	})
 }
