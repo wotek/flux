@@ -74,7 +74,7 @@ Temporal is **not required**. Add it when durable timers, activity retries, or T
 | **Activity → command** | Build `command.Context` from envelope metadata (actor, correlation, causation, instrumentation) inside the activity. |
 | **Payloads** | Pass serializable DTOs / IDs into Temporal. Never put a `flux.Event` interface value on the Temporal wire; decode via codecs/registries at the edge if needed. |
 | **Idempotency** | Temporal activity completion + aggregate no-ops. No second flux command-dedup ledger. |
-| **Observability** | Optional: [`fluxotel`](https://github.com/wotek/flux-opentelemetry) on buses so envelope-stamped instrumentation continues into command spans. |
+| **Observability** | Optional: [`fluxotel`](https://github.com/wotek/flux-opentelemetry) on buses so envelope-stamped instrumentation continues into command spans (see [Temporal Payment example](/examples/temporal-payment) for Temporal `opentelemetry-v2` plugin + `fluxotel` + activity bridge). |
 
 ### Trigger a Temporal Workflow from the EventBus
 

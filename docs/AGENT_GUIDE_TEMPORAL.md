@@ -34,7 +34,7 @@ There is **no** `flux/temporal` helper package—use docs, conventions, and exam
 3. **Activity → command:** Build `command.Context` from envelope metadata retrieved via `Find` (actor, correlation, causation, instrumentation)—not from a live `flux.Event` interface on the Temporal wire.
 4. **Payloads & EventReference:** Prefer passing `event.EventReference` (`stream` + `event_id`) over fat fulfillment DTOs when the initiating fact is a stored event. Activities point-read the envelope via `EventStore.Find`. Custom activity DTOs are reserved for external inputs not present in the stored event.
 5. **Idempotency:** Temporal + aggregate invariants; no flux command-dedup middleware required.
-6. **Observability:** optional `fluxotel` on the command bus.
+6. **Observability:** optional Temporal `contrib/opentelemetry-v2` plugin (`AddTemporalSpans`) + `fluxotel` on the command bus + activity/envelope bridge (see `example/temporal-payment`).
 
 ## Workflow pattern (Temporal)
 

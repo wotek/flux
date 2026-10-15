@@ -15,6 +15,7 @@ Layout follows [`docs/PROJECT_LAYOUT.md`](../../docs/PROJECT_LAYOUT.md): domain-
 5. **Payment via Temporal signal:** `pay-order` signals `PaymentReceived` (like a payment webhook); timeout cancels.
 6. **Shared Redis Event Store** so worker and demo share persisted events across processes.
 7. **Aggregate idempotency** (`Pay` / `Cancel` no-ops)—no framework command-dedup store.
+8. **Optional OpenTelemetry with Jaeger in compose:** Temporal SDK v1.49 + `opentelemetry-v2` plugin (`AddTemporalSpans`), `fluxotel.CommandMiddleware` on the command bus, and activity-to-envelope trace bridge.
 
 ## How the demo works
 
@@ -56,17 +57,28 @@ go test ./...
 
 ## Manual run
 
-Local compose: Temporal (`server` + `admin-tools` + `ui:2.54.1`) and **Redis** for the shared Event Store.
+Local compose: Temporal (`server` + `admin-tools` + `ui`), **Redis** for the shared Event Store, and **Jaeger** for OpenTelemetry traces.
 
 ```bash
 cd example/temporal-payment
 docker compose up -d
 ```
 
+| Service | URL / port |
+| --- | --- |
+| Temporal UI | http://localhost:8080 |
+| Temporal gRPC | `localhost:7233` |
+| Jaeger UI | http://localhost:16686 |
+| OTLP HTTP (apps → Jaeger) | `http://localhost:4318` |
+| OTLP gRPC | `localhost:4317` |
+| Redis | `localhost:6379` |
+
 Terminal 1 — worker:
 
 ```bash
 export EVENTSTORE_REDIS_ADDR=localhost:6379
+# Optional tracing:
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 go run ./cmd/worker
 ```
 
@@ -74,6 +86,8 @@ Terminal 2 — place then pay:
 
 ```bash
 export EVENTSTORE_REDIS_ADDR=localhost:6379
+# Optional tracing:
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 
 go run ./cmd/demo place-order
 # note the printed order_id, then:
@@ -87,12 +101,42 @@ Expected status after pay:
 order urn:shop:demo:orders:1:order:… status=paid
 ```
 
-UI: http://localhost:8080 — workflow ID `order-fulfillment:{orderID}`. Frontend gRPC: `localhost:7233`.
+Temporal UI: http://localhost:8080 — workflow ID `order-fulfillment:{orderID}`.
+
+Traces: open Jaeger at http://localhost:16686, search service `temporal-payment-worker` or `temporal-payment-demo`.
 
 Stop:
 
 ```bash
 docker compose down -v
+```
+
+## Observability
+
+Tracing is **optional and off by default**. When disabled, `InitTracing` returns a no-op shutdown and unit tests stay fast and silent without requiring a collector. Uses Temporal SDK **v1.49** and the official **`contrib/opentelemetry-v2`** plugin.
+
+To enable tracing:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318  # Jaeger OTLP HTTP
+# or for local stdout debugging:
+export OTEL_TRACES_EXPORTER=stdout
+```
+
+How it works:
+1. **Bootstrap (`internal/platform/otel.go`):** `InitTracing` configures a `temporalotel.NewReplaySafeTracerProvider` with the selected exporter, service name resource attribute (`temporal-payment-worker` / `temporal-payment-demo`), and W3C trace context propagators.
+2. **Temporal Interceptor Plugin:** `platform.TemporalOTelPlugin()` registers Temporal's official `contrib/opentelemetry-v2` plugin on `client.Options.Plugins` (`AddTemporalSpans: true`). Workers created from the client inherit the plugin automatically.
+3. **Command Middleware:** `platform.NewSalesStack` registers `fluxotel.CommandMiddleware`, creating spans for command execution.
+4. **Initiating Stamp & Bridge:** `place-order` starts a `demo.place-order` span and stamps `flux.Instrumentation` onto `command.Context`. Activities prefer the active Temporal activity span as the parent, falling back to envelope metadata when tracing is off.
+
+Minimal command sequence to see spans in Jaeger:
+```bash
+docker compose up -d
+export EVENTSTORE_REDIS_ADDR=localhost:6379
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+go run ./cmd/worker &
+go run ./cmd/demo place-order
+# Open http://localhost:16686 to view traces
 ```
 
 ## Layout

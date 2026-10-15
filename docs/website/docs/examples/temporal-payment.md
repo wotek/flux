@@ -11,6 +11,7 @@ Source: [`example/temporal-payment`](https://github.com/wotek/flux/tree/main/exa
 - Workflows pass `event.EventReference`; activities use `EventStore.Find`
 - Payment confirmation via Temporal signal (`pay-order`); timeout cancels
 - Shared Redis Event Store across worker and demo
+- Optional OpenTelemetry (Temporal `opentelemetry-v2` plugin + `fluxotel` + envelope/activity bridge) with Jaeger in local compose
 - `go test` via Temporal `testsuite` without Docker
 
 ## Run tests
@@ -31,7 +32,7 @@ go run ./cmd/demo place-order
 go run ./cmd/demo pay-order --order-id 'urn:shop:demo:orders:1:order:…'
 ```
 
-See the example README for ports, UI, and teardown.
+See the example README for ports (Temporal UI `:8080`, Jaeger UI `:16686`, OTLP `:4318`), and teardown.
 
 ## Related guides
 
