@@ -7,6 +7,7 @@ import (
 	"github.com/wotek/flux"
 	"github.com/wotek/flux/command"
 	"github.com/wotek/flux/event"
+	"github.com/wotek/flux/example/temporal-payment/internal/platform"
 	"github.com/wotek/flux/example/temporal-payment/internal/sales/commands"
 )
 
@@ -40,14 +41,14 @@ func (a *Activities) CancelOrderActivity(ctx context.Context, in CancelOrderInpu
 
 func (a *Activities) execute(ctx context.Context, env flux.Envelope, orderID string, cmd any) error {
 	cmdID := flux.NewIdentifier("shop", "demo", "orders", "1", "command", env.Stream.Identifier.ResourceID(), "")
-	var inst flux.Instrumentation
-	if len(env.Metadata) > 0 {
-		inst = flux.Instrumentation{
-			TraceID:    env.Metadata[flux.MetadataTraceID],
-			SpanID:     env.Metadata[flux.MetadataSpanID],
-			TraceFlags: env.Metadata[flux.MetadataTraceFlags],
-		}
+
+	// Parent policy: prefer activity span as parent when present.
+	// Envelope IDs are the fallback for tests / when tracing is off.
+	inst := platform.InstrumentationFromContext(ctx)
+	if !inst.IsValid() {
+		inst = platform.InstrumentationFromEnvelope(env)
 	}
+
 	cmdCtx := command.NewContext(ctx, cmdID, env.Actor, env.CorrelationIdentifier, env.Identifier, flux.WithInstrumentation(inst))
 	return command.Execute(cmdCtx, a.CmdBus, cmd)
 }

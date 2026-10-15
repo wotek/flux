@@ -15,6 +15,7 @@ import (
 	"github.com/wotek/flux/example/temporal-payment/internal/sales/commands"
 	"github.com/wotek/flux/example/temporal-payment/internal/sales/events"
 	"github.com/wotek/flux/example/temporal-payment/internal/workflows/payment"
+	"go.opentelemetry.io/otel"
 	"go.temporal.io/sdk/client"
 )
 
@@ -90,11 +91,16 @@ func placeOrder(ctx context.Context, args []string) error {
 	}
 	defer tc.Close()
 
+	ctx, span := otel.Tracer("temporal-payment").Start(ctx, "demo.place-order")
+	defer span.End()
+
+	inst := platform.InstrumentationFromContext(ctx)
+
 	streamID := flux.MustParseIdentifier(*orderID)
 	actor := flux.Actor{Identifier: flux.MustParseIdentifier("urn:shop:demo:iam:1:user:alice")}
 	corr := flux.NewIdentifier("shop", "demo", "corr", "1", "correlation", streamID.ResourceID(), "")
 	cmdID := flux.NewIdentifier("shop", "demo", "orders", "1", "command", "place-"+streamID.ResourceID(), "")
-	cmdCtx := command.NewContext(ctx, cmdID, actor, corr, flux.Identifier{})
+	cmdCtx := command.NewContext(ctx, cmdID, actor, corr, flux.Identifier{}, flux.WithInstrumentation(inst))
 
 	if err := command.Execute(cmdCtx, cmdBus, commands.PlaceOrder{OrderID: *orderID}); err != nil {
 		return fmt.Errorf("execute PlaceOrder: %w", err)

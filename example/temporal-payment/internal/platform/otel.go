@@ -12,9 +12,12 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry-v2"
 	"go.temporal.io/sdk/interceptor/tracing"
+
+	"github.com/wotek/flux"
 )
 
 // TracingEnabled reports whether OpenTelemetry tracing is enabled by environment.
@@ -106,4 +109,35 @@ func TemporalOTelPlugin() (client.Plugin, error) {
 			AddTemporalSpans: true,
 		},
 	})
+}
+
+// InstrumentationFromContext extracts distributed tracing identifiers from an active OpenTelemetry span in ctx.
+// If no valid span is present, it returns an empty Instrumentation.
+func InstrumentationFromContext(ctx context.Context) flux.Instrumentation {
+	spanCtx := trace.SpanFromContext(ctx).SpanContext()
+	if !spanCtx.IsValid() {
+		return flux.Instrumentation{}
+	}
+	return flux.Instrumentation{
+		TraceID:    spanCtx.TraceID().String(),
+		SpanID:     spanCtx.SpanID().String(),
+		TraceFlags: spanCtx.TraceFlags().String(),
+	}
+}
+
+// InstrumentationFromEnvelope extracts distributed tracing identifiers from envelope metadata.
+// If the resulting identifiers are incomplete or absent, it returns an empty Instrumentation.
+func InstrumentationFromEnvelope(env flux.Envelope) flux.Instrumentation {
+	if len(env.Metadata) == 0 {
+		return flux.Instrumentation{}
+	}
+	inst := flux.Instrumentation{
+		TraceID:    env.Metadata[flux.MetadataTraceID],
+		SpanID:     env.Metadata[flux.MetadataSpanID],
+		TraceFlags: env.Metadata[flux.MetadataTraceFlags],
+	}
+	if !inst.IsValid() {
+		return flux.Instrumentation{}
+	}
+	return inst
 }

@@ -12,9 +12,11 @@ import (
 	"github.com/wotek/flux/event"
 	memstore "github.com/wotek/flux/event/store"
 	redisstore "github.com/wotek/flux/event/store/redis"
+	fluxotel "github.com/wotek/flux-opentelemetry"
 	"github.com/wotek/flux/example/temporal-payment/internal/sales/aggregates/order"
 	"github.com/wotek/flux/example/temporal-payment/internal/sales/commands"
 	"github.com/wotek/flux/example/temporal-payment/internal/sales/events"
+	"go.opentelemetry.io/otel"
 )
 
 // EventTypes returns the registry of sales events for codec-backed stores.
@@ -50,7 +52,10 @@ func OpenEventStore(ctx context.Context) (flux.EventStore, func(), error) {
 // NewSalesStack wires the sales aggregate repository and command bus against the store.
 func NewSalesStack(es flux.EventStore) (*flux.AggregateRepository[*order.OrderAggregate, events.OrderEvent], *command.Bus) {
 	repo := flux.NewAggregateRepository[*order.OrderAggregate, events.OrderEvent](es)
+	tracer := otel.Tracer("temporal-payment")
+	meter := otel.Meter("temporal-payment")
 	cmdBus := command.New()
+	cmdBus.Use(fluxotel.CommandMiddleware(tracer, meter))
 	commands.Register(cmdBus, repo)
 	return repo, cmdBus
 }
